@@ -1,7 +1,9 @@
-"""Tests for the seed_regions management command.
+"""Tests for the geodata app.
 
-These never touch the network: each test either points --path at a
-fixture written to a temp directory, or patches the download helper.
+Covers the seed_regions management command and the Earth Engine client
+wrapper. Neither suite touches the network: seed_regions tests point
+--path at a fixture in a temp directory or patch the download helper,
+and the Earth Engine tests mock out the `ee` package entirely.
 """
 
 import json
@@ -12,10 +14,11 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from geodata.management.commands import seed_regions
 from geodata.models import Region
+from geodata.services import earth_engine
 
 
 def _box(min_lon, min_lat, max_lon, max_lat):
@@ -193,3 +196,32 @@ class HelperTests(TestCase):
             seed_regions.resolve_name_field(layer)
 
         self.assertIn("OBJECTID", str(ctx.exception))
+
+
+class EarthEngineInitTests(SimpleTestCase):
+    """Exercise our own wrapper logic only — the `ee` package itself is
+    mocked out, so these don't need real Earth Engine credentials or
+    network access to run.
+    """
+
+    def setUp(self):
+        earth_engine._initialized = False
+
+    @override_settings(EE_PROJECT_ID="")
+    def test_raises_without_project_id(self):
+        with self.assertRaises(RuntimeError):
+            earth_engine.initialize_earth_engine()
+
+    @override_settings(EE_PROJECT_ID="floodscout-166914")
+    @mock.patch.object(earth_engine, "ee")
+    def test_initializes_once_per_process(self, mock_ee):
+        earth_engine.initialize_earth_engine()
+        earth_engine.initialize_earth_engine()
+        mock_ee.Initialize.assert_called_once_with(project="floodscout-166914")
+
+    @override_settings(EE_PROJECT_ID="floodscout-166914")
+    @mock.patch.object(earth_engine, "ee")
+    def test_force_reinitializes(self, mock_ee):
+        earth_engine.initialize_earth_engine()
+        earth_engine.initialize_earth_engine(force=True)
+        self.assertEqual(mock_ee.Initialize.call_count, 2)
