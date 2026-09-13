@@ -1,0 +1,1 @@
+Model training/inference code (Logistic Regression, Random Forest, Gradient Boosting comparison per Chapter 3) lands here in a later sprint. Kept as its own subpackage so `riskengine/models.py` (the Django ORM model) and the actual ML code never share a filename.
