@@ -7,10 +7,10 @@ Computing and Engineering Sciences, Strathmore University. Supervised by
 Dr. Deperias Kerre.
 
 This repo implements the design described in the project proposal, Chapter 4
-(System Analysis and Design): a three-tier system — a Leaflet.js dashboard
-(Presentation Tier), a Django REST API (Application Tier), and PostgreSQL +
-PostGIS (Data Tier) — with a scikit-learn model behind the API doing the
-actual flood risk scoring.
+(System Analysis and Design): a four-tier system — a Leaflet.js dashboard
+(Client Tier), a Django REST API (Application Tier), a scikit-learn service
+doing the actual flood risk scoring (Machine Learning Tier), and PostgreSQL +
+PostGIS (Data Tier).
 
 ## Project layout
 
