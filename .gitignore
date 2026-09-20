@@ -40,3 +40,7 @@ data/external/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/external/.gitkeep
+
+# Local git worktrees used for the branch-per-feature workflow (each is a
+# full checkout of another branch inside this repo folder) — never committed.
+.worktrees/
