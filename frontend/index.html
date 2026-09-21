@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FloodScout — Kenya County Flood Risk</title>
+    <meta
+      name="description"
+      content="Read-only map of current flood risk across Kenya's 47 counties."
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <div class="app__titles">
+          <h1 class="app__title">FloodScout</h1>
+          <p class="app__subtitle">Flood risk across Kenya&rsquo;s 47 counties</p>
+        </div>
+        <!-- Filled from the model_version actually present in the data, never
+             hardcoded, so it cannot drift from what the API returned. -->
+        <p class="provenance" id="provenance" role="status" hidden></p>
+      </header>
+
+      <main class="app__main">
+        <div class="map-wrap">
+          <div id="map" role="application" aria-label="Map of Kenya county flood risk"></div>
+          <div class="status" id="status">Loading counties&hellip;</div>
+        </div>
+
+        <aside class="panel" aria-label="County details">
+          <section class="panel__section">
+            <h2 class="panel__heading">County</h2>
+            <div id="detail" class="detail">
+              <p class="detail__empty">Select a county on the map.</p>
+            </div>
+          </section>
+
+          <section class="panel__section">
+            <h2 class="panel__heading">Legend</h2>
+            <ul class="legend" id="legend"></ul>
+          </section>
+
+          <section class="panel__section panel__section--grow">
+            <h2 class="panel__heading">
+              All counties
+              <span class="panel__hint">colour is never the only cue</span>
+            </h2>
+            <table class="table" id="table">
+              <caption class="visually-hidden">
+                Latest flood risk score for every county
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">County</th>
+                  <th scope="col">Risk</th>
+                  <th scope="col" class="table__num">Value</th>
+                </tr>
+              </thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
