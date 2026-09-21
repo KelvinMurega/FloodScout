@@ -15,4 +15,7 @@ class RiskScoreSerializer(serializers.ModelSerializer):
             "prediction_date",
             "predicted_value",
             "risk_category",
+            # Always exposed: an API consumer must be able to tell a placeholder
+            # score from a trained-model one. See riskengine/ml/infer.py.
+            "model_version",
         ]

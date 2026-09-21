@@ -35,3 +35,24 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         if instance is None:
             return Response({"detail": "No risk score found."}, status=404)
         return Response(self.get_serializer(instance).data)
+
+    @action(detail=False, methods=["get"], url_path="latest-by-region")
+    def latest_by_region(self, request):
+        """The latest score for every region, in one response.
+
+        The Sprint 5 dashboard colours all 47 counties at once. Doing that
+        through `latest/?region=<id>` costs one request per county; this
+        costs one request and, via DISTINCT ON, one query. Honours the same
+        `?region=` filter as the rest of the viewset.
+        """
+        queryset = (
+            self.get_queryset()
+            # DISTINCT ON requires region_id to lead the ordering; the rest
+            # picks the newest row within each region. PostgreSQL-only, which
+            # is fine — the Data Tier is PostGIS (Chapter 4, Section 4.4.2).
+            .order_by("region_id", "-prediction_date", "-id")
+            .distinct("region_id")
+        )
+        # Sorted for the map legend; cannot be done in SQL alongside DISTINCT ON.
+        scores = sorted(queryset, key=lambda score: score.region.county_name)
+        return Response(self.get_serializer(scores, many=True).data)
