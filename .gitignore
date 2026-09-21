@@ -40,3 +40,9 @@ data/external/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/external/.gitkeep
+
+# Google Drive sync staging (this repo lives in a synced folder)
+.tmp.driveupload/
+
+# Local git worktrees used for the branch-per-feature workflow
+.worktrees/
