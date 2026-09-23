@@ -4,21 +4,24 @@ These never touch the network: each test either points --path at a
 fixture written to a temp directory, or patches the download helper.
 """
 
+import datetime
 import json
 import tempfile
 from io import StringIO
 from pathlib import Path
 from unittest import mock
 
-from django.contrib.gis.geos import MultiPolygon, Polygon
+from django.contrib.gis.geos import MultiPolygon, Point as GEOSPoint, Polygon
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
-from geodata.management.commands import seed_regions
+from geodata.management.commands import seed_rainfall, seed_regions, seed_terrain
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
 from geodata.serializers import COORDINATE_PRECISION
+from geodata.services import open_meteo
+from geodata.services.open_meteo import OpenMeteoError
 
 
 def _box(min_lon, min_lat, max_lon, max_lat):
@@ -282,3 +285,232 @@ class EnvironmentalDataAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["rainfall_intensity"], 12.5)
+
+
+# --- Ingesting real terrain and rainfall (Open-Meteo) ---
+
+
+class SlopeMathTests(TestCase):
+    """slope_degrees is pure arithmetic, so it is checked against hand
+    calculations rather than against the network.
+    """
+
+    def test_flat_terrain_has_zero_slope(self):
+        slope = seed_terrain.slope_degrees(
+            centre=100.0, north=100.0, south=100.0, east=100.0, west=100.0, lat=0.0
+        )
+
+        self.assertAlmostEqual(slope, 0.0)
+
+    def test_known_north_south_gradient(self):
+        # North and south samples are 2 * 0.01 deg * 111320 m apart. Making
+        # the rise equal that run gives a gradient of exactly 1 => 45 degrees.
+        run = 2 * seed_terrain.SLOPE_OFFSET_DEG * seed_terrain.METRES_PER_DEGREE
+        slope = seed_terrain.slope_degrees(
+            centre=0.0, north=run, south=0.0, east=0.0, west=0.0, lat=0.0
+        )
+
+        self.assertAlmostEqual(slope, 45.0, places=6)
+
+    def test_downhill_slope_is_reported_as_positive(self):
+        downhill = seed_terrain.slope_degrees(
+            centre=0.0, north=0.0, south=500.0, east=0.0, west=0.0, lat=0.0
+        )
+
+        self.assertGreater(downhill, 0.0)
+
+
+class SeedTerrainTests(TestCase):
+    def setUp(self):
+        # The command walks regions ordered by county_name, so Mombasa is
+        # sampled before Nairobi. The fixtures below follow that order.
+        self.nairobi = Region.objects.create(
+            county_name="Nairobi", geom=_square(), area_size=696.0
+        )
+        self.mombasa = Region.objects.create(
+            county_name="Mombasa", geom=_square(x=39.6, y=-4.0), area_size=229.0
+        )
+
+    def _elevations(self, first_centre=20.0, second_centre=1600.0):
+        """Five samples per region, in the order the command asks for them.
+
+        First block is Mombasa (alphabetically first), second is Nairobi.
+        """
+        return [
+            first_centre,
+            first_centre + 10,
+            first_centre - 10,
+            first_centre + 5,
+            first_centre - 5,
+            second_centre,
+            second_centre + 2,
+            second_centre - 2,
+            second_centre + 1,
+            second_centre - 1,
+        ]
+
+    def test_writes_one_feature_per_region_from_the_centre_sample(self):
+        with mock.patch.object(
+            seed_terrain, "fetch_elevations", return_value=self._elevations()
+        ):
+            call_command("seed_terrain", stdout=StringIO())
+
+        self.assertEqual(GeospatialFeature.objects.count(), 2)
+        self.assertAlmostEqual(
+            GeospatialFeature.objects.get(region=self.nairobi).elevation, 1600.0
+        )
+        self.assertAlmostEqual(
+            GeospatialFeature.objects.get(region=self.mombasa).elevation, 20.0
+        )
+        self.assertGreater(
+            GeospatialFeature.objects.get(region=self.nairobi).slope, 0.0
+        )
+
+    def test_distance_to_river_is_left_unknown_rather_than_invented(self):
+        with mock.patch.object(
+            seed_terrain, "fetch_elevations", return_value=self._elevations()
+        ):
+            call_command("seed_terrain", stdout=StringIO())
+
+        self.assertTrue(
+            all(f.distance_to_river is None for f in GeospatialFeature.objects.all())
+        )
+
+    def test_rerunning_updates_in_place(self):
+        with mock.patch.object(
+            seed_terrain, "fetch_elevations", return_value=self._elevations()
+        ):
+            call_command("seed_terrain", stdout=StringIO())
+        original_pks = set(GeospatialFeature.objects.values_list("pk", flat=True))
+
+        with mock.patch.object(
+            seed_terrain,
+            "fetch_elevations",
+            return_value=self._elevations(second_centre=1700.0),
+        ):
+            call_command("seed_terrain", stdout=StringIO())
+
+        self.assertEqual(GeospatialFeature.objects.count(), 2)
+        self.assertEqual(
+            set(GeospatialFeature.objects.values_list("pk", flat=True)), original_pks
+        )
+        self.assertAlmostEqual(
+            GeospatialFeature.objects.get(region=self.nairobi).elevation, 1700.0
+        )
+
+    def test_samples_five_points_per_region_starting_inside_the_polygon(self):
+        with mock.patch.object(
+            seed_terrain, "fetch_elevations", return_value=self._elevations()
+        ) as fetch:
+            call_command("seed_terrain", stdout=StringIO())
+
+        points = fetch.call_args.args[0]
+        self.assertEqual(len(points), 10)
+        # points[0] is Mombasa (ordered first), points[5] is Nairobi. Each
+        # centre sample must land inside its own county, not merely near it.
+        self.assertTrue(
+            self.mombasa.geom.contains(GEOSPoint(points[0].lon, points[0].lat, srid=4326))
+        )
+        self.assertTrue(
+            self.nairobi.geom.contains(GEOSPoint(points[5].lon, points[5].lat, srid=4326))
+        )
+
+    def test_upstream_failure_is_a_command_error_and_writes_nothing(self):
+        with mock.patch.object(
+            seed_terrain, "fetch_elevations", side_effect=OpenMeteoError("boom")
+        ):
+            with self.assertRaises(CommandError):
+                call_command("seed_terrain", stdout=StringIO())
+
+        self.assertEqual(GeospatialFeature.objects.count(), 0)
+
+
+class SeedRainfallTests(TestCase):
+    SERIES = [
+        {
+            datetime.date(2026, 9, 20): 1.5,
+            datetime.date(2026, 9, 21): 0.0,
+            datetime.date(2026, 9, 22): 12.25,
+        }
+    ]
+
+    def setUp(self):
+        self.region = Region.objects.create(
+            county_name="Nairobi", geom=_square(), area_size=696.0
+        )
+
+    def test_writes_one_row_per_region_per_day(self):
+        with mock.patch.object(
+            seed_rainfall, "fetch_daily_rainfall", return_value=self.SERIES
+        ):
+            call_command("seed_rainfall", stdout=StringIO())
+
+        self.assertEqual(EnvironmentalData.objects.count(), 3)
+        self.assertAlmostEqual(
+            EnvironmentalData.objects.get(
+                record_date=datetime.date(2026, 9, 22)
+            ).rainfall_intensity,
+            12.25,
+        )
+
+    def test_rerunning_does_not_duplicate_days(self):
+        with mock.patch.object(
+            seed_rainfall, "fetch_daily_rainfall", return_value=self.SERIES
+        ):
+            call_command("seed_rainfall", stdout=StringIO())
+            call_command("seed_rainfall", stdout=StringIO())
+
+        self.assertEqual(EnvironmentalData.objects.count(), 3)
+
+    def test_rerunning_refreshes_the_value(self):
+        with mock.patch.object(
+            seed_rainfall, "fetch_daily_rainfall", return_value=self.SERIES
+        ):
+            call_command("seed_rainfall", stdout=StringIO())
+
+        revised = [dict(self.SERIES[0])]
+        revised[0][datetime.date(2026, 9, 22)] = 40.0
+        with mock.patch.object(
+            seed_rainfall, "fetch_daily_rainfall", return_value=revised
+        ):
+            call_command("seed_rainfall", stdout=StringIO())
+
+        self.assertEqual(EnvironmentalData.objects.count(), 3)
+        self.assertAlmostEqual(
+            EnvironmentalData.objects.get(
+                record_date=datetime.date(2026, 9, 22)
+            ).rainfall_intensity,
+            40.0,
+        )
+
+    def test_past_days_must_be_positive(self):
+        with self.assertRaises(CommandError):
+            call_command("seed_rainfall", "--past-days", "0", stdout=StringIO())
+
+
+class OpenMeteoClientTests(TestCase):
+    def test_null_precipitation_days_are_dropped_not_stored_as_zero(self):
+        payload = {
+            "daily": {
+                "time": ["2026-09-20", "2026-09-21", "2026-09-22"],
+                "precipitation_sum": [1.0, None, 3.0],
+            }
+        }
+        with mock.patch.object(open_meteo, "_get_json", return_value=payload):
+            series = open_meteo.fetch_daily_rainfall(
+                [open_meteo.Point(36.8, -1.3)], past_days=3
+            )
+
+        self.assertEqual(
+            series[0],
+            {datetime.date(2026, 9, 20): 1.0, datetime.date(2026, 9, 22): 3.0},
+        )
+
+    def test_short_elevation_response_is_an_error(self):
+        with mock.patch.object(
+            open_meteo, "_get_json", return_value={"elevation": [1.0]}
+        ):
+            with self.assertRaises(OpenMeteoError):
+                open_meteo.fetch_elevations(
+                    [open_meteo.Point(36.8, -1.3), open_meteo.Point(39.6, -4.0)]
+                )
