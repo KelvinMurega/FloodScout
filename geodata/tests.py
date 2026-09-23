@@ -18,6 +18,7 @@ from rest_framework.test import APITestCase
 
 from geodata.management.commands import seed_regions
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
+from geodata.serializers import COORDINATE_PRECISION
 
 
 def _box(min_lon, min_lat, max_lon, max_lat):
@@ -220,6 +221,28 @@ class RegionAPITests(APITestCase):
         self.assertEqual(
             response.data["features"][0]["properties"]["county_name"], "Nairobi"
         )
+
+    def test_geometry_is_a_geojson_object_not_an_ewkt_string(self):
+        """Leaflet needs a real geometry object.
+
+        Without an explicit GeometryField the geo_field serialises to the
+        string "SRID=4326;MULTIPOLYGON (((...)))", which renders nothing and
+        fails silently in the browser.
+        """
+        response = self.client.get("/api/regions/")
+
+        geometry = response.data["features"][0]["geometry"]
+        self.assertNotIsInstance(geometry, str)
+        self.assertEqual(geometry["type"], "MultiPolygon")
+        self.assertTrue(geometry["coordinates"])
+
+    def test_coordinates_are_trimmed_to_the_documented_precision(self):
+        response = self.client.get("/api/regions/")
+
+        lon, lat = response.data["features"][0]["geometry"]["coordinates"][0][0][0]
+        for ordinate in (lon, lat):
+            decimals = str(ordinate)[::-1].find(".")
+            self.assertLessEqual(decimals, COORDINATE_PRECISION)
 
 
 class GeospatialFeatureAPITests(APITestCase):

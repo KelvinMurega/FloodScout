@@ -94,6 +94,22 @@ import ee
 ee.Initialize(project="floodscout-166914")
 ```
 
+## Dashboard (Client Tier)
+
+The Leaflet map lives in `frontend/` as a standalone Vite app, served on
+http://localhost:5173 in development (already allowed in
+`CORS_ALLOWED_ORIGINS`). With the API running and the database seeded and
+scored:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+See `frontend/README.md` for the API-URL configuration and why the client is a
+separate app rather than a Django template.
+
 ## Status
 
 Repo and Django scaffold created as part of Sprint 1 setup (see
