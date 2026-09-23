@@ -61,6 +61,22 @@ Then check:
 - http://localhost:8000/api/health/ → `{"status": "ok", ...}`
 - http://localhost:8000/admin/ → Django admin, log in with the superuser above
 
+### If port 8000 is already taken
+
+Common on Windows, where a vendor service often owns 8000. Docker cannot bind
+the port, so the `web` container stays in `created` and nothing listens — with
+no obvious error unless you look. Set `WEB_PORT` in `.env` to a free port:
+
+```bash
+echo "WEB_PORT=8010" >> .env
+docker compose up -d
+docker compose ps            # web should read 0.0.0.0:8010->8000/tcp, running
+```
+
+The container always listens on 8000 internally; only the host port moves, so
+every URL above becomes `http://localhost:<WEB_PORT>/...`. If you run the
+dashboard, point `VITE_API_BASE_URL` in `frontend/.env.local` at the same port.
+
 ## Getting started (without Docker)
 
 Only do this if Postgres/PostGIS and the GDAL/GEOS/PROJ system libraries are
