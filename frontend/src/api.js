@@ -34,17 +34,39 @@ async function getJson(url) {
   return response.json();
 }
 
-/** Kenya's counties as a GeoJSON FeatureCollection. */
-export function fetchRegions() {
-  return getJson(`${API_BASE_URL}/regions/`);
+function withParams(path, params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null),
+  ).toString();
+  return `${API_BASE_URL}/${path}${query ? `?${query}` : ""}`;
 }
 
 /**
- * The latest score for every region, in a single request.
+ * Regions as a GeoJSON FeatureCollection. With no params, the 47 counties;
+ * `{ level: "sub_county", focus_region: "coast" }` gives the sub-counties
+ * inside one focus region.
+ */
+export function fetchRegions(params) {
+  return getJson(withParams("regions/", params));
+}
+
+/**
+ * The latest score for every region, in a single request, narrowed by the
+ * same params as fetchRegions.
  *
  * The per-region endpoint (`risk-scores/latest/?region=<id>`) would cost one
- * request per county — 47 for one map render.
+ * request per region — 47 for one map render.
  */
-export function fetchLatestScores() {
-  return getJson(`${API_BASE_URL}/risk-scores/latest-by-region/`);
+export function fetchLatestScores(params) {
+  return getJson(withParams("risk-scores/latest-by-region/", params));
+}
+
+/** The flood-prone regions the dashboard can drill into, with county ids. */
+export function fetchFocusRegions() {
+  return getJson(withParams("focus-regions/"));
+}
+
+/** Adjacent regions whose latest score is lower than this one's, safest first. */
+export function fetchLowerRiskNeighbours(regionId) {
+  return getJson(withParams("risk-scores/lower-risk-neighbours/", { region: regionId }));
 }

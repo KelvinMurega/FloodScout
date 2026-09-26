@@ -37,7 +37,13 @@ class Command(BaseCommand):
             "--county",
             type=str,
             default=None,
-            help="Only this county (case-insensitive). Defaults to all.",
+            help="Only this county and its sub-counties (case-insensitive). Defaults to all.",
+        )
+        parser.add_argument(
+            "--level",
+            choices=[level.value for level in Region.Level],
+            default=None,
+            help="Only counties or only sub-counties. Defaults to both.",
         )
 
     def handle(self, *args, **options):
@@ -45,7 +51,10 @@ class Command(BaseCommand):
         if past_days < 1:
             raise CommandError("--past-days must be at least 1.")
 
-        regions = list(Region.objects.order_by("county_name"))
+        regions = Region.objects.order_by("county_name", "level", "name")
+        if options["level"]:
+            regions = regions.filter(level=options["level"])
+        regions = list(regions)
         if options["county"]:
             wanted = options["county"].strip().casefold()
             regions = [r for r in regions if r.county_name.casefold() == wanted]
@@ -80,7 +89,7 @@ class Command(BaseCommand):
                         created_count += 1
                     else:
                         updated_count += 1
-                totals.append((region.county_name, sum(by_date.values())))
+                totals.append((str(region), sum(by_date.values())))
 
         self._report(past_days, created_count, updated_count, totals)
 

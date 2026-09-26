@@ -103,9 +103,10 @@ in order; each is safe to re-run.
 docker compose up -d                  # PostGIS + API
 docker compose run --rm web python manage.py migrate
 docker compose run --rm web python manage.py seed_regions    # 47 county boundaries
+docker compose run --rm web python manage.py seed_regions --level sub_county  # 290 sub-counties
 docker compose run --rm web python manage.py seed_terrain    # real elevation + slope (Open-Meteo DEM)
 docker compose run --rm web python manage.py seed_rainfall   # real daily rainfall, last 14 days
-docker compose run --rm web python manage.py score_regions   # one RiskScore per county for today
+docker compose run --rm web python manage.py score_regions   # one RiskScore per county and sub-county for today
 ```
 
 Then start the map (see below). `seed_terrain` and `seed_rainfall` need network

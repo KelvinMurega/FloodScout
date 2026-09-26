@@ -1,9 +1,30 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from geodata.filters import filter_by_region_params
+from geodata.models import Region
+
+from .advisory import CATEGORY_RANK
 from .models import RiskScore
 from .serializers import RiskScoreSerializer
+
+# How close two regions' boundaries must come to count as neighbours, in
+# degrees (~220 m). Not zero: the ADM2 boundaries do not always share
+# vertices exactly, so strict touching would miss real neighbours.
+NEIGHBOUR_TOLERANCE_DEG = 0.002
+
+
+def latest_per_region(queryset):
+    """The newest score for each region in `queryset`, via DISTINCT ON.
+
+    DISTINCT ON requires region_id to lead the ordering; the rest picks the
+    newest row within each region. PostgreSQL-only, which is fine — the Data
+    Tier is PostGIS (Chapter 4, Section 4.4.2).
+    """
+    return queryset.order_by("region_id", "-prediction_date", "-id").distinct("region_id")
 
 
 class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
@@ -12,6 +33,8 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
     Supports `?region=<id>` filtering on the list endpoint, and a
     `latest/?region=<id>` action for "what's the current risk here"
     lookups — the case the Sprint 5 dashboard actually needs most often.
+    `?level=`, `?parent=` and `?focus_region=` filter by the scored region
+    (see geodata/filters.py).
     """
 
     queryset = RiskScore.objects.select_related("region").all()
@@ -22,7 +45,7 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         region_id = self.request.query_params.get("region")
         if region_id:
             qs = qs.filter(region_id=region_id)
-        return qs
+        return filter_by_region_params(qs, self.request.query_params, prefix="region__")
 
     @action(detail=False, methods=["get"])
     def latest(self, request):
@@ -43,16 +66,45 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         The Sprint 5 dashboard colours all 47 counties at once. Doing that
         through `latest/?region=<id>` costs one request per county; this
         costs one request and, via DISTINCT ON, one query. Honours the same
-        `?region=` filter as the rest of the viewset.
+        filters as the rest of the viewset.
         """
-        queryset = (
-            self.get_queryset()
-            # DISTINCT ON requires region_id to lead the ordering; the rest
-            # picks the newest row within each region. PostgreSQL-only, which
-            # is fine — the Data Tier is PostGIS (Chapter 4, Section 4.4.2).
-            .order_by("region_id", "-prediction_date", "-id")
-            .distinct("region_id")
-        )
         # Sorted for the map legend; cannot be done in SQL alongside DISTINCT ON.
-        scores = sorted(queryset, key=lambda score: score.region.county_name)
+        scores = sorted(
+            latest_per_region(self.get_queryset()),
+            key=lambda score: (score.region.county_name, score.region.level, score.region.name),
+        )
         return Response(self.get_serializer(scores, many=True).data)
+
+    @action(detail=False, methods=["get"], url_path="lower-risk-neighbours")
+    def lower_risk_neighbours(self, request):
+        """Neighbouring regions at the same level whose latest score is lower
+        than `?region=<id>`'s, least risky first.
+
+        Answers "where nearby is safer" for the dashboard's relocation panel.
+        The neighbours may lie in another county or focus region.
+        """
+        region_id = request.query_params.get("region")
+        if not region_id or not region_id.isdigit():
+            raise ValidationError({"region": "Expected a region id."})
+        region = get_object_or_404(Region, pk=int(region_id))
+
+        own = RiskScore.objects.filter(region=region).first()
+        if own is None:
+            return Response({"detail": "No risk score found."}, status=404)
+
+        neighbours = (
+            Region.objects.filter(
+                level=region.level,
+                geom__dwithin=(region.geom, NEIGHBOUR_TOLERANCE_DEG),
+            )
+            .exclude(pk=region.pk)
+        )
+        candidates = [
+            score
+            for score in latest_per_region(
+                RiskScore.objects.select_related("region").filter(region__in=neighbours)
+            )
+            if CATEGORY_RANK[score.risk_category] < CATEGORY_RANK[own.risk_category]
+        ]
+        candidates.sort(key=lambda score: (score.predicted_value, score.region.name))
+        return Response(self.get_serializer(candidates, many=True).data)

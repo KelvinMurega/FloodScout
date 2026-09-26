@@ -1,7 +1,7 @@
 # FloodScout dashboard (Client Tier)
 
-A read-only Leaflet map of current flood risk across Kenya's 47 counties. No
-login, no writes — it renders what the API returns and nothing else.
+A read-only Leaflet map of current flood risk across Kenya's 47 counties and,
+in five flood-prone regions, their sub-counties. No login, no writes — it renders what the API returns and nothing else.
 
 ## Why Vite and not a Django template
 
@@ -26,8 +26,9 @@ The API must be running first (`docker compose up`), with the database seeded
 and scored:
 
 ```bash
-python manage.py seed_regions     # 47 counties
-python manage.py score_regions    # a RiskScore per county for today
+python manage.py seed_regions                    # 47 counties
+python manage.py seed_regions --level sub_county # 290 sub-counties, for the region views
+python manage.py score_regions                   # a RiskScore per county and sub-county
 ```
 
 Then:
@@ -58,36 +59,56 @@ gitignored).
 
 ## What it draws
 
-Two requests on load, in parallel:
+Two views, chosen from the region bar under the header. The choice is kept in
+the URL hash (`#/coast`), so a region survives a reload and the back button
+leaves it.
 
-- `GET /regions/` — a GeoJSON `FeatureCollection`, rendered by
-  `L.geoJSON` as-is. No geometry conversion client-side.
-- `GET /risk-scores/latest-by-region/` — the latest score for every county in
-  **one** request. The per-region endpoint would cost 47.
+**All Kenya** makes three requests on load, in parallel:
 
-Counties are joined to scores on the Feature's `id` (the `Region` pk).
+- `GET /regions/`: the 47 counties as a GeoJSON `FeatureCollection`,
+  rendered by `L.geoJSON` as-is.
+- `GET /risk-scores/latest-by-region/?level=county`: the latest score for
+  every county in **one** request.
+- `GET /focus-regions/`: the flood-prone regions (Coast, Lake Basin, Rift
+  Valley, North Eastern, Nairobi) and the county ids in each.
+
+**A region** (Coast, Nairobi, ...) adds two requests the first time it is
+opened, then caches them:
+
+- `GET /regions/?level=sub_county&focus_region=<slug>`
+- `GET /risk-scores/latest-by-region/?level=sub_county&focus_region=<slug>`
+
+Each sub-county is coloured by its own score. The rest of Kenya stays on
+screen as a faint grey backdrop, and county borders are drawn over the
+sub-counties when the region spans more than one county. The side panel adds:
+
+- **Relocation.** Sub-counties at *very high* risk are listed under "Relocate
+  now" and drawn with a dashed outline. Those at *high* risk are listed under
+  "Prepare to move". The rule is `riskengine/advisory.py`, applied
+  server-side to every score as `relocation_advisory`.
+- **Nearby lower-risk sub-counties.** Selecting a sub-county with an advisory
+  calls `GET /risk-scores/lower-risk-neighbours/?region=<id>`. That returns the
+  adjacent sub-counties with a lower score, safest first, including any
+  across a county line.
+
+Regions are joined to scores on the Feature's `id` (the `Region` pk).
+
+There is no basemap. The polygons are the whole map, and the view is locked to
+the country or region on screen.
 
 ### Colour
 
-The four risk categories are *ordinal* — reordering them changes their meaning —
-so the ramp is a single hue with monotone lightness steps rather than four
-unrelated colours. Both light and dark ramps were checked mechanically, not by
-eye: monotone lightness, adjacent lightness gap >= 0.06, the step nearest the
-surface clearing 2:1 against it, and a single hue (11 degrees of spread on
-light, 7 on dark). Because lightness carries the order, the ramp survives
-greyscale, printing and every form of colour-vision deficiency.
+A traffic-light scheme: green (low), orange (moderate), light red (high) and
+dark red (very high), in `src/risk.js`. The dark-theme set keeps the same hues
+and lifts them enough to stand out against the dark surface.
 
-Colour is never the only channel. The legend, the detail panel and the
-all-counties table each name the category in text, and the table gives the whole
-dataset without reference to the map. Counties with no score render in a
-desaturated grey that belongs to neither end of the ramp, so "unknown" cannot be
-misread as "low".
-
-The basemap is plain OpenStreetMap desaturated to grey by a CSS filter. A
-neutral basemap is a choropleth requirement, not a style preference — on
-full-colour tiles the county fills compete with roads and landcover. OSM is used
-because it needs no API key; Carto's `light_all`/`dark_all` now watermark every
-tile with "API KEY REQUIRED".
+Colour is never the only channel. The legend, the detail panel and the table
+each name the category in text, and the table gives the whole dataset without
+reference to the map. That matters more with this scheme, because green and
+red are the hardest pair for red-green colour-blind readers. The "relocate
+now" areas also carry a dashed outline. Regions with no score render in a
+grey that belongs to neither end of the scale, so "unknown" cannot be misread
+as "low".
 
 ### Provenance
 
@@ -98,7 +119,7 @@ version, the banner changes on its own.
 
 ## Known limitation
 
-`GET /regions/` is ~3.4 MB and takes several seconds on a cold load. Coordinates
+`GET /regions/` (the counties) is ~3.4 MB and takes several seconds on a cold load. Coordinates
 are already trimmed to 5 decimal places (~1.1 m), which halved it; the remaining
 cost is vertex count in the geoBoundaries source. Serving a simplified geometry
 for map use — `ST_Simplify` behind a `?simplify=` parameter, with the full

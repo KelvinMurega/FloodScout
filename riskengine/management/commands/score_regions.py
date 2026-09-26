@@ -54,7 +54,7 @@ class Command(BaseCommand):
         target_date = options["date"] or timezone.localdate()
         prediction_dt = start_of_day(target_date)
 
-        regions = Region.objects.order_by("county_name")
+        regions = Region.objects.order_by("county_name", "level", "name")
         if not regions.exists():
             raise CommandError(
                 "No regions in the database — run `manage.py seed_regions` first."

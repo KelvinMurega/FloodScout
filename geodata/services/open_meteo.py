@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,6 +39,17 @@ MAX_ELEVATION_POINTS = 100
 MAX_FORECAST_LOCATIONS = 25
 
 REQUEST_TIMEOUT_SECONDS = 60
+
+# The free tier counts every coordinate in a request as a call and caps them
+# per minute, so a full run over all 337 regions (five terrain samples each)
+# trips HTTP 429 part-way through. A 429 is waited out rather than failed:
+# the wait honours Retry-After when sent, else a minute, which is the window
+# the limit resets on.
+RATE_LIMIT_RETRIES = 6
+RATE_LIMIT_WAIT_SECONDS = 65
+
+# Indirection so tests can skip the wait.
+_sleep = time.sleep
 USER_AGENT = "FloodScout/1.0 (university project; contact via repo)"
 
 
@@ -53,14 +65,28 @@ class Point:
     lat: float
 
 
+def _retry_after_seconds(error: urllib.error.HTTPError) -> float:
+    header = error.headers.get("Retry-After") if error.headers else None
+    try:
+        return max(1.0, float(header))
+    except (TypeError, ValueError):
+        return RATE_LIMIT_WAIT_SECONDS
+
+
 def _get_json(url: str, params: dict[str, str]):
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(f"{url}?{query}", headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            return json.loads(response.read())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < RATE_LIMIT_RETRIES:
+                _sleep(_retry_after_seconds(exc))
+                continue
+            raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
 
 
 def _chunks(items: list, size: int):

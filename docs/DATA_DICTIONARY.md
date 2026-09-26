@@ -89,7 +89,10 @@ and Lamu.
 
 | `Region` field | Type | Derived from |
 |---|---|---|
-| `county_name` | `CharField(100)` | `shapeName`, whitespace-stripped. Natural key for idempotent upserts. |
+| `name` | `CharField(100)` | `shapeName`, whitespace-stripped. With `level`, the natural key for idempotent upserts. |
+| `county_name` | `CharField(100)` | For a county, the same as `name`. For a sub-county, the county it lies in (see section 2). |
+| `level` | `CharField(10)` | `county` for ADM1 rows. |
+| `parent` | `ForeignKey(Region)` | Empty for counties. |
 | `geom` | `MultiPolygonField(srid=4326)` | Feature geometry, stored in **EPSG:4326**. Plain Polygons are wrapped in a single-element MultiPolygon to satisfy the field type. |
 | `area_size` | `FloatField` | **Square kilometres.** Computed on a *clone* transformed to **EPSG:21037**, then m² ÷ 1,000,000. |
 
@@ -194,5 +197,67 @@ docker compose exec web python manage.py seed_regions --path data/raw/ken_admbnd
 docker compose exec web python manage.py seed_regions --refresh
 ```
 
-The load is wrapped in a transaction and keyed on `county_name` via
+The load is wrapped in a transaction and keyed on `(level, name)` via
 `update_or_create`, so re-running is safe and never duplicates rows.
+
+---
+
+## 2. Kenya sub-county boundaries (ADM2)
+
+Adds the 290 sub-counties to `geodata.Region` alongside the counties, so each
+one gets its own terrain, rainfall and risk score through the same ingest and
+scoring commands. The dashboard draws them when a user opens a focus region
+(`geodata/focus_regions.py`).
+
+### Source
+
+| | |
+|---|---|
+| **Dataset** | geoBoundaries `gbOpen`, Kenya, ADM2 ("Sub-Counties") |
+| **Upstream source** | IEBC, OCHA ROSEA (2020 boundaries) |
+| **Licence** | CC BY 3.0 IGO |
+| **Units** | 290 (the IEBC constituencies) |
+| **Pinned download** | `https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/KEN/ADM2/geoBoundaries-KEN-ADM2.geojson` |
+
+Same upstream commit as the ADM1 file, so the two are from one release.
+
+### Parent county
+
+The ADM2 file does not record which county a sub-county belongs to. Each
+sub-county is assigned to the county whose geometry covers the largest share
+of it. The ADM1 (RCMRD) and ADM2 (IEBC) boundaries were drawn by different
+agencies and do not line up exactly, so every sub-county overlaps a sliver of
+its neighbours. That is why the loader takes the largest overlap rather than
+testing containment. A best match below 50% is reported as a warning. On the
+pinned release none is: all 290 were assigned cleanly, with Nairobi's 17
+under Nairobi.
+
+| `Region` field | Sub-county value |
+|---|---|
+| `name` | `shapeName`, e.g. `Kibra` |
+| `county_name` | the parent county's `name`, e.g. `Nairobi` |
+| `level` | `sub_county` |
+| `parent` | the parent county's row |
+
+### Known naming quirks
+
+The ADM2 names are unique across Kenya. Some differ from current usage:
+Nairobi's Dagoretti North and South appear as **`Kilimani`** and
+**`Dagoretti`**, and **`Cental Imenti`** is misspelt in the source. As with
+`Tharaka`, they are stored as the source spells them.
+
+### Loading
+
+Counties must be loaded first.
+
+```bash
+docker compose run --rm web python manage.py seed_regions --level sub_county
+
+# one county's sub-counties
+docker compose run --rm web python manage.py seed_regions --level sub_county --county Nairobi
+```
+
+Then `seed_terrain --level sub_county`, `seed_rainfall --level sub_county`
+and `score_regions`. Open-Meteo rate-limits the free tier per minute and
+counts each coordinate as a call. The client waits out HTTP 429 responses
+and retries, so a full sub-county run takes a few minutes.

@@ -11,6 +11,10 @@
   --border-ring: rgba(11, 11, 11, 0.1);
   --polygon-stroke: #fcfcfb;
   --polygon-stroke-focus: #0b0b0b;
+  --country-outline: #52514e;
+  --county-line: #52514e;
+  --context-fill: #ecebe6;
+  --accent: #0b0b0b;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -27,6 +31,10 @@
     --border-ring: rgba(255, 255, 255, 0.1);
     --polygon-stroke: #1a1a19;
     --polygon-stroke-focus: #ffffff;
+    --country-outline: #898781;
+    --county-line: #c3c2b7;
+    --context-fill: #262625;
+    --accent: #ffffff;
   }
 }
 
@@ -41,6 +49,10 @@
   --border-ring: rgba(255, 255, 255, 0.1);
   --polygon-stroke: #1a1a19;
   --polygon-stroke-focus: #ffffff;
+  --country-outline: #898781;
+  --county-line: #c3c2b7;
+  --context-fill: #262625;
+  --accent: #ffffff;
 }
 
 * {
@@ -122,6 +134,49 @@ body {
 .provenance strong {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* --- Region bar -------------------------------------------------------- */
+
+.region-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  overflow-x: auto;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.region-bar__button {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--border-ring);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.region-bar__button:hover {
+  color: var(--text-primary);
+  background: var(--surface-page);
+}
+
+.region-bar__button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface-1);
+  font-weight: 600;
+}
+
+.region-bar__button:focus-visible,
+.link-button:focus-visible,
+.open-region:focus-visible,
+.relocation__item:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
 }
 
 /* --- Layout ------------------------------------------------------------ */
@@ -212,6 +267,103 @@ body {
   letter-spacing: 0;
 }
 
+/* --- Region intro and relocation --------------------------------------- */
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.region-intro__name {
+  margin: 8px 0 4px;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.region-intro__hazards {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.region-intro__counties {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.relocation__group {
+  margin: 10px 0 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.relocation__group:first-of-type {
+  margin-top: 0;
+}
+
+.relocation__list {
+  display: grid;
+  gap: 4px;
+}
+
+.relocation__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-ring);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.relocation__item:hover {
+  background: var(--surface-page);
+}
+
+.relocation__item--static {
+  cursor: default;
+}
+
+.relocation__item--static:hover {
+  background: transparent;
+}
+
+.relocation__name {
+  font-weight: 550;
+}
+
+.relocation__county {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.relocation__note {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 /* --- Detail ------------------------------------------------------------ */
 
 .detail__empty {
@@ -266,6 +418,25 @@ body {
   overflow-wrap: anywhere;
 }
 
+.detail__subheading {
+  margin: 14px 0 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.open-region {
+  margin-top: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--surface-1);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* --- Legend ------------------------------------------------------------ */
 
 .legend {
@@ -290,6 +461,11 @@ body {
   border-radius: 4px;
   border: 1px solid var(--border-ring);
   flex: none;
+}
+
+.legend__swatch--dashed {
+  background: transparent;
+  border: 2px dashed var(--polygon-stroke-focus);
 }
 
 .legend__label {
@@ -361,21 +537,31 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Desaturate the basemap so the choropleth is the only colour on screen.
-   Applied to the tile pane only, so the county fills and controls above it
-   keep their real colours. */
-.leaflet-tile-pane {
-  filter: grayscale(1) contrast(0.85) brightness(1.08);
+/* County names. Shown only where the county is wide enough on screen to hold
+   its name (see updateLabelVisibility in main.js); a halo in the surface
+   colour keeps them legible over every fill in the ramp. */
+.county-label {
+  background: none;
+  border: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .leaflet-tile-pane {
-    filter: grayscale(1) invert(1) contrast(0.82) brightness(0.82);
-  }
+.county-label span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 2px var(--surface-1),
+    0 0 3px var(--surface-1),
+    0 0 4px var(--surface-1);
+  pointer-events: none;
 }
 
-:root[data-theme="dark"] .leaflet-tile-pane {
-  filter: grayscale(1) invert(1) contrast(0.82) brightness(0.82);
+.county-label--hidden {
+  display: none;
 }
 
 .leaflet-control-attribution {
