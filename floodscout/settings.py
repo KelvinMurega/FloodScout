@@ -115,6 +115,11 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=["http://localhost:5173", "http://127.0.0.1:5173"],
 )
 
+# Google Earth Engine — project id from the noncommercial registration
+# documented in AI_USE_LOG.md. Used by geodata/services/earth_engine.py to
+# initialize the client for Sprint 2's CHIRPS/SRTM/Sentinel-1 ingestion.
+EE_PROJECT_ID = env("EE_PROJECT_ID", default="")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",

@@ -1,7 +1,9 @@
-"""Tests for the seed_regions management command.
+"""Tests for the geodata app.
 
-These never touch the network: each test either points --path at a
-fixture written to a temp directory, or patches the download helper.
+Covers the seed_regions management command and the Earth Engine client
+wrapper. Neither suite touches the network: seed_regions tests point
+--path at a fixture in a temp directory or patch the download helper,
+and the Earth Engine tests mock out the `ee` package entirely.
 """
 
 import datetime
@@ -15,14 +17,14 @@ from unittest import mock
 from django.contrib.gis.geos import MultiPolygon, Point as GEOSPoint, Polygon
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 
 from geodata import focus_regions
 from geodata.management.commands import seed_rainfall, seed_regions, seed_terrain
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
 from geodata.serializers import COORDINATE_PRECISION
-from geodata.services import open_meteo
+from geodata.services import earth_engine, open_meteo
 from geodata.services.open_meteo import OpenMeteoError
 
 
@@ -747,3 +749,35 @@ class FocusRegionTests(APITestCase):
     def test_retrieve_and_unknown_slug(self):
         self.assertEqual(self.client.get("/api/focus-regions/coast/").data["name"], "Coast")
         self.assertEqual(self.client.get("/api/focus-regions/atlantis/").status_code, 404)
+
+
+# --- Earth Engine client wrapper ---
+
+
+class EarthEngineInitTests(SimpleTestCase):
+    """Exercise our own wrapper logic only — the `ee` package itself is
+    mocked out, so these don't need real Earth Engine credentials or
+    network access to run.
+    """
+
+    def setUp(self):
+        earth_engine._initialized = False
+
+    @override_settings(EE_PROJECT_ID="")
+    def test_raises_without_project_id(self):
+        with self.assertRaises(RuntimeError):
+            earth_engine.initialize_earth_engine()
+
+    @override_settings(EE_PROJECT_ID="floodscout-166914")
+    @mock.patch.object(earth_engine, "ee")
+    def test_initializes_once_per_process(self, mock_ee):
+        earth_engine.initialize_earth_engine()
+        earth_engine.initialize_earth_engine()
+        mock_ee.Initialize.assert_called_once_with(project="floodscout-166914")
+
+    @override_settings(EE_PROJECT_ID="floodscout-166914")
+    @mock.patch.object(earth_engine, "ee")
+    def test_force_reinitializes(self, mock_ee):
+        earth_engine.initialize_earth_engine()
+        earth_engine.initialize_earth_engine(force=True)
+        self.assertEqual(mock_ee.Initialize.call_count, 2)

@@ -7,10 +7,10 @@ Computing and Engineering Sciences, Strathmore University. Supervised by
 Dr. Deperias Kerre.
 
 This repo implements the design described in the project proposal, Chapter 4
-(System Analysis and Design): a three-tier system — a Leaflet.js dashboard
-(Presentation Tier), a Django REST API (Application Tier), and PostgreSQL +
-PostGIS (Data Tier) — with a scikit-learn model behind the API doing the
-actual flood risk scoring.
+(System Analysis and Design): a four-tier system — a Leaflet.js dashboard
+(Client Tier), a Django REST API (Application Tier), a scikit-learn service
+doing the actual flood risk scoring (Machine Learning Tier), and PostgreSQL +
+PostGIS (Data Tier).
 
 ## Project layout
 
@@ -80,19 +80,30 @@ python manage.py runserver
 
 ## Earth Engine access from Python
 
-Once `earthengine-api` is added (next setup step), authenticate once per
-machine with:
+`earthengine-api` is in requirements.txt. After installing it (Docker image
+rebuild, or `pip install -r requirements.txt` in your venv), authenticate
+once per machine with:
 
 ```bash
 earthengine authenticate
 ```
 
-then in code:
+That writes a local credential file; it only needs to be run once per
+machine, not per project run. From then on, ingestion code goes through the
+project's own wrapper rather than calling `ee.Initialize` directly:
 
 ```python
-import ee
-ee.Initialize(project="floodscout-166914")
+from geodata.services.earth_engine import get_srtm_elevation, get_chirps_rainfall
+
+elevation = get_srtm_elevation(region_geometry)
+rainfall = get_chirps_rainfall(region_geometry, "2026-01-01", "2026-01-31")
 ```
+
+See `geodata/services/earth_engine.py` for the full client (SRTM elevation,
+CHIRPS rainfall — Sentinel-1 flood-extent pulls in for Sprint 2) and
+`geodata/tests.py` for tests that mock `ee` out so they run without network
+access or real credentials. The demo below uses Open-Meteo instead, which needs
+no credentials; Earth Engine is kept for the Sentinel-1 flood labels.
 
 ## Full demo from a clean database
 
