@@ -94,6 +94,63 @@ import ee
 ee.Initialize(project="floodscout-166914")
 ```
 
+## Full demo from a clean database
+
+Four commands bring the whole walking skeleton up with **real** data. Run them
+in order; each is safe to re-run.
+
+```bash
+docker compose up -d                  # PostGIS + API
+docker compose run --rm web python manage.py migrate
+docker compose run --rm web python manage.py seed_regions    # 47 county boundaries
+docker compose run --rm web python manage.py seed_regions --level sub_county  # 290 sub-counties
+docker compose run --rm web python manage.py seed_terrain    # real elevation + slope (Open-Meteo DEM)
+docker compose run --rm web python manage.py seed_rainfall   # real daily rainfall, last 61 days
+docker compose run --rm web python manage.py score_regions   # one RiskScore per county and sub-county for today
+docker compose run --rm web python manage.py flood_outlook   # county outlook for the next three months
+docker compose run --rm web python manage.py flood_outlook --level sub_county
+```
+
+Then start the map (see below). `seed_terrain` and `seed_rainfall` need network
+access; everything after that works offline, because the values are in the
+database.
+
+Re-run `seed_rainfall` then `score_regions` on the morning of a demo to refresh
+the map with the latest observed rainfall.
+
+### Where the numbers come from
+
+| Input | Source | Real? |
+|---|---|---|
+| County boundaries | geoBoundaries KEN ADM1, pinned commit | yes |
+| Elevation, slope | Open-Meteo elevation API (Copernicus DEM GLO-90) | yes |
+| Daily rainfall | Open-Meteo `precipitation_sum`, past days only | yes |
+| Distance to river | not ingested | left null, never invented |
+| **Risk score** | `riskengine/ml/infer.py` | trained model, modest skill |
+
+The inputs are measurements. The scorer is a logistic regression trained on
+recorded floods from 1985 to 2021. Its output is the chance that a large
+flood is recorded in a region in a 30-day window. `riskengine/ml/README.md`
+says how it was trained, how well it does and where it is weak; read it
+before presenting a result. Every row and API response carries the
+`model_version` that produced it.
+
+## Dashboard (Client Tier)
+
+The Leaflet map lives in `frontend/` as a standalone Vite app, served on
+http://localhost:5173 in development (already allowed in
+`CORS_ALLOWED_ORIGINS`). With the API running and the database seeded and
+scored:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+See `frontend/README.md` for the API-URL configuration and why the client is a
+separate app rather than a Django template.
+
 ## Status
 
 Repo and Django scaffold created as part of Sprint 1 setup (see

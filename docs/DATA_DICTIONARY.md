@@ -89,7 +89,10 @@ and Lamu.
 
 | `Region` field | Type | Derived from |
 |---|---|---|
-| `county_name` | `CharField(100)` | `shapeName`, whitespace-stripped. Natural key for idempotent upserts. |
+| `name` | `CharField(100)` | `shapeName`, whitespace-stripped. With `level`, the natural key for idempotent upserts. |
+| `county_name` | `CharField(100)` | For a county, the same as `name`. For a sub-county, the county it lies in (see section 2). |
+| `level` | `CharField(10)` | `county` for ADM1 rows. |
+| `parent` | `ForeignKey(Region)` | Empty for counties. |
 | `geom` | `MultiPolygonField(srid=4326)` | Feature geometry, stored in **EPSG:4326**. Plain Polygons are wrapped in a single-element MultiPolygon to satisfy the field type. |
 | `area_size` | `FloatField` | **Square kilometres.** Computed on a *clone* transformed to **EPSG:21037**, then m² ÷ 1,000,000. |
 
@@ -194,5 +197,194 @@ docker compose exec web python manage.py seed_regions --path data/raw/ken_admbnd
 docker compose exec web python manage.py seed_regions --refresh
 ```
 
-The load is wrapped in a transaction and keyed on `county_name` via
+The load is wrapped in a transaction and keyed on `(level, name)` via
 `update_or_create`, so re-running is safe and never duplicates rows.
+
+---
+
+## 2. Kenya sub-county boundaries (ADM2)
+
+Adds the 290 sub-counties to `geodata.Region` alongside the counties, so each
+one gets its own terrain, rainfall and risk score through the same ingest and
+scoring commands. The dashboard draws them when a user opens a focus region
+(`geodata/focus_regions.py`).
+
+### Source
+
+| | |
+|---|---|
+| **Dataset** | geoBoundaries `gbOpen`, Kenya, ADM2 ("Sub-Counties") |
+| **Upstream source** | IEBC, OCHA ROSEA (2020 boundaries) |
+| **Licence** | CC BY 3.0 IGO |
+| **Units** | 290 (the IEBC constituencies) |
+| **Pinned download** | `https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/KEN/ADM2/geoBoundaries-KEN-ADM2.geojson` |
+
+Same upstream commit as the ADM1 file, so the two are from one release.
+
+### Parent county
+
+The ADM2 file does not record which county a sub-county belongs to. Each
+sub-county is assigned to the county whose geometry covers the largest share
+of it. The ADM1 (RCMRD) and ADM2 (IEBC) boundaries were drawn by different
+agencies and do not line up exactly, so every sub-county overlaps a sliver of
+its neighbours. That is why the loader takes the largest overlap rather than
+testing containment. A best match below 50% is reported as a warning. On the
+pinned release none is: all 290 were assigned cleanly, with Nairobi's 17
+under Nairobi.
+
+| `Region` field | Sub-county value |
+|---|---|
+| `name` | `shapeName`, e.g. `Kibra` |
+| `county_name` | the parent county's `name`, e.g. `Nairobi` |
+| `level` | `sub_county` |
+| `parent` | the parent county's row |
+
+### Known naming quirks
+
+The ADM2 names are unique across Kenya. Some differ from current usage:
+Nairobi's Dagoretti North and South appear as **`Kilimani`** and
+**`Dagoretti`**, and **`Cental Imenti`** is misspelt in the source. As with
+`Tharaka`, they are stored as the source spells them.
+
+### Loading
+
+Counties must be loaded first.
+
+```bash
+docker compose run --rm web python manage.py seed_regions --level sub_county
+
+# one county's sub-counties
+docker compose run --rm web python manage.py seed_regions --level sub_county --county Nairobi
+```
+
+Then `seed_terrain --level sub_county`, `seed_rainfall --level sub_county`
+and `score_regions`. Open-Meteo rate-limits the free tier per minute and
+counts each coordinate as a call. The client waits out HTTP 429 responses
+and retries, so a full sub-county run takes a few minutes.
+
+---
+
+## 3. Model training data
+
+What the flood model in `riskengine/ml/` is trained on. `build_training_set`
+downloads all of it, caches it under `data/` (gitignored) and writes
+`data/processed/training_set.csv`: one row per county per month, January
+1985 to September 2021.
+
+### Flood events (the label)
+
+| | |
+|---|---|
+| **Dataset** | Global Active Archive of Large Flood Events |
+| **Publisher** | Dartmouth Flood Observatory (DFO), University of Colorado |
+| **Coverage** | Worldwide, 1985 to October 2021; 5,130 events, 84 reaching Kenya |
+| **Download** | `https://floodobservatory.colorado.edu/temp/FloodArchive.xlsx` |
+| **Pinned copy** | Wayback Machine snapshot of 15 April 2024, used when the observatory's server is down (it usually is) |
+| **Citation** | Brakenridge, G.R. *Global Active Archive of Large Flood Events.* Dartmouth Flood Observatory, University of Colorado, USA |
+
+Fields used: `Began`, `Ended`, `long`, `lat` (centroid), `Area` (km²),
+`Severity` (1 large, 1.5 very large, 2 extreme). `Dead`, `Displaced` and
+`MainCause` are read but not used by the model.
+
+The archive gives each flood a centroid and an area, not an outline. A flood
+is placed as a circle of that area around the centroid, and a county-month
+is labelled `flood = 1` when a circle touches the county and the event
+overlaps the 30 days ending on the last day of the month. This is the main
+weakness of the labels: see `riskengine/ml/README.md`.
+
+### Historical rainfall
+
+| | |
+|---|---|
+| **Dataset** | ERA5 reanalysis, daily `precipitation_sum`, mm |
+| **Publisher** | ECMWF / Copernicus Climate Change Service, served by Open-Meteo |
+| **Endpoint** | `https://archive-api.open-meteo.com/v1/archive` |
+| **Licence** | CC BY 4.0 |
+| **Sampled at** | Each county's representative point, the same one `seed_terrain` uses |
+
+Reanalysis is a model constrained by observations, not a rain gauge. It is
+used because it is one consistent record over the whole 37 years.
+
+### El Niño index
+
+| | |
+|---|---|
+| **Dataset** | Oceanic Niño Index (ONI) |
+| **Publisher** | NOAA Climate Prediction Center |
+| **Download** | `https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt` |
+| **Licence** | Public domain |
+
+Three-month running mean sea-surface temperature anomaly in the Niño 3.4
+region. Each row uses the value that had been published by its date (the
+season centred two months earlier), so the model never sees an index it
+could not have had at the time.
+
+### Seasonal rainfall forecast (outlook only)
+
+| | |
+|---|---|
+| **Dataset** | ECMWF seasonal ensemble, daily `precipitation_sum` per member |
+| **Endpoint** | `https://seasonal-api.open-meteo.com/v1/seasonal` |
+
+Read by `flood_outlook` only. Never used in training and never stored as
+`EnvironmentalData`.
+
+### Columns of `training_set.csv`
+
+| Column | Meaning |
+|---|---|
+| `county`, `date` | The county and the last day of the 30-day window |
+| `normal_30d` | The county's mean `rain_30d` for that calendar month, 1985–2021 |
+| `rain_30d` … `slope` | The model inputs, defined in `riskengine/ml/features.py` |
+| `flood` | 1 if a DFO event was placed on the county in the window. The training target |
+| `severity` | Highest DFO severity class among those events, else 0 |
+| `events` | How many DFO events were placed on the county in the window |
+
+---
+
+## 4. Drainage: rivers, flood zones and built-up area
+
+Fills three fields of `geodata.GeospatialFeature` for all 337 regions.
+Loaded by `seed_drainage`, which downloads and caches everything under
+`data/external/drainage/` (gitignored). Run `seed_terrain` first.
+
+These are stored and served by the API but are **not model inputs**. The
+reason is in `riskengine/ml/README.md` under "Known limits".
+
+| Field | Meaning | Source |
+|---|---|---|
+| `distance_to_river` | Metres from the region's representative point to the nearest river | OpenStreetMap waterways for Kenya, HOT export on HDX, `waterway = river` only. ODbL |
+| `flood_zone_fraction` | Share of the region inside the 100-year river flood extent, 0 to 1 | Copernicus Emergency Management Service, *Global river flood hazard maps* v2.1, 100-year return period, 3 arc seconds (about 90 m). CC BY 4.0 |
+| `built_up_fraction` | Share of the region covered by buildings, 0 to 1 | JRC Global Human Settlement Layer, `GHS-BUILT-S` R2023A, epoch 2020, 30 arc seconds. CC BY 4.0 |
+
+### How the two shares are computed
+
+Regions are burnt onto the flood map's 90 m grid with `gdal_rasterize`, so
+each pixel carries the id of the region it is in. `flood_zone_fraction` is
+the share of a region's pixels with a flood depth above zero.
+`built_up_fraction` is the mean over its pixels of built-up square metres
+divided by the area of the 30-arc-second cell.
+
+### Caveats
+
+- **The flood map only covers larger rivers.** Small urban streams are not
+  modelled, so Nairobi's sub-counties read close to zero even where the
+  Nairobi, Mathare and Ngong rivers flood regularly. A low value is not
+  evidence of safety.
+- **River distance is from one point.** In a large region it says little
+  about the region as a whole.
+- **OpenStreetMap coverage is uneven.** Only `waterway = river` is used
+  because streams, drains and ditches are mapped far more completely in
+  towns than in rural areas.
+- **Built-up area is not drainage.** It shows where the ground is sealed. It
+  says nothing about whether the drains there work.
+
+### Sanity checks on the loaded values
+
+Budalang'i (Busia), Kenya's best-known flood plain, has the highest
+flood-zone share at 80.8%. Embakasi Central (Nairobi) is the most built-up
+at 36.8%. Wajir East is furthest from a mapped river at 83.4 km.
+
+The ICPAC 100-year inundation map on HDX was the first choice for the flood
+zone, but its server could not be reached on the day; the Copernicus map
+replaced it.

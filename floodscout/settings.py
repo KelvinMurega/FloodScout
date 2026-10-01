@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.gis",  # GeoDjango: spatial fields/queries behind FR-01/FR-02
 
     "rest_framework",
+    "rest_framework.authtoken",  # required by TokenAuthentication in REST_FRAMEWORK below
     "corsheaders",
 
     "accounts",

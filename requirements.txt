@@ -3,3 +3,7 @@ djangorestframework>=3.15
 django-cors-headers>=4.4
 django-environ>=0.11
 psycopg[binary]>=3.2
+djangorestframework-gis>=1.0
+# Pinned to one minor version: the trained model in riskengine/ml/artifacts/
+# is a pickle and only loads reliably under the scikit-learn that wrote it.
+scikit-learn>=1.9,<1.10
