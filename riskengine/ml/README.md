@@ -22,8 +22,13 @@ times the usual. It does not mean a flood is expected.
 
 ## What it learns from
 
-One row per county per month, January 1985 to September 2021 (20,727 rows,
-1,468 with a flood). Sources are in `docs/DATA_DICTIONARY.md`.
+One row per county per month, January 1996 to September 2021. Sources are
+in `docs/DATA_DICTIONARY.md`.
+
+Years before 1996 are left out. The flood archive records almost no Kenyan
+floods before then, so a wet month in 1990 is labelled "no flood" because
+nobody reported one, not because none happened. Those rows taught the
+model that rain matters less than it does.
 
 | Input | Meaning |
 |---|---|
@@ -32,8 +37,32 @@ One row per county per month, January 1985 to September 2021 (20,727 rows,
 | `rain_prev_30d` | Rainfall over the 30 days before, mm |
 | `rain_30d_ratio` | `rain_30d` over the county's normal for that month |
 | `oni` | El Niño index (ONI) as published by that date |
+| `dmi` | Indian Ocean Dipole index (DMI) as published by that date |
+| `oni_short_rains`, `dmi_short_rains` | The same indices in October to December, zero otherwise |
 | `month_sin`, `month_cos` | Time of year |
 | `elevation`, `slope` | Terrain at the region's representative point |
+| `log_area` | Log of the county's area in km² (a control, see below) |
+
+Both ocean indices drive the October to December short rains far more than
+the long rains. A linear model cannot learn "only in these months" from the
+index and the month separately, so the short-rains versions carry it.
+
+`log_area` is not a cause of flooding. It corrects for how the labels are
+made: a flood is placed as a circle, so a large county is touched by more
+circles than a small one. Sub-counties are given their county's area,
+because that is the scale the model was trained at.
+
+Rainfall is measured one of two ways, chosen when the training set is
+built:
+
+| `--rain-source` | What it is | Scoring then averages |
+|---|---|---|
+| `open-meteo` (default) | ERA5 at one representative point per county | 1 point per region |
+| `earth-engine` | ERA5-Land averaged over the whole county | 5 points per region |
+
+The choice is recorded in `training_set.meta.json` and in the trained
+model, and `seed_rainfall` and `flood_outlook` read it from the model, so
+rainfall is always measured the way the model was trained.
 
 `features.py` builds this row and is the only place that does, for training,
 for `score_regions` and for `flood_outlook`.
@@ -42,7 +71,22 @@ for `score_regions` and for `flood_outlook`.
 
 Three models are compared by cross-validation that holds out whole years,
 because rows from the same month are near-copies of each other and a random
-split would flatter all three.
+split would flatter all three. Inside that cross-validation the normal
+rainfall behind `rain_30d_ratio` is recomputed from the training years
+only, so a held-out year never contributes to its own normal.
+
+They are scored against two baselines: always predicting the base rate,
+and a season-only model that knows nothing but the month. Beating the
+second is what shows rainfall, the ocean indices and terrain add something
+beyond "it is the rainy season". `metrics.json` reports both as
+`lift_over_base_rate` and `lift_over_season_only`.
+
+The winner's probabilities are then calibrated (Platt or isotonic, see
+`calibration.py`) if that lowers the held-out Brier score. This targets the
+overconfidence in the top band noted below.
+
+**The table below is the 1 October 2026 run, before these changes.** It
+will be replaced after the next `build_training_set` and `train_model`.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
@@ -59,6 +103,23 @@ is overconfident (it says 31% on average where 21% flooded).
 `artifacts/metrics.json` holds the current figures; the table above is the
 run of 1 October 2026.
 
+## Checking against satellite floods
+
+`validate_unosat` scores the model on months it never saw (2023 and 2024)
+against flood extents UNOSAT mapped from satellite, which say where water
+actually was rather than placing a circle. Download the products from
+UNOSAT's page on the Humanitarian Data Exchange, list them in a JSON
+manifest (the format is in the command's docstring), then:
+
+```bash
+docker compose run --rm web python manage.py validate_unosat data/external/unosat/events.json
+```
+
+Many UNOSAT products cover a few counties, not all of Kenya. List only the
+counties each product analysed under `covers`, so a county nobody mapped
+is not counted as dry. With a few events this is a few dozen to a hundred
+county-events: indicative, not conclusive.
+
 ## Known limits
 
 - **Labels are coarse.** The flood archive gives a centroid and an area, not
@@ -69,7 +130,7 @@ run of 1 October 2026.
 - **Trained on counties, applied to sub-counties.** A sub-county is scored
   from its own rainfall and terrain against its county's normal rainfall.
   That has not been validated at sub-county scale.
-- **Drainage is measured but not used.** `seed_drainage` fills river
+- **Drainage is measured but not used yet.** `seed_drainage` fills river
   distance, flood-zone share and built-up share for every region, and they
   were tried as inputs on 1 October 2026. Held-out average precision moved
   from 0.160 to 0.164, and the model learned both shares backwards (more
@@ -79,10 +140,15 @@ run of 1 October 2026.
   are the smallest. Adding county area as a control flipped built-up to
   the expected sign, which confirms it. Used as they stand, the inputs
   would lower the score of the places that drain worst, so they are left
-  out. Using them properly needs labels that say where inside a county it
-  flooded, such as the UNOSAT satellite flood extents for 2023 and 2024.
-- **No Indian Ocean Dipole.** It drives the short rains as much as El Niño
-  does (2019), and is only seen indirectly through rainfall.
+  out. `log_area` is now in the model as that control; once retrained,
+  try the drainage inputs again and check their coefficients have the
+  expected sign before keeping them. Using them properly needs labels that
+  say where inside a county it flooded.
+- **The biggest remaining gain is better labels.** The Global Flood
+  Database (`GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` on Earth Engine) has the
+  mapped extent of each DFO flood from 2000 to 2018. Labelling a county
+  only where that extent actually touched it, instead of the whole circle,
+  would fix the coarseness above at the source.
 - **Severity classes are not modelled.** DFO grades floods 1, 1.5 and 2, but
   only three Kenyan events are class 2. The model predicts whether a large
   flood is recorded, not how bad.
@@ -91,6 +157,9 @@ run of 1 October 2026.
 
 ```bash
 docker compose run --rm web python manage.py build_training_set   # downloads and caches the data
+#   or, county-mean rainfall. Once: set EE_PROJECT_ID in .env and run
+#   docker compose run --rm web earthengine authenticate --auth_mode=notebook
+#   docker compose run --rm web python manage.py build_training_set --rain-source earth-engine
 docker compose run --rm web python manage.py train_model          # or the Colab notebook
 docker compose run --rm web python manage.py seed_rainfall        # 61 days, what the model reads
 docker compose run --rm web python manage.py score_regions        # today, into RiskScore
@@ -115,7 +184,7 @@ and reporting the mean and spread. Two cautions on top of the ones above:
   record the flood model was trained on, and no past forecasts are available
   to measure and remove the difference between them. If the forecast model
   runs wetter than ERA5, the probabilities are too high.
-- ONI for future months is today's value carried forward.
+- ONI and DMI for future months are today's values carried forward.
 
 Its results are stored in `RiskOutlook`, not `RiskScore`, so a
 forecast-driven score can never become the dashboard's "latest". The

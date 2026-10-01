@@ -1,8 +1,21 @@
 """Assemble the training table from real observations.
 
-One row per county per month from 1985 to 2021: the rainfall, El Niño index
-and terrain for the 30 days ending on the last day of the month, and whether
-the Dartmouth Flood Observatory recorded a large flood there in that window.
+One row per county per month from 1996 to 2021: the rainfall, El Niño and
+Indian Ocean Dipole indices, terrain and county area for the 30 days ending
+on the last day of the month, and whether the Dartmouth Flood Observatory
+recorded a large flood there in that window.
+
+Rainfall comes from one of two sources (--rain-source):
+
+  open-meteo    ERA5 at one representative point per county. The default;
+                needs no account.
+  earth-engine  ERA5-Land averaged over the whole county, computed by
+                Google Earth Engine. Better for large counties; needs
+                earthengine-api and an authorised Earth Engine project.
+
+How rainfall was measured is written next to the CSV as
+training_set.meta.json, and travels with the trained model so scoring
+measures it the same way.
 
 Counties only. The flood archive locates an event to a centroid and an area,
 which is honest at county scale and would be false precision below it.
@@ -25,18 +38,31 @@ from django.core.management.base import BaseCommand, CommandError
 from geodata.management.commands.seed_terrain import representative_point
 from geodata.models import Region
 from geodata.services import dfo
-from geodata.services.climate_indices import ClimateIndexError, fetch_oni, oni_for
+from geodata.services.climate_indices import (
+    ClimateIndexError,
+    dmi_for,
+    fetch_dmi,
+    fetch_oni,
+    oni_for,
+)
+from geodata.services import earth_engine_rain
 from geodata.services.open_meteo import OpenMeteoError, fetch_archive_rainfall
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, WINDOW_DAYS, feature_row
 
-# The span the flood archive covers in full.
-FIRST_MONTH = dt.date(1985, 1, 1)
+# The archive runs to 2021 but has almost no Kenyan floods before 1996, so
+# earlier months would be labelled "no flood" for want of a report. See
+# FIRST_TRAINING_YEAR in riskengine/ml/train.py.
+FIRST_MONTH = dt.date(1996, 1, 1)
 LAST_MONTH = dt.date(2021, 9, 1)
+
+RAIN_SOURCES = ("open-meteo", "earth-engine")
 
 DATA_DIR = Path(settings.BASE_DIR) / "data"
 DFO_PATH = DATA_DIR / "external" / "dfo" / "FloodArchive.xlsx"
 RAINFALL_DIR = DATA_DIR / "raw" / "rainfall_archive"
+EE_RAINFALL_DIR = DATA_DIR / "raw" / "rainfall_ee"
 TRAINING_SET_PATH = DATA_DIR / "processed" / "training_set.csv"
+TRAINING_META_PATH = TRAINING_SET_PATH.with_suffix(".meta.json")
 
 LABEL_COLUMNS = ("flood", "severity", "events")
 
@@ -53,8 +79,57 @@ def month_ends(first: dt.date, last: dt.date) -> list[dt.date]:
     return ends
 
 
+def county_area(region) -> float | None:
+    """km² of the county a region lies in. A sub-county is scored as its county."""
+    county = region.parent if getattr(region, "parent_id", None) else region
+    return county.area_size
+
+
+def open_meteo_rainfall(counties, start, end, log=print):
+    """{county name: {date: mm}} at each county's representative point, cached per county."""
+    RAINFALL_DIR.mkdir(parents=True, exist_ok=True)
+    rainfall = {}
+    missing = []
+    for county in counties:
+        path = RAINFALL_DIR / f"{county.name}_{start}_{end}.json"
+        if path.exists():
+            cached = json.loads(path.read_text())
+            rainfall[county.name] = {dt.date.fromisoformat(day): mm for day, mm in cached.items()}
+        else:
+            missing.append((county, path))
+
+    if missing:
+        log(f"Fetching {start} to {end} rainfall for {len(missing)} counties")
+    # A few counties per request, each written as it arrives, so a run cut
+    # short by the rate limit resumes where it stopped.
+    for index in range(0, len(missing), FETCH_BATCH):
+        batch = missing[index : index + FETCH_BATCH]
+        points = [representative_point(county) for county, _path in batch]
+        for (county, path), series in zip(batch, fetch_archive_rainfall(points, start, end)):
+            path.write_text(json.dumps({day.isoformat(): mm for day, mm in series.items()}))
+            rainfall[county.name] = series
+    return rainfall
+
+
+def county_rainfall(counties, start, end, source: str, log=print):
+    """Daily rainfall per county from `source`, and how many points scoring should average."""
+    if source == "earth-engine":
+        series = earth_engine_rain.fetch_county_rainfall(counties, start, end, EE_RAINFALL_DIR, log=log)
+        return series, earth_engine_rain.SCORING_POINTS
+    return open_meteo_rainfall(counties, start, end, log=log), 1
+
+
 class Command(BaseCommand):
-    help = "Build data/processed/training_set.csv from DFO floods, ERA5 rainfall and ONI."
+    help = "Build data/processed/training_set.csv from DFO floods, rainfall, ONI and DMI."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--rain-source",
+            choices=RAIN_SOURCES,
+            default="open-meteo",
+            help="open-meteo: one point per county (default). "
+            "earth-engine: averaged over the county (needs earthengine-api).",
+        )
 
     def handle(self, *args, **options):
         counties = list(
@@ -65,20 +140,34 @@ class Command(BaseCommand):
         if not counties:
             raise CommandError("No counties in the database — run `seed_regions` first.")
 
+        source = options["rain_source"]
         ends = month_ends(FIRST_MONTH, LAST_MONTH)
         try:
             events_by_county = self._events_by_county(counties)
-            rainfall = self._rainfall(counties, ends[0] - dt.timedelta(days=HISTORY_DAYS), ends[-1])
+            rainfall, rain_points = county_rainfall(
+                counties,
+                ends[0] - dt.timedelta(days=HISTORY_DAYS),
+                ends[-1],
+                source,
+                log=self.stdout.write,
+            )
             oni = fetch_oni()
-        except (dfo.DFOError, OpenMeteoError, ClimateIndexError) as exc:
+            dmi = fetch_dmi()
+        except (
+            dfo.DFOError,
+            OpenMeteoError,
+            ClimateIndexError,
+            earth_engine_rain.EarthEngineError,
+        ) as exc:
             raise CommandError(str(exc)) from exc
 
         rows = []
         for county in counties:
-            rain = rainfall[county.name]
+            rain = rainfall.get(county.name, {})
             terrain = next(iter(county.geospatial_features.all()), None)
             # The county's normal rainfall for each calendar month, from the
-            # same record the rows are built on.
+            # same record the rows are built on. Training recomputes it per
+            # cross-validation fold; this column is for reference.
             totals = defaultdict(list)
             for end in ends:
                 start = end - dt.timedelta(days=WINDOW_DAYS - 1)
@@ -99,6 +188,8 @@ class Command(BaseCommand):
                     end,
                     normal_30d=normals[end.month],
                     oni=oni_for(end, oni),
+                    dmi=dmi_for(end, dmi),
+                    area_km2=county_area(county),
                     terrain=terrain,
                 )
                 rows.append(
@@ -116,6 +207,18 @@ class Command(BaseCommand):
             writer = csv.writer(handle)
             writer.writerow(["county", "date", "normal_30d", *FEATURE_NAMES, *LABEL_COLUMNS])
             writer.writerows(rows)
+        TRAINING_META_PATH.write_text(
+            json.dumps(
+                {
+                    "rain_source": "earth-engine-county-mean" if source == "earth-engine" else "open-meteo-point",
+                    "rain_points": rain_points,
+                    "period": [ends[0].isoformat(), ends[-1].isoformat()],
+                    "built": dt.date.today().isoformat(),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
         flooded = sum(row[-3] for row in rows)
         self.stdout.write("")
@@ -143,28 +246,3 @@ class Command(BaseCommand):
             f"DFO archive: {len(events)} events worldwide, {len(placed)} reaching Kenya"
         )
         return by_county
-
-    def _rainfall(self, counties, start, end):
-        """{county name: {date: mm}}, downloaded once and cached per county."""
-        RAINFALL_DIR.mkdir(parents=True, exist_ok=True)
-        rainfall = {}
-        missing = []
-        for county in counties:
-            path = RAINFALL_DIR / f"{county.name}_{start}_{end}.json"
-            if path.exists():
-                cached = json.loads(path.read_text())
-                rainfall[county.name] = {dt.date.fromisoformat(day): mm for day, mm in cached.items()}
-            else:
-                missing.append((county, path))
-
-        if missing:
-            self.stdout.write(f"Fetching {start} to {end} rainfall for {len(missing)} counties")
-        # A few counties per request, each written as it arrives, so a run cut
-        # short by the rate limit resumes where it stopped.
-        for index in range(0, len(missing), FETCH_BATCH):
-            batch = missing[index : index + FETCH_BATCH]
-            points = [representative_point(county) for county, _path in batch]
-            for (county, path), series in zip(batch, fetch_archive_rainfall(points, start, end)):
-                path.write_text(json.dumps({day.isoformat(): mm for day, mm in series.items()}))
-                rainfall[county.name] = series
-        return rainfall
