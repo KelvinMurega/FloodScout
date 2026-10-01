@@ -61,6 +61,19 @@ export function fetchLatestScores(params) {
   return getJson(withParams("risk-scores/latest-by-region/", params));
 }
 
+/** The months a seasonal outlook exists for: [{ month, issued_on }], soonest first. */
+export function fetchOutlookMonths() {
+  return getJson(withParams("risk-outlook/months/"));
+}
+
+/**
+ * Outlook rows for one month (`params.month`, the first of the month),
+ * narrowed by the same params as fetchRegions. Shaped like the latest scores.
+ */
+export function fetchOutlook(params) {
+  return getJson(withParams("risk-outlook/", params));
+}
+
 /** The flood-prone regions the dashboard can drill into, with county ids. */
 export function fetchFocusRegions() {
   return getJson(withParams("focus-regions/"));

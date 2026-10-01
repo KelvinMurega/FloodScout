@@ -5,7 +5,8 @@ the county. Elevation comes straight from the DEM; slope is computed here
 from four elevation samples around that point, so both numbers trace back to
 measurements rather than to an assumption.
 
-`distance_to_river` is deliberately left null — see the field's comment.
+The drainage fields (`distance_to_river` and the two fractions) are not
+touched here; `seed_drainage` fills them.
 """
 
 from __future__ import annotations
@@ -121,11 +122,7 @@ class Command(BaseCommand):
 
                 _feature, created = GeospatialFeature.objects.update_or_create(
                     region=region,
-                    defaults={
-                        "elevation": centre,
-                        "slope": round(slope, 3),
-                        "distance_to_river": None,
-                    },
+                    defaults={"elevation": centre, "slope": round(slope, 3)},
                 )
                 rows.append((str(region), centre, slope))
                 if created:
@@ -145,6 +142,4 @@ class Command(BaseCommand):
         highest = max(rows, key=lambda r: r[1])
         self.stdout.write(f"Lowest : {lowest[0]} at {lowest[1]:.0f} m")
         self.stdout.write(f"Highest: {highest[0]} at {highest[1]:.0f} m")
-        self.stdout.write(
-            "distance_to_river left null — no free hydrography source wired up yet."
-        )
+        self.stdout.write("Rivers, flood zones and built-up area: run `seed_drainage`.")

@@ -15,9 +15,15 @@ Sources, both free for non-commercial use and both citable:
               Daily `precipitation_sum` in mm, from the operational
               analysis — measured/analysed values, not a forecast, for
               dates already past.
+  History     https://archive-api.open-meteo.com/v1/archive
+              Daily `precipitation_sum` from the ERA5 reanalysis, 1940 on.
+              The training record.
+  Outlook     https://seasonal-api.open-meteo.com/v1/seasonal
+              ECMWF seasonal ensemble, daily `precipitation_sum` per member
+              for the months ahead. A forecast, and used only as one.
 
 Nothing here interprets the numbers. Turning them into a risk score is
-`riskengine/ml/infer.py`'s job, and it is still a placeholder.
+`riskengine/ml/infer.py`'s job.
 """
 
 from __future__ import annotations
@@ -32,11 +38,16 @@ from dataclasses import dataclass
 
 ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+SEASONAL_URL = "https://seasonal-api.open-meteo.com/v1/seasonal"
 
 # Open-Meteo accepts many coordinates per call. Kept well under the
 # documented ceilings so one slow county cannot fail the whole run.
 MAX_ELEVATION_POINTS = 100
 MAX_FORECAST_LOCATIONS = 25
+# Decades of days, or 51 ensemble members, per location: keep batches small.
+MAX_ARCHIVE_LOCATIONS = 5
+MAX_SEASONAL_LOCATIONS = 10
 
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -47,6 +58,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 # the limit resets on.
 RATE_LIMIT_RETRIES = 6
 RATE_LIMIT_WAIT_SECONDS = 65
+CONNECTION_RETRIES = 3
+CONNECTION_WAIT_SECONDS = 20
 
 # Indirection so tests can skip the wait.
 _sleep = time.sleep
@@ -85,7 +98,14 @@ def _get_json(url: str, params: dict[str, str]):
                 _sleep(_retry_after_seconds(exc))
                 continue
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
+            # A dropped connection part-way through a long run. Unlike a 429
+            # it carries no hint of how long to wait, so wait briefly.
+            if attempt < CONNECTION_RETRIES:
+                _sleep(CONNECTION_WAIT_SECONDS)
+                continue
+            raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
+        except json.JSONDecodeError as exc:
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
 
 
@@ -117,6 +137,39 @@ def fetch_elevations(points: list[Point]) -> list[float]:
     return elevations
 
 
+def _daily_locations(url: str, batch: list[Point], params: dict[str, str]) -> list[dict]:
+    """The `daily` block of each location in `batch`, in the order given."""
+    payload = _get_json(
+        url,
+        {
+            "latitude": ",".join(f"{p.lat:.5f}" for p in batch),
+            "longitude": ",".join(f"{p.lon:.5f}" for p in batch),
+            "daily": "precipitation_sum",
+            "timezone": "Africa/Nairobi",
+            **params,
+        },
+    )
+    # A single location comes back as an object, several as a list.
+    locations = payload if isinstance(payload, list) else [payload]
+    if len(locations) != len(batch):
+        raise OpenMeteoError(f"Expected {len(batch)} locations, got {len(locations)}")
+    return [location.get("daily") or {} for location in locations]
+
+
+def _series(daily: dict, key: str = "precipitation_sum") -> dict[dt.date, float]:
+    dates = daily.get("time") or []
+    totals = daily.get(key) or []
+    if len(dates) != len(totals):
+        raise OpenMeteoError("Mismatched date/precipitation arrays")
+    return {
+        dt.date.fromisoformat(day): float(mm)
+        # A null means the model had no value for that day; it is not the
+        # same as zero rain, so it is dropped rather than stored as 0.0.
+        for day, mm in zip(dates, totals)
+        if mm is not None
+    }
+
+
 def fetch_daily_rainfall(
     points: list[Point], past_days: int
 ) -> list[dict[dt.date, float]]:
@@ -125,42 +178,41 @@ def fetch_daily_rainfall(
     `forecast_days=0` keeps the response to dates that have already
     happened, so nothing stored is a prediction.
     """
-    if not points:
-        return []
-
     series: list[dict[dt.date, float]] = []
     for batch in _chunks(points, MAX_FORECAST_LOCATIONS):
-        payload = _get_json(
-            FORECAST_URL,
-            {
-                "latitude": ",".join(f"{p.lat:.5f}" for p in batch),
-                "longitude": ",".join(f"{p.lon:.5f}" for p in batch),
-                "daily": "precipitation_sum",
-                "past_days": str(past_days),
-                "forecast_days": "0",
-                "timezone": "Africa/Nairobi",
-            },
-        )
-        # A single location comes back as an object, several as a list.
-        locations = payload if isinstance(payload, list) else [payload]
-        if len(locations) != len(batch):
-            raise OpenMeteoError(
-                f"Expected {len(batch)} locations, got {len(locations)}"
-            )
-        for location in locations:
-            daily = location.get("daily") or {}
-            dates = daily.get("time") or []
-            totals = daily.get("precipitation_sum") or []
-            if len(dates) != len(totals):
-                raise OpenMeteoError("Mismatched date/precipitation arrays")
-            series.append(
-                {
-                    dt.date.fromisoformat(day): float(mm)
-                    # A null means the model had no value for that day; it is
-                    # not the same as zero rain, so it is dropped rather than
-                    # stored as 0.0.
-                    for day, mm in zip(dates, totals)
-                    if mm is not None
-                }
-            )
+        params = {"past_days": str(past_days), "forecast_days": "0"}
+        series.extend(_series(daily) for daily in _daily_locations(FORECAST_URL, batch, params))
     return series
+
+
+def fetch_archive_rainfall(
+    points: list[Point], start: dt.date, end: dt.date
+) -> list[dict[dt.date, float]]:
+    """Historical daily rainfall in mm per point, from the ERA5 reanalysis.
+
+    This is what the model is trained on: one consistent record back to 1940,
+    which the forecast endpoint (a few months of history) cannot give.
+    """
+    series: list[dict[dt.date, float]] = []
+    for batch in _chunks(points, MAX_ARCHIVE_LOCATIONS):
+        params = {"start_date": start.isoformat(), "end_date": end.isoformat()}
+        series.extend(_series(daily) for daily in _daily_locations(ARCHIVE_URL, batch, params))
+    return series
+
+
+def fetch_seasonal_rainfall(
+    points: list[Point], forecast_days: int
+) -> list[list[dict[dt.date, float]]]:
+    """Forecast daily rainfall in mm per point, one series per ensemble member.
+
+    Unlike everything else in this module these are predictions, starting
+    today. They feed `flood_outlook` only and are never stored as
+    EnvironmentalData.
+    """
+    members: list[list[dict[dt.date, float]]] = []
+    for batch in _chunks(points, MAX_SEASONAL_LOCATIONS):
+        params = {"forecast_days": str(forecast_days)}
+        for daily in _daily_locations(SEASONAL_URL, batch, params):
+            keys = sorted(key for key in daily if key.startswith("precipitation_sum"))
+            members.append([_series(daily, key) for key in keys])
+    return members

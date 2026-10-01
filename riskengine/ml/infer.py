@@ -1,13 +1,13 @@
-"""Placeholder risk scorer — the interface, not the model.
+"""The risk scorer.
 
 `infer(region, date)` returns `(predicted_value, risk_category)`, and nothing
 downstream (the `score_regions` command, the API, the dashboard) knows or
-cares how that tuple was produced. When the scikit-learn model from Chapter 3
-lands it replaces the body of `infer()` and bumps `MODEL_VERSION`; the
-signature does not change. That is the whole point of this module existing
-before the model does.
+cares how that tuple was produced.
 
-Until then the score is a deliberately crude, documented rule of thumb:
+When a trained model is present in `artifacts/` it is used, and
+MODEL_VERSION is its version. See `train.py` for what it is and how well it
+does. When there is none, the score falls back to a deliberately crude,
+documented rule of thumb:
 
     predicted_value = RAINFALL_WEIGHT  * rainfall_component
                     + ELEVATION_WEIGHT * elevation_component
@@ -35,13 +35,34 @@ result, in the database or in the API.
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 
+import joblib
+import numpy as np
 from django.db.models import Sum
 
+from geodata.services.climate_indices import oni_for
+from riskengine.ml.features import HISTORY_DAYS, feature_row
 from riskengine.models import RiskScore
 
-# Bumped by whatever replaces the heuristic. Stored on every RiskScore row.
-MODEL_VERSION = "heuristic-stub-v0"
+HEURISTIC_VERSION = "heuristic-stub-v0"
+
+# Written by `manage.py train_model` or the Colab notebook.
+ARTIFACT_PATH = Path(__file__).resolve().parent / "artifacts" / "flood_model.joblib"
+
+
+def load_model(path: Path = ARTIFACT_PATH) -> dict | None:
+    """The trained model package, or None when none has been trained yet."""
+    return joblib.load(path) if path.exists() else None
+
+
+# Loaded once at import. It is all-or-nothing on purpose: either every score
+# comes from the trained model or every score comes from the heuristic, so
+# MODEL_VERSION is true of every row it is stamped on.
+_MODEL = load_model()
+
+# Stored on every RiskScore row.
+MODEL_VERSION = _MODEL["version"] if _MODEL else HEURISTIC_VERSION
 
 # --- The rule of thumb, in full ------------------------------------------
 
@@ -94,22 +115,59 @@ def elevation_component(region) -> float | None:
     return _clamp(1.0 - (feature.elevation / ELEVATION_CEILING_M))
 
 
-def classify(predicted_value: float) -> str:
+def classify(predicted_value: float, thresholds=CATEGORY_THRESHOLDS) -> str:
     """Map a raw score to a RiskScore.RiskCategory value (FR-04)."""
-    for upper_bound, category in CATEGORY_THRESHOLDS:
+    for upper_bound, category in thresholds:
         if predicted_value <= upper_bound:
             return category
     return TOP_CATEGORY
+
+
+def model_thresholds(model: dict) -> tuple[tuple[float, str], ...]:
+    """The trained model's probability bands, in the shape `classify` takes."""
+    categories = [category for _bound, category in CATEGORY_THRESHOLDS]
+    return tuple(zip(model["probability_bands"], categories))
+
+
+def flood_probabilities(model: dict, rows: list[list[float]]) -> list[float]:
+    """Flood probability for each feature row (see riskengine/ml/features.py)."""
+    return [float(p) for p in model["pipeline"].predict_proba(np.array(rows, dtype=float))[:, 1]]
+
+
+def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
+    """Score one region from what the database holds for it."""
+    rain = dict(
+        region.environmental_records.filter(
+            record_date__gt=date - dt.timedelta(days=HISTORY_DAYS), record_date__lte=date
+        ).values_list("record_date", "rainfall_intensity")
+    )
+    terrain = region.geospatial_features.order_by("-pk").first()
+    row = feature_row(
+        rain,
+        date,
+        # A sub-county is measured against its county's normal rainfall.
+        normal_30d=model["normals"].get(region.county_name, {}).get(date.month),
+        oni=oni_for(date, model["oni"]),
+        terrain=terrain,
+    )
+    predicted_value = round(flood_probabilities(model, [row])[0], 4)
+    return predicted_value, classify(predicted_value, model_thresholds(model))
 
 
 def infer(region, date) -> tuple[float, str]:
     """Return (predicted_value, risk_category).
 
     `region` is a geodata.Region, `date` a datetime.date. `risk_category` is
-    always one of RiskScore.RiskCategory. This signature is the contract the
-    trained model will honour — callers should import nothing else from here
-    except MODEL_VERSION.
+    always one of RiskScore.RiskCategory. Callers should import nothing else
+    from here except MODEL_VERSION.
+
+    With a trained model on disk, `predicted_value` is the probability that
+    a large flood is recorded in the region in the 30 days ending on `date`.
+    Without one it is the placeholder heuristic below.
     """
+    if _MODEL is not None:
+        return model_infer(_MODEL, region, date)
+
     rainfall = rainfall_component(region, date)
     elevation = elevation_component(region)
 

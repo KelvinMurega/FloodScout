@@ -18,9 +18,9 @@ from geodata.services.open_meteo import OpenMeteoError, fetch_daily_rainfall
 
 from .seed_terrain import representative_point
 
-# The placeholder scorer looks at a 7-day window; 14 gives it a full window
-# plus history to look back over without a second fetch.
-DEFAULT_PAST_DAYS = 14
+# The trained model reads the 30 days up to the scoring date and the 30
+# before those (riskengine/ml/features.py); a day over covers the edge.
+DEFAULT_PAST_DAYS = 61
 
 
 class Command(BaseCommand):

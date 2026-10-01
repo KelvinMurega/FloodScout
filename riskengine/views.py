@@ -1,3 +1,6 @@
+import datetime as dt
+
+from django.db.models import Max
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -8,8 +11,8 @@ from geodata.filters import filter_by_region_params
 from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
-from .models import RiskScore
-from .serializers import RiskScoreSerializer
+from .models import RiskOutlook, RiskScore
+from .serializers import RiskOutlookSerializer, RiskScoreSerializer
 
 # How close two regions' boundaries must come to count as neighbours, in
 # degrees (~220 m). Not zero: the ADM2 boundaries do not always share
@@ -108,3 +111,34 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         ]
         candidates.sort(key=lambda score: (score.predicted_value, score.region.name))
         return Response(self.get_serializer(candidates, many=True).data)
+
+
+class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only seasonal outlook: one row per region per month ahead.
+
+    `?month=YYYY-MM-DD` (the first of the month) picks one month, and the
+    region filters of the other endpoints apply. `months/` lists the months
+    an outlook exists for.
+    """
+
+    queryset = RiskOutlook.objects.select_related("region").all()
+    serializer_class = RiskOutlookSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        month = self.request.query_params.get("month")
+        if month:
+            try:
+                qs = qs.filter(month=dt.date.fromisoformat(month))
+            except ValueError as exc:
+                raise ValidationError({"month": "Expected YYYY-MM-DD."}) from exc
+        return filter_by_region_params(qs, self.request.query_params, prefix="region__")
+
+    @action(detail=False, methods=["get"])
+    def months(self, request):
+        rows = (
+            RiskOutlook.objects.values("month")
+            .annotate(issued_on=Max("issued_on"))
+            .order_by("month")
+        )
+        return Response(list(rows))
