@@ -247,3 +247,106 @@ class LatestByRegionEndpointTests(APITestCase):
         """The whole point: one request and one query, not one per county."""
         with self.assertNumQueries(1):
             self.client.get(reverse("risk-score-latest-by-region"))
+
+
+# --- Sub-counties, relocation advisory, neighbours ---
+
+
+def make_sub_county(name: str, county: Region, *, x: float, y: float = 0.0) -> Region:
+    """A 0.1 degree square sub-county; squares 0.1 apart share an edge."""
+    square = Polygon.from_bbox((x, y, x + 0.1, y + 0.1))
+    square.srid = 4326
+    return Region.objects.create(
+        name=name,
+        county_name=county.name,
+        level=Region.Level.SUB_COUNTY,
+        parent=county,
+        geom=MultiPolygon(square, srid=4326),
+        area_size=100.0,
+    )
+
+
+def score(region: Region, value: float) -> RiskScore:
+    from .ml.infer import classify
+
+    return RiskScore.objects.create(
+        region=region, predicted_value=value, risk_category=classify(value)
+    )
+
+
+class RelocationAdvisoryTests(TestCase):
+    def test_maps_each_category(self):
+        from .advisory import NONE, PREPARE, RELOCATE, relocation_advisory
+
+        self.assertEqual(relocation_advisory(RiskScore.RiskCategory.VERY_HIGH), RELOCATE)
+        self.assertEqual(relocation_advisory(RiskScore.RiskCategory.HIGH), PREPARE)
+        self.assertEqual(relocation_advisory(RiskScore.RiskCategory.MODERATE), NONE)
+        self.assertEqual(relocation_advisory(RiskScore.RiskCategory.LOW), NONE)
+
+
+class SubCountyScoreAPITests(APITestCase):
+    def setUp(self):
+        self.nairobi = make_region("Nairobi", offset=0.0)
+        self.garissa = make_region("Garissa", offset=5.0)
+        # A row of three touching sub-counties and one far away.
+        self.kibra = make_sub_county("Kibra", self.nairobi, x=0.1)
+        self.langata = make_sub_county("Langata", self.nairobi, x=0.2)
+        self.westlands = make_sub_county("Westlands", self.nairobi, x=0.3)
+        self.dadaab = make_sub_county("Dadaab", self.garissa, x=5.1, y=5.1)
+
+        score(self.nairobi, 0.4)
+        score(self.garissa, 0.6)
+        score(self.kibra, 0.2)       # low
+        score(self.langata, 0.9)     # very high
+        score(self.westlands, 0.4)   # moderate
+        score(self.dadaab, 0.1)      # low, but nowhere near Langata
+
+    def test_rows_carry_region_name_level_and_advisory(self):
+        response = self.client.get(
+            reverse("risk-score-latest-by-region"), {"level": "sub_county"}
+        )
+
+        rows = {row["region_name"]: row for row in response.data}
+        self.assertEqual(set(rows), {"Kibra", "Langata", "Westlands", "Dadaab"})
+        self.assertEqual(rows["Langata"]["county_name"], "Nairobi")
+        self.assertEqual(rows["Langata"]["region_level"], "sub_county")
+        self.assertEqual(rows["Langata"]["relocation_advisory"], "relocate")
+        self.assertEqual(rows["Kibra"]["relocation_advisory"], "none")
+
+    def test_latest_by_region_filters_by_focus_region(self):
+        response = self.client.get(
+            reverse("risk-score-latest-by-region"),
+            {"level": "sub_county", "focus_region": "nairobi"},
+        )
+
+        self.assertEqual(
+            [row["region_name"] for row in response.data], ["Kibra", "Langata", "Westlands"]
+        )
+
+    def test_latest_by_region_is_still_one_query_when_filtered(self):
+        with self.assertNumQueries(1):
+            self.client.get(
+                reverse("risk-score-latest-by-region"),
+                {"level": "sub_county", "focus_region": "nairobi"},
+            )
+
+    def test_lower_risk_neighbours_are_adjacent_and_lower_least_risky_first(self):
+        response = self.client.get(
+            reverse("risk-score-lower-risk-neighbours"), {"region": self.langata.id}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        # Dadaab is lower risk but not adjacent; counties are another level.
+        self.assertEqual([row["region_name"] for row in response.data], ["Kibra", "Westlands"])
+
+    def test_lower_risk_neighbours_excludes_equal_or_higher_risk(self):
+        response = self.client.get(
+            reverse("risk-score-lower-risk-neighbours"), {"region": self.kibra.id}
+        )
+
+        self.assertEqual(response.data, [])
+
+    def test_lower_risk_neighbours_needs_a_region(self):
+        url = reverse("risk-score-lower-risk-neighbours")
+        self.assertEqual(self.client.get(url).status_code, 400)
+        self.assertEqual(self.client.get(url, {"region": 999999}).status_code, 404)

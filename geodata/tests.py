@@ -7,6 +7,7 @@ fixture written to a temp directory, or patches the download helper.
 import datetime
 import json
 import tempfile
+import urllib.error
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -17,6 +18,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
+from geodata import focus_regions
 from geodata.management.commands import seed_rainfall, seed_regions, seed_terrain
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
 from geodata.serializers import COORDINATE_PRECISION
@@ -514,3 +516,234 @@ class OpenMeteoClientTests(TestCase):
                 open_meteo.fetch_elevations(
                     [open_meteo.Point(36.8, -1.3), open_meteo.Point(39.6, -4.0)]
                 )
+
+    def test_rate_limit_is_waited_out_then_retried(self):
+        rate_limited = urllib.error.HTTPError(
+            open_meteo.ELEVATION_URL, 429, "Too Many Requests", {"Retry-After": "7"}, None
+        )
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.read.return_value = b'{"elevation": [1.0]}'
+
+        with mock.patch.object(
+            open_meteo.urllib.request, "urlopen", side_effect=[rate_limited, ok]
+        ), mock.patch.object(open_meteo, "_sleep") as sleep:
+            elevations = open_meteo.fetch_elevations([open_meteo.Point(36.8, -1.3)])
+
+        self.assertEqual(elevations, [1.0])
+        sleep.assert_called_once_with(7.0)
+
+    def test_rate_limit_gives_up_after_the_retry_budget(self):
+        def rate_limited(*args, **kwargs):
+            raise urllib.error.HTTPError(
+                open_meteo.ELEVATION_URL, 429, "Too Many Requests", {}, None
+            )
+
+        with mock.patch.object(
+            open_meteo.urllib.request, "urlopen", side_effect=rate_limited
+        ), mock.patch.object(open_meteo, "_sleep") as sleep:
+            with self.assertRaises(OpenMeteoError):
+                open_meteo.fetch_elevations([open_meteo.Point(36.8, -1.3)])
+
+        self.assertEqual(sleep.call_count, open_meteo.RATE_LIMIT_RETRIES)
+
+
+# --- Sub-counties -------------------------------------------------------
+
+# Two sub-counties that split KISUMU_RING down the middle, one of them poking
+# a little way east of the county as real ADM2 shapes (drawn by a different
+# agency) do, plus one of Lamu's islands.
+SUB_COUNTY_FIXTURE = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"shapeName": "Kisumu West"},
+            "geometry": {"type": "Polygon", "coordinates": [_box(34.60, -0.20, 34.75, 0.10)]},
+        },
+        {
+            "type": "Feature",
+            "properties": {"shapeName": "Kisumu East"},
+            "geometry": {"type": "Polygon", "coordinates": [_box(34.75, -0.20, 34.92, 0.10)]},
+        },
+        {
+            "type": "Feature",
+            "properties": {"shapeName": "Lamu East"},
+            "geometry": {"type": "Polygon", "coordinates": [_box(41.00, -2.20, 41.10, -2.10)]},
+        },
+    ],
+}
+
+
+class SeedSubCountiesTests(TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        tmp = Path(self._tmp.name)
+        self.counties_path = tmp / "counties.geojson"
+        self.counties_path.write_text(json.dumps(FIXTURE), encoding="utf-8")
+        self.sub_counties_path = tmp / "sub_counties.geojson"
+        self.sub_counties_path.write_text(json.dumps(SUB_COUNTY_FIXTURE), encoding="utf-8")
+
+    def seed_counties(self):
+        call_command("seed_regions", path=self.counties_path, stdout=StringIO())
+
+    def seed_sub_counties(self, **kwargs):
+        out = StringIO()
+        call_command(
+            "seed_regions", level="sub_county", path=self.sub_counties_path, stdout=out, **kwargs
+        )
+        return out.getvalue()
+
+    def test_each_sub_county_is_assigned_the_county_it_overlaps_most(self):
+        self.seed_counties()
+        self.seed_sub_counties()
+
+        kisumu = Region.objects.get(level=Region.Level.COUNTY, name="Kisumu")
+        east = Region.objects.get(level=Region.Level.SUB_COUNTY, name="Kisumu East")
+        self.assertEqual(east.parent, kisumu)
+        self.assertEqual(east.county_name, "Kisumu")
+        self.assertEqual(
+            set(kisumu.sub_counties.values_list("name", flat=True)),
+            {"Kisumu West", "Kisumu East"},
+        )
+        self.assertEqual(Region.objects.get(name="Lamu East").parent.name, "Lamu")
+
+    def test_counties_are_left_alone(self):
+        self.seed_counties()
+        self.seed_sub_counties()
+
+        self.assertEqual(Region.objects.filter(level=Region.Level.COUNTY).count(), 2)
+        self.assertEqual(Region.objects.filter(level=Region.Level.SUB_COUNTY).count(), 3)
+
+    def test_rerunning_does_not_duplicate_rows(self):
+        self.seed_counties()
+        self.seed_sub_counties()
+        second = self.seed_sub_counties()
+
+        self.assertIn("Updated: 3", second)
+        self.assertEqual(Region.objects.filter(level=Region.Level.SUB_COUNTY).count(), 3)
+
+    def test_county_option_loads_only_that_county_s_sub_counties(self):
+        self.seed_counties()
+        self.seed_sub_counties(county="kisumu")
+
+        self.assertEqual(
+            set(
+                Region.objects.filter(level=Region.Level.SUB_COUNTY).values_list("name", flat=True)
+            ),
+            {"Kisumu West", "Kisumu East"},
+        )
+
+    def test_needs_counties_first(self):
+        with self.assertRaises(CommandError):
+            self.seed_sub_counties()
+
+
+class RegionModelTests(TestCase):
+    def test_a_county_created_with_only_county_name_names_itself(self):
+        region = Region.objects.create(county_name="Nairobi", geom=_square(), area_size=1.0)
+
+        self.assertEqual(region.name, "Nairobi")
+        self.assertEqual(region.level, Region.Level.COUNTY)
+
+
+def _sub_county(name, county, *, x, y):
+    return Region.objects.create(
+        name=name,
+        county_name=county.name,
+        level=Region.Level.SUB_COUNTY,
+        parent=county,
+        geom=_square(x=x, y=y, size=0.05),
+        area_size=10.0,
+    )
+
+
+class RegionFilterAPITests(APITestCase):
+    def setUp(self):
+        self.nairobi = Region.objects.create(county_name="Nairobi", geom=_square(), area_size=696.0)
+        self.kisumu = Region.objects.create(
+            county_name="Kisumu", geom=_square(x=34.7, y=-0.1), area_size=100.0
+        )
+        self.westlands = _sub_county("Westlands", self.nairobi, x=36.8, y=-1.3)
+        self.kibra = _sub_county("Kibra", self.nairobi, x=36.85, y=-1.3)
+        self.seme = _sub_county("Seme", self.kisumu, x=34.7, y=-0.1)
+
+    def ids(self, response):
+        return {feature["id"] for feature in response.data["features"]}
+
+    def test_list_defaults_to_counties(self):
+        response = self.client.get("/api/regions/")
+
+        self.assertEqual(self.ids(response), {self.nairobi.id, self.kisumu.id})
+
+    def test_level_sub_county(self):
+        response = self.client.get("/api/regions/?level=sub_county")
+
+        self.assertEqual(self.ids(response), {self.westlands.id, self.kibra.id, self.seme.id})
+
+    def test_parent_lists_that_county_s_sub_counties(self):
+        response = self.client.get(f"/api/regions/?parent={self.nairobi.id}")
+
+        self.assertEqual(self.ids(response), {self.westlands.id, self.kibra.id})
+
+    def test_focus_region_lists_sub_counties_inside_it(self):
+        response = self.client.get("/api/regions/?level=sub_county&focus_region=nairobi")
+
+        self.assertEqual(self.ids(response), {self.westlands.id, self.kibra.id})
+
+    def test_sub_county_properties(self):
+        response = self.client.get(f"/api/regions/?parent={self.nairobi.id}")
+
+        properties = {f["properties"]["name"]: f["properties"] for f in response.data["features"]}
+        self.assertEqual(properties["Kibra"]["county_name"], "Nairobi")
+        self.assertEqual(properties["Kibra"]["level"], "sub_county")
+        self.assertEqual(properties["Kibra"]["parent"], self.nairobi.id)
+
+    def test_detail_reaches_a_sub_county(self):
+        response = self.client.get(f"/api/regions/{self.kibra.id}/")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_bad_filters_are_400(self):
+        for query in ("level=ward", "focus_region=atlantis", "parent=abc"):
+            with self.subTest(query=query):
+                self.assertEqual(self.client.get(f"/api/regions/?{query}").status_code, 400)
+
+
+# The 47 county names exactly as the geoBoundaries ADM1 file spells them.
+KENYA_COUNTIES = {
+    "Baringo", "Bomet", "Bungoma", "Busia", "Elgeyo-Marakwet", "Embu", "Garissa",
+    "Homa Bay", "Isiolo", "Kajiado", "Kakamega", "Kericho", "Kiambu", "Kilifi",
+    "Kirinyaga", "Kisii", "Kisumu", "Kitui", "Kwale", "Laikipia", "Lamu", "Machakos",
+    "Makueni", "Mandera", "Marsabit", "Meru", "Migori", "Mombasa", "Murang'a",
+    "Nairobi", "Nakuru", "Nandi", "Narok", "Nyamira", "Nyandarua", "Nyeri", "Samburu",
+    "Siaya", "Taita Taveta", "Tana River", "Tharaka", "Trans Nzoia", "Turkana",
+    "Uasin Gishu", "Vihiga", "Wajir", "West Pokot",
+}
+
+
+class FocusRegionTests(APITestCase):
+    def test_every_focus_county_is_a_real_county_name(self):
+        """A misspelt name would silently drop that county from the region."""
+        self.assertEqual(len(KENYA_COUNTIES), 47)
+        for focus in focus_regions.FOCUS_REGIONS:
+            with self.subTest(focus=focus.slug):
+                self.assertLessEqual(set(focus.counties), KENYA_COUNTIES)
+
+    def test_list_resolves_counties_to_region_ids(self):
+        garissa = Region.objects.create(county_name="Garissa", geom=_square(), area_size=1.0)
+
+        response = self.client.get("/api/focus-regions/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row["slug"] for row in response.data],
+            [focus.slug for focus in focus_regions.FOCUS_REGIONS],
+        )
+        north_eastern = next(row for row in response.data if row["slug"] == "north-eastern")
+        # Only counties present in the database are listed.
+        self.assertEqual(north_eastern["counties"], [{"id": garissa.id, "name": "Garissa"}])
+
+    def test_retrieve_and_unknown_slug(self):
+        self.assertEqual(self.client.get("/api/focus-regions/coast/").data["name"], "Coast")
+        self.assertEqual(self.client.get("/api/focus-regions/atlantis/").status_code, 404)

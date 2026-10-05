@@ -26,7 +26,7 @@ class RegionSerializer(GeoFeatureModelSerializer):
     class Meta:
         model = Region
         geo_field = "geom"
-        fields = ["id", "county_name", "area_size", "geom"]
+        fields = ["id", "name", "county_name", "level", "parent", "area_size", "geom"]
 
 
 class GeospatialFeatureSerializer(serializers.ModelSerializer):

@@ -1,21 +1,14 @@
 /**
  * Risk categories and their colours.
  *
- * The four categories are *ordinal* — reordering them would change their
- * meaning — so the ramp is a single hue with monotone lightness steps rather
- * than four unrelated colours. Both sets below were checked mechanically
- * (monotone lightness, adjacent lightness gap >= 0.06, lightest step >= 2:1
- * against its own surface, single hue) rather than picked by eye:
- *
- *   light surface #fcfcfb : hue spread 11 deg, lightest step 2.16:1
- *   dark  surface #1a1a19 : hue spread  7 deg, darkest  step 2.65:1
- *
- * On the dark surface the ramp's anchor flips — severity runs toward the
- * brighter end, away from the background, so "very high" stays the loudest
- * thing on screen in either theme.
+ * A traffic-light scheme: green (low), orange (moderate), light red (high),
+ * dark red (very high). The dark-theme set keeps the same hues but lifts
+ * green and orange slightly, and keeps "very high" a saturated dark red
+ * that still clears 3:1 against the dark surface (#1a1a19).
  *
  * Colour is never the only channel: the legend, the detail panel and the
- * county table all name the category in text.
+ * county table all name the category in text, which matters here because
+ * green/red is the hardest pair for red-green colour-blind readers.
  */
 
 export const CATEGORY_ORDER = ["low", "moderate", "high", "very_high"];
@@ -28,17 +21,17 @@ export const CATEGORY_LABELS = {
 };
 
 const RAMP_LIGHT = {
-  low: "#fb9272",
-  moderate: "#fb6a4a",
-  high: "#de2d26",
+  low: "#2e9e4f",
+  moderate: "#f08c00",
+  high: "#f26d6d",
   very_high: "#a50f15",
 };
 
 const RAMP_DARK = {
-  low: "#a33a28",
-  moderate: "#d4553c",
-  high: "#ef7f63",
-  very_high: "#ffab90",
+  low: "#3fb760",
+  moderate: "#f59f25",
+  high: "#ff8a80",
+  very_high: "#c62828",
 };
 
 // Regions the API returned no score for. Deliberately a desaturated grey in
@@ -62,4 +55,19 @@ export function colourFor(category, dark = prefersDark()) {
 
 export function labelFor(category) {
   return CATEGORY_LABELS[category] ?? "No score";
+}
+
+/**
+ * Relocation advisories, keyed by the API's `relocation_advisory` value.
+ * The rule that assigns them lives server-side in riskengine/advisory.py;
+ * this is only how they read on screen.
+ */
+export const ADVISORY_LABELS = {
+  relocate: "Relocate now",
+  prepare: "Prepare to move",
+  none: "No action",
+};
+
+export function advisoryFor(advisory) {
+  return ADVISORY_LABELS[advisory] ?? "No score";
 }
