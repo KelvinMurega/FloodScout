@@ -85,8 +85,9 @@ The winner's probabilities are then calibrated (Platt or isotonic, see
 `calibration.py`) if that lowers the held-out Brier score. This targets the
 overconfidence in the top band noted below.
 
-The figures below are the 2 October 2026 run: 14,523 county-months from
-1996 to 2021, of which 1,406 (9.7%) have a recorded flood.
+The figures below are the 5 October 2026 run: 14,523 county-months from
+1996 to 2021, of which 1,406 (9.7%) have a recorded flood. It repeats the
+2 October run on the same data and seed, and its scores are identical.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
@@ -107,7 +108,34 @@ The run before it (1 October 2026) used 1985 to 2021, nine inputs and
 normals computed over all years. Logistic Regression won it with ROC AUC
 0.726 and average precision 0.160 against a base rate of 0.071.
 
-`artifacts/metrics.json` holds the current figures.
+Those figures pool every held-out row. Fold by fold the result moves a
+lot with which years are held out:
+
+| Model | Average precision, mean of six folds | Standard deviation |
+|---|---|---|
+| Random Forest | 0.297 | 0.098 |
+| Logistic Regression | 0.266 | 0.118 |
+| Gradient Boosting | 0.239 | 0.073 |
+| Season only | 0.202 | 0.105 |
+
+So the Random Forest's lead over the season-only model is 1.5 times when
+folds are averaged, against 2.1 times pooled. Quote both.
+
+Treating a probability above a band edge as a warning, on held-out years:
+
+| Warn above | Floods caught | Floods missed | False alarms | Recall | Precision |
+|---|---|---|---|---|---|
+| 5% (Moderate and up) | 1,243 | 163 | 6,232 | 88.4% | 16.6% |
+| 10% (High and up) | 1,008 | 398 | 3,689 | 71.7% | 21.5% |
+| 20% (Very High) | 585 | 821 | 1,628 | 41.6% | 26.4% |
+
+Some false alarms are floods nobody recorded, and some "floods" are
+counties a circle touched that stayed dry, so the precision is a floor.
+
+`artifacts/metrics.json` holds the current figures: `folds` and
+`fold_summary` for the first table, `threshold_errors` for the second, and
+`provenance` for the commit, the SHA-256 of the training set, the seed and
+the scikit-learn version the run used.
 
 ## Checking against satellite floods
 

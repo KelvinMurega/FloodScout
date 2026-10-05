@@ -1,5 +1,5 @@
 {
-  "version": "flood-random-forest-20261002",
+  "version": "flood-random-forest-20261005",
   "target": "DFO large flood recorded in the county within the 30-day window",
   "rows": 14523,
   "positives": 1406,
@@ -107,5 +107,241 @@
       "mean_predicted": 0.312,
       "observed_flood_rate": 0.2643
     }
-  ]
+  ],
+  "folds": [
+    {
+      "years": [
+        1996,
+        2002,
+        2008,
+        2014,
+        2020
+      ],
+      "rows": 2820,
+      "positives": 232,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.2472,
+          "roc_auc": 0.8003
+        },
+        "random-forest": {
+          "average_precision": 0.2875,
+          "roc_auc": 0.8202
+        },
+        "gradient-boosting": {
+          "average_precision": 0.3011,
+          "roc_auc": 0.8392
+        },
+        "season-only": {
+          "average_precision": 0.2866,
+          "roc_auc": 0.7658
+        }
+      }
+    },
+    {
+      "years": [
+        2001,
+        2007,
+        2013,
+        2019,
+        2021
+      ],
+      "rows": 2679,
+      "positives": 243,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.1659,
+          "roc_auc": 0.6375
+        },
+        "random-forest": {
+          "average_precision": 0.168,
+          "roc_auc": 0.7562
+        },
+        "gradient-boosting": {
+          "average_precision": 0.1437,
+          "roc_auc": 0.719
+        },
+        "season-only": {
+          "average_precision": 0.0785,
+          "roc_auc": 0.373
+        }
+      }
+    },
+    {
+      "years": [
+        2000,
+        2006,
+        2012,
+        2018
+      ],
+      "rows": 2256,
+      "positives": 307,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.4799,
+          "roc_auc": 0.8212
+        },
+        "random-forest": {
+          "average_precision": 0.3512,
+          "roc_auc": 0.8268
+        },
+        "gradient-boosting": {
+          "average_precision": 0.2382,
+          "roc_auc": 0.7236
+        },
+        "season-only": {
+          "average_precision": 0.2516,
+          "roc_auc": 0.5621
+        }
+      }
+    },
+    {
+      "years": [
+        1999,
+        2005,
+        2011,
+        2017
+      ],
+      "rows": 2256,
+      "positives": 149,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.1713,
+          "roc_auc": 0.7493
+        },
+        "random-forest": {
+          "average_precision": 0.1948,
+          "roc_auc": 0.7188
+        },
+        "gradient-boosting": {
+          "average_precision": 0.1624,
+          "roc_auc": 0.7194
+        },
+        "season-only": {
+          "average_precision": 0.0702,
+          "roc_auc": 0.4722
+        }
+      }
+    },
+    {
+      "years": [
+        1998,
+        2004,
+        2010,
+        2016
+      ],
+      "rows": 2256,
+      "positives": 248,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.3136,
+          "roc_auc": 0.8259
+        },
+        "random-forest": {
+          "average_precision": 0.365,
+          "roc_auc": 0.8724
+        },
+        "gradient-boosting": {
+          "average_precision": 0.3241,
+          "roc_auc": 0.8056
+        },
+        "season-only": {
+          "average_precision": 0.3179,
+          "roc_auc": 0.7982
+        }
+      }
+    },
+    {
+      "years": [
+        1997,
+        2003,
+        2009,
+        2015
+      ],
+      "rows": 2256,
+      "positives": 227,
+      "scores": {
+        "logreg": {
+          "average_precision": 0.2202,
+          "roc_auc": 0.7652
+        },
+        "random-forest": {
+          "average_precision": 0.4134,
+          "roc_auc": 0.797
+        },
+        "gradient-boosting": {
+          "average_precision": 0.2618,
+          "roc_auc": 0.7053
+        },
+        "season-only": {
+          "average_precision": 0.2074,
+          "roc_auc": 0.6582
+        }
+      }
+    }
+  ],
+  "fold_summary": {
+    "logreg": {
+      "average_precision_mean": 0.2663,
+      "average_precision_sd": 0.1179,
+      "roc_auc_mean": 0.7666,
+      "roc_auc_sd": 0.0701
+    },
+    "random-forest": {
+      "average_precision_mean": 0.2967,
+      "average_precision_sd": 0.0983,
+      "roc_auc_mean": 0.7986,
+      "roc_auc_sd": 0.0545
+    },
+    "gradient-boosting": {
+      "average_precision_mean": 0.2386,
+      "average_precision_sd": 0.0729,
+      "roc_auc_mean": 0.752,
+      "roc_auc_sd": 0.0559
+    },
+    "season-only": {
+      "average_precision_mean": 0.202,
+      "average_precision_sd": 0.1055,
+      "roc_auc_mean": 0.6049,
+      "roc_auc_sd": 0.1669
+    }
+  },
+  "threshold_errors": [
+    {
+      "threshold": 0.05,
+      "true_positives": 1243,
+      "false_positives": 6232,
+      "false_negatives": 163,
+      "true_negatives": 6885,
+      "precision": 0.1663,
+      "recall": 0.8841,
+      "specificity": 0.5249
+    },
+    {
+      "threshold": 0.1,
+      "true_positives": 1008,
+      "false_positives": 3689,
+      "false_negatives": 398,
+      "true_negatives": 9428,
+      "precision": 0.2146,
+      "recall": 0.7169,
+      "specificity": 0.7188
+    },
+    {
+      "threshold": 0.2,
+      "true_positives": 585,
+      "false_positives": 1628,
+      "false_negatives": 821,
+      "true_negatives": 11489,
+      "precision": 0.2643,
+      "recall": 0.4161,
+      "specificity": 0.8759
+    }
+  ],
+  "provenance": {
+    "git_commit": "89d76ffd8bc1dce8916a229bb16af5055a5f4fc6",
+    "training_set_sha256": "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033",
+    "random_state": 0,
+    "scikit_learn": "1.9.1"
+  }
 }
