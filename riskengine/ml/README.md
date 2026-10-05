@@ -11,14 +11,14 @@ flood in a region in the 30 days ending on a date**. That probability is
 
 | Category | Probability | Floods recorded on held-out years |
 |---|---|---|
-| Low | up to 5% | 2.9% |
-| Moderate | 5–10% | 8.4% |
-| High | 10–20% | 15.7% |
-| Very High | above 20% | 20.7% |
+| Low | up to 5% | 2.3% |
+| Moderate | 5–10% | 8.5% |
+| High | 10–20% | 17.0% |
+| Very High | above 20% | 26.4% |
 
-A large flood is recorded in about 7% of county-months, so the bands sit
-around that base rate. "Very High" means roughly a one-in-five chance, three
-times the usual. It does not mean a flood is expected.
+A large flood is recorded in about 10% of county-months, so the bands sit
+around that base rate. "Very High" means roughly a one-in-four chance, nearly
+three times the usual. It does not mean a flood is expected.
 
 ## What it learns from
 
@@ -85,23 +85,29 @@ The winner's probabilities are then calibrated (Platt or isotonic, see
 `calibration.py`) if that lowers the held-out Brier score. This targets the
 overconfidence in the top band noted below.
 
-**The table below is the 1 October 2026 run, before these changes.** It
-will be replaced after the next `build_training_set` and `train_model`.
+The figures below are the 2 October 2026 run: 14,523 county-months from
+1996 to 2021, of which 1,406 (9.7%) have a recorded flood.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
-| Logistic Regression (selected) | 0.726 | 0.160 | 0.0639 |
-| Random Forest | 0.706 | 0.144 | 0.0655 |
-| Gradient Boosting | 0.714 | 0.155 | 0.0672 |
-| Always predict the base rate | 0.500 | 0.071 | 0.0658 |
+| Random Forest (selected) | 0.787 | 0.254 | 0.0798 |
+| Logistic Regression | 0.766 | 0.239 | 0.0830 |
+| Gradient Boosting | 0.750 | 0.215 | 0.0856 |
+| Season only | 0.565 | 0.124 | 0.0873 |
+| Always predict the base rate | 0.500 | 0.097 | 0.0874 |
 
-Read this as modest skill. The model ranks wet, flood-prone months above
-dry ones about twice as well as chance, and its Low/Moderate/High bands
-line up with what happened. It is not a precise forecast, and above 20% it
-is overconfident (it says 31% on average where 21% flooded).
+Read this as modest skill. The model's average precision is 2.6 times the
+base rate and 2.1 times the season-only model, and a higher band always saw
+more floods than the one below it. It is not a precise forecast. Neither
+calibration method lowered the held-out Brier score, so none is applied, and
+above 20% the model is still overconfident (it says 31% on average where 26%
+flooded).
 
-`artifacts/metrics.json` holds the current figures; the table above is the
-run of 1 October 2026.
+The run before it (1 October 2026) used 1985 to 2021, nine inputs and
+normals computed over all years. Logistic Regression won it with ROC AUC
+0.726 and average precision 0.160 against a base rate of 0.071.
+
+`artifacts/metrics.json` holds the current figures.
 
 ## Checking against satellite floods
 

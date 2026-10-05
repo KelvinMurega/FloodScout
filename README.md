@@ -128,8 +128,8 @@ the map with the latest observed rainfall.
 | Distance to river | not ingested | left null, never invented |
 | **Risk score** | `riskengine/ml/infer.py` | trained model, modest skill |
 
-The inputs are measurements. The scorer is a logistic regression trained on
-recorded floods from 1985 to 2021. Its output is the chance that a large
+The inputs are measurements. The scorer is a random forest trained on
+recorded floods from 1996 to 2021. Its output is the chance that a large
 flood is recorded in a region in a 30-day window. `riskengine/ml/README.md`
 says how it was trained, how well it does and where it is weak; read it
 before presenting a result. Every row and API response carries the
