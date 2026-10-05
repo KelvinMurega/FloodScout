@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import joblib
 import numpy as np
+import sklearn
 from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
@@ -49,6 +51,7 @@ from sklearn.preprocessing import StandardScaler
 from riskengine.ml.calibration import METHODS, CalibratedModel, Calibrator
 from riskengine.ml.features import FEATURE_NAMES, SHORT_RAINS_MONTHS
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_PATH = ARTIFACT_DIR / "flood_model.joblib"
 METRICS_PATH = ARTIFACT_DIR / "metrics.json"
@@ -238,6 +241,116 @@ def _band_calibration(y, probabilities) -> list[dict]:
     return bands
 
 
+def _fold_scores(y, years, folds, held_out: dict[str, np.ndarray]) -> list[dict]:
+    """Each fold's held-out years and every model's scores on them.
+
+    The pooled scores hide how much a result depends on which years were
+    held out. A score is None when a fold holds one class only.
+    """
+    out = []
+    for _train_rows, test_rows in folds:
+        both_classes = 0 < y[test_rows].sum() < len(test_rows)
+        scores = {}
+        for name, probabilities in held_out.items():
+            scores[name] = {
+                "average_precision": round(
+                    float(average_precision_score(y[test_rows], probabilities[test_rows])), 4
+                ) if both_classes else None,
+                "roc_auc": round(
+                    float(roc_auc_score(y[test_rows], probabilities[test_rows])), 4
+                ) if both_classes else None,
+            }
+        out.append(
+            {
+                "years": sorted({int(year) for year in years[test_rows]}),
+                "rows": len(test_rows),
+                "positives": int(y[test_rows].sum()),
+                "scores": scores,
+            }
+        )
+    return out
+
+
+def _fold_summary(fold_scores: list[dict]) -> dict:
+    """Mean and sample standard deviation of each model's per-fold scores."""
+    summary = {}
+    for name in fold_scores[0]["scores"]:
+        summary[name] = {}
+        for metric in ("average_precision", "roc_auc"):
+            values = [
+                fold["scores"][name][metric]
+                for fold in fold_scores
+                if fold["scores"][name][metric] is not None
+            ]
+            summary[name][f"{metric}_mean"] = round(float(np.mean(values)), 4) if values else None
+            summary[name][f"{metric}_sd"] = (
+                round(float(np.std(values, ddof=1)), 4) if len(values) > 1 else None
+            )
+    return summary
+
+
+def _threshold_errors(y, probabilities) -> list[dict]:
+    """The confusion matrix when a probability above each band edge is a warning.
+
+    Above 0.10 is "High or Very High", above 0.20 is "Very High" alone. A
+    false negative is a recorded flood with no warning; a false positive is
+    a warning with no recorded flood.
+    """
+    out = []
+    for threshold in PROBABILITY_BANDS:
+        warned = probabilities > threshold
+        tp = int((warned & (y == 1)).sum())
+        fp = int((warned & (y == 0)).sum())
+        fn = int((~warned & (y == 1)).sum())
+        tn = int((~warned & (y == 0)).sum())
+        out.append(
+            {
+                "threshold": threshold,
+                "true_positives": tp,
+                "false_positives": fp,
+                "false_negatives": fn,
+                "true_negatives": tn,
+                "precision": round(tp / (tp + fp), 4) if tp + fp else None,
+                "recall": round(tp / (tp + fn), 4) if tp + fn else None,
+                "specificity": round(tn / (tn + fp), 4) if tn + fp else None,
+            }
+        )
+    return out
+
+
+def git_commit(root: Path = REPO_ROOT) -> str | None:
+    """The commit checked out in `root`, read from .git without needing git.
+
+    None outside a checkout, which is the case in the Colab bundle.
+    """
+    git_dir = root / ".git"
+    head = git_dir / "HEAD"
+    if not head.is_file():
+        return None
+    content = head.read_text().strip()
+    if not content.startswith("ref: "):
+        return content
+    ref = content[5:]
+    if (git_dir / ref).is_file():
+        return (git_dir / ref).read_text().strip()
+    packed = git_dir / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text().splitlines():
+            if line.endswith(" " + ref):
+                return line.split(" ", 1)[0]
+    return None
+
+
+def provenance(training_set: Path) -> dict:
+    """What a result has to be traced back to: the code, the data and the seed."""
+    return {
+        "git_commit": git_commit(),
+        "training_set_sha256": hashlib.sha256(training_set.read_bytes()).hexdigest(),
+        "random_state": RANDOM_STATE,
+        "scikit_learn": sklearn.__version__,
+    }
+
+
 def train(
     training_set: Path,
     oni: dict[tuple[int, int], float],
@@ -260,6 +373,7 @@ def train(
 
     season_columns = [data.column(name) for name in SEASON_FEATURES if name in data.features]
     season = held_out_probabilities(data, season_baseline, season_columns, folds)
+    fold_scores = _fold_scores(y, data.years, folds, {**held_out, "season-only": season})
 
     best = max(comparison, key=lambda name: comparison[name]["average_precision"])
 
@@ -310,6 +424,10 @@ def train(
         "calibration_comparison": calibration_scores,
         "probability_bands": list(PROBABILITY_BANDS),
         "band_calibration": _band_calibration(y, final_held_out),
+        "folds": fold_scores,
+        "fold_summary": _fold_summary(fold_scores),
+        "threshold_errors": _threshold_errors(y, final_held_out),
+        "provenance": provenance(training_set),
     }
     if best == "logreg":
         metrics["standardised_coefficients"] = {
