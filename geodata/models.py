@@ -21,7 +21,22 @@ class GeospatialFeature(models.Model):
     region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="geospatial_features")
     elevation = models.FloatField(help_text="Metres above sea level")
     slope = models.FloatField(help_text="Degrees")
-    distance_to_river = models.FloatField(help_text="Metres")
+    # Nullable because there is no free, keyless source for it. Elevation
+    # and slope are ingested from a real DEM (see
+    # geodata/services/open_meteo.py); distance to the nearest watercourse
+    # needs a hydrography layer that is not wired up yet, and inventing a
+    # number would be worse than recording that it is unknown.
+    distance_to_river = models.FloatField(help_text="Metres", null=True, blank=True)
+
+    class Meta:
+        # These inputs are static per county, so one row per Region is the
+        # whole truth. The constraint is what lets `seed_terrain` use
+        # update_or_create and be safely re-runnable.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["region"], name="unique_geospatialfeature_per_region"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"Geospatial features for {self.region}"

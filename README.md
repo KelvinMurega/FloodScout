@@ -94,6 +94,41 @@ import ee
 ee.Initialize(project="floodscout-166914")
 ```
 
+## Full demo from a clean database
+
+Four commands bring the whole walking skeleton up with **real** data. Run them
+in order; each is safe to re-run.
+
+```bash
+docker compose up -d                  # PostGIS + API
+docker compose run --rm web python manage.py migrate
+docker compose run --rm web python manage.py seed_regions    # 47 county boundaries
+docker compose run --rm web python manage.py seed_terrain    # real elevation + slope (Open-Meteo DEM)
+docker compose run --rm web python manage.py seed_rainfall   # real daily rainfall, last 14 days
+docker compose run --rm web python manage.py score_regions   # one RiskScore per county for today
+```
+
+Then start the map (see below). `seed_terrain` and `seed_rainfall` need network
+access; everything after that works offline, because the values are in the
+database.
+
+Re-run `seed_rainfall` then `score_regions` on the morning of a demo to refresh
+the map with the latest observed rainfall.
+
+### Where the numbers come from
+
+| Input | Source | Real? |
+|---|---|---|
+| County boundaries | geoBoundaries KEN ADM1, pinned commit | yes |
+| Elevation, slope | Open-Meteo elevation API (Copernicus DEM GLO-90) | yes |
+| Daily rainfall | Open-Meteo `precipitation_sum`, past days only | yes |
+| Distance to river | not ingested | left null, never invented |
+| **Risk score** | `riskengine/ml/infer.py` | **no — documented placeholder** |
+
+The inputs are measurements. The scorer that turns them into a category is
+still `heuristic-stub-v0`, a transparent rule of thumb, and every row and every
+API response says so. Do not present the output as a model result.
+
 ## Dashboard (Client Tier)
 
 The Leaflet map lives in `frontend/` as a standalone Vite app, served on
