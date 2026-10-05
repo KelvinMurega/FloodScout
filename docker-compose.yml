@@ -23,7 +23,11 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      # Host port is configurable: 8000 is often already taken (on Windows a
+      # vendor service frequently squats on it), and a bind clash leaves the
+      # container stuck in "created" with no obvious error. Set WEB_PORT in
+      # .env to move it; the container always listens on 8000 internally.
+      - "${WEB_PORT:-8000}:8000"
     env_file:
       - .env
     depends_on:
