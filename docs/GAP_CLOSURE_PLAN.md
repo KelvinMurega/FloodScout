@@ -124,6 +124,12 @@ Branch: `feat/unosat-validation`
 4. Record the product names, dates and download addresses in
    `docs/DATA_DICTIONARY.md`, and the scores in `riskengine/ml/README.md`.
 
+*Done 5 October.* Result: ROC AUC 0.744 for November 2023 and 0.430 for
+April 2024, 0.616 over both (94 county-events). The manifest is tracked at
+`riskengine/ml/unosat_events.json`, not under `data/`, so the run can be
+repeated. Follow-up worth doing in Phase 3: use the `CloudObstruction`
+layers so that a county under cloud is left out instead of counted as dry.
+
 **Done when:** Chapter 5 can report a score on years the model never saw,
 and, if the UNOSAT products are usable, a score against labels that are not
 circles. Report the result whatever it is.

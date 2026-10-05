@@ -1,0 +1,19 @@
+[
+  {
+    "name": "Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",
+    "date": "2023-11-28",
+    "extent": "data/external/unosat/FL20231124KEN_3761/FL20231124KEN.gdb",
+    "layer": [
+      "VIIRS_20231119_20231123_MaximumFloodWaterExtent_KEN",
+      "VIIRS_20231124_20231128_MaximumFloodWaterExtent_KEN"
+    ],
+    "covers": "all"
+  },
+  {
+    "name": "Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",
+    "date": "2024-04-28",
+    "extent": "data/external/unosat/FL20240426KEN_3839/FL20240426KEN.gdb",
+    "layer": "VIIRS_20240424_20240428_MaximumFloodWaterExtent_Kenya",
+    "covers": "all"
+  }
+]

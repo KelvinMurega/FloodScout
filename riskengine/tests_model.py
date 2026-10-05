@@ -401,6 +401,26 @@ class ValidateUnosatTests(TestCase):
         self.assertIn("1/2 flooded", stdout.getvalue())
 
 
+class LoadExtentTests(SimpleTestCase):
+    def test_a_list_of_layers_is_merged_into_one_extent(self):
+        from riskengine.management.commands.validate_unosat import load_extent
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "water.geojson"
+            path.write_text(json.dumps({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {}, "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[36.4, -0.6], [36.6, -0.6], [36.6, -0.4], [36.4, -0.4], [36.4, -0.6]]],
+                }}],
+            }))
+            one = load_extent(path, 0)
+            both = load_extent(path, [0, 0])  # the same layer twice adds no area
+
+        self.assertAlmostEqual(one.area, 0.04, places=6)
+        self.assertAlmostEqual(both.area, one.area, places=6)
+
+
 class OutlookAveragingTests(SimpleTestCase):
     def test_members_are_averaged_index_by_index_across_points(self):
         from riskengine.management.commands.flood_outlook import _per_region

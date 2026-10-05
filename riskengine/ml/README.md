@@ -180,18 +180,57 @@ the scikit-learn version the run used.
 
 `validate_unosat` scores the model on months it never saw (2023 and 2024)
 against flood extents UNOSAT mapped from satellite, which say where water
-actually was rather than placing a circle. Download the products from
-UNOSAT's page on the Humanitarian Data Exchange, list them in a JSON
-manifest (the format is in the command's docstring), then:
+actually was rather than placing a circle. The products are listed in
+`riskengine/ml/unosat_events.json` and documented in
+`docs/DATA_DICTIONARY.md`, section 5.
 
 ```bash
-docker compose run --rm web python manage.py validate_unosat data/external/unosat/events.json
+docker compose run --rm web python manage.py validate_unosat riskengine/ml/unosat_events.json
 ```
 
-Many UNOSAT products cover a few counties, not all of Kenya. List only the
-counties each product analysed under `covers`, so a county nobody mapped
-is not counted as dry. With a few events this is a few dozen to a hundred
-county-events: indicative, not conclusive.
+A county counts as flooded when at least 5 km² of it is inside the mapped
+flood water (`--min-km2`). Run on 5 October 2026 against
+`flood-random-forest-20261005`, with the per-county rows kept in
+`artifacts/unosat_validation.csv`:
+
+| Event | Counties flooded | ROC AUC | Average precision |
+|---|---|---|---|
+| Short rains, 19 to 28 November 2023 | 31 of 47 | 0.744 | 0.886 |
+| Long rains, 24 to 28 April 2024 | 26 of 47 | 0.430 | 0.499 |
+| Both | 57 of 94 | 0.616 | 0.740 |
+
+| Band the model gave | County-events | Flooded |
+|---|---|---|
+| Low | 0 | n/a |
+| Moderate | 9 | 56% |
+| High | 33 | 48% |
+| Very High | 52 | 69% |
+
+Read it this way:
+
+- **November 2023 was ranked well.** The counties the model scored highest
+  (Garissa, Tana River, Wajir, Isiolo, Mandera) are where the water was.
+- **April 2024 was ranked worse than chance.** The model gave its highest
+  probabilities to wet highland counties (Nyandarua, Taita Taveta, Bomet,
+  Makueni) where the satellite saw no flood water, and lower ones to
+  Turkana, Garissa and Kisumu, where it did. The result holds at 25, 50
+  and 100 km² as well (ROC AUC 0.32 to 0.38).
+- **Only the ranking can be compared.** "At least 5 km² of water seen" is
+  true of 61% of these county-events, where "a large flood recorded" is
+  true of 10% of training rows. They are different events, so the Brier
+  score the command prints means nothing here.
+- **It is 94 county-events from two floods.** Indicative, not conclusive.
+
+Why April 2024 went wrong has not been tested. Three things could each
+contribute. The sensor (VIIRS, 375 m pixels) sees wide sheets of water on
+arid lowlands far better than fast river and urban flooding in the
+highlands, which is what hit Nairobi and Mai Mahiu that month. Cloud hides
+the highlands in the rainy season, and a county under cloud is counted as
+dry. And the water mapped in Turkana, Marsabit and Baringo is partly lake
+shore beyond the reference shoreline, not this event.
+
+The permanent-water layer is already removed by UNOSAT (about 100 km² of
+overlap in either extent).
 
 ## Known limits
 
