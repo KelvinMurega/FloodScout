@@ -8,11 +8,14 @@ review — see the "Git workflow" note at the end, and
 Colab/Drive-based model training fit together. Status is updated as work
 lands; this file is the single source of truth for "what's next."
 
-## Current status (as of this update)
+> **Status, 5 October 2026.** Phases 0 to 4 of the build order below are
+> done: the walking skeleton, real terrain and rainfall, a trained model and
+> the swap from the placeholder scorer. The sprint checklists further down
+> and the "Immediate next actions" list describe the repository as it was on
+> 20 September and are kept as a record. What remains is in
+> `docs/GAP_CLOSURE_PLAN.md`, which is the current task list.
 
-For the fully verified picture — commit graph, what's uncommitted, what
-conflicts to expect — see `docs/REPO_STATE.md`, which was read straight
-out of `.git` rather than inferred. In summary:
+## Current status (as of 20 September 2026)
 
 `main`, `develop` and `feat/seed-region-boundaries` are all at `9fb01ad`
 ("feat(setup): scaffold initial django project"), which has the Django 5.2
