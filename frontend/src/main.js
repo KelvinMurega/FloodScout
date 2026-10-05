@@ -247,16 +247,21 @@ function updateLabelVisibility() {
 
 let refit = null;
 
-/** Fit `bounds` to the panel and stop the view wandering away from it. */
+/** How far the map can be dragged past the fitted view, as a share of it. */
+const PAN_MARGIN = 0.5;
+
+/** Fit `bounds` to the panel and stop the view wandering far away from it. */
 function lockTo(bounds) {
-  map.setMaxBounds(null);
   map.setMinZoom(0);
   refit = () => {
+    map.setMaxBounds(null);
     map.setMinZoom(map.getBoundsZoom(bounds, false, L.point(16, 16)));
     map.fitBounds(bounds, { padding: [16, 16], animate: false });
+    // The limit is measured from the fitted view, not from `bounds`: a limit
+    // smaller than the view pins the map in place and it cannot be dragged.
+    map.setMaxBounds(map.getBounds().pad(PAN_MARGIN));
   };
   refit();
-  map.setMaxBounds(bounds.pad(0.12));
   map.options.maxBoundsViscosity = 1;
 }
 
