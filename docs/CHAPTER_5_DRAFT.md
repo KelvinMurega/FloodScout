@@ -588,6 +588,68 @@ measured precision is therefore a lower bound of unknown tightness.
 [Recommended addition: break the false negatives down by county and by season
 to see whether they concentrate in particular places or months.]
 
+### 5.7.5 Final Test on 2017 to 2021
+
+The results above come from the same folds that were used to select the
+model, which makes them somewhat optimistic. A final test was therefore run.
+The years from 2017 onwards were set aside. The model and its calibration
+were selected again by the same cross-validation on 1996 to 2016 alone
+(11,844 records), fitted on those years, and then scored once on 2017 to 2021
+(2,679 records, 181 floods, 6.8%). The rainfall normals were computed from
+1996 to 2016 only. The boundary year was fixed in the code before the result
+was seen.
+
+**Table 5.19: Final test on 2017 to 2021**
+
+| Model | ROC AUC | Average precision | Brier score |
+|---|---|---|---|
+| Base rate of 1996 to 2016 | 0.500 | 0.068 | 0.0643 |
+| Season only | 0.694 | 0.177 | 0.0626 |
+| **Gradient Boosting, sigmoid-calibrated (selected on 1996 to 2016)** | **0.767** | **0.153** | **0.0754** |
+| Logistic Regression (not selected) | 0.852 | 0.275 | 0.0674 |
+| Random Forest (not selected) | 0.782 | 0.186 | 0.0820 |
+
+Source: `final_test` in `metrics.json`.
+
+**Table 5.20: Predicted and observed flood rate by category, 2017 to 2021**
+
+| Category | Records | Mean predicted probability | Floods actually recorded |
+|---|---|---|---|
+| Low | 428 | 3.9% | 0.9% |
+| Moderate | 769 | 7.3% | 1.8% |
+| High | 800 | 14.3% | 6.0% |
+| Very High | 682 | 35.3% | 16.9% |
+
+The final test gave a weaker result than the cross-validation, in three
+respects.
+
+First, the selection was not stable. On 1996 to 2016 the Gradient Boosting
+model had the highest cross-validated average precision (0.286, against
+0.265 for the Random Forest and 0.226 for the Logistic Regression), whereas
+on all years the Random Forest was selected. On the test years the Logistic
+Regression, which was not selected in either case, scored best.
+
+Second, the selected model did not beat the season-only baseline on average
+precision (0.153 against 0.177). It did retain its ability to rank: the ROC
+AUC was 0.767, and the four categories remained in the correct order, with a
+Very High record about eighteen times more likely to have a recorded flood
+than a Low record. With a warning above 10%, 163 of 181 floods were caught
+(recall 90.1%) at a precision of 11.0%.
+
+Third, the probabilities were too high. Floods were recorded in 6.8% of
+county-months in 2017 to 2021 against 10.3% in 1996 to 2016, and every
+candidate had a worse Brier score than a constant prediction of the earlier
+base rate. The flood archive ends in October 2021 and its later years may be
+less completely recorded, which would account for part of this, but that was
+not established.
+
+The deployed model remained the Random Forest fitted on all years. It was
+not replaced by the Logistic Regression on the strength of the test result,
+because choosing a model by its test score would make the test part of
+model selection. [Agree with the supervisor whether to deploy the Logistic
+Regression on the grounds of simplicity and stability, and state the reason
+here.]
+
 ## 5.8 Version Control and Implementation Evidence
 
 Project repository: [github.com/KelvinMurega/FloodScout](https://github.com/KelvinMurega/FloodScout)
@@ -627,21 +689,26 @@ the submitted work.
 
 [Replace the objective wording with the approved objectives from Chapter 1.]
 
-**Table 5.19: Evidence against each objective**
+**Table 5.21: Evidence against each objective**
 
 | Objective | Implemented output | Evidence | Result |
 |---|---|---|---|
 | [Objective 1: collect and prepare geospatial and environmental data] | Ingestion commands and a 14,523-record training set | Tables 5.3, 5.4, 5.8; TC-01 to TC-07 | Achieved for counties. Sub-county rainfall and terrain are stored but were not used in training |
-| [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three candidates against two baselines | Tables 5.15 to 5.18 | Achieved with modest skill: ROC AUC 0.787, average precision 0.254, 2.05 times the season-only baseline |
-| [Objective 3: classify regions into risk categories] | Four probability bands | Table 5.17; TC-11 | Achieved. Categories were correctly ordered on held-out years |
+| [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three candidates against two baselines | Tables 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.767) but did not beat the season-only baseline on average precision, and its probabilities were too high |
+| [Objective 3: classify regions into risk categories] | Four probability bands | Table 5.17; TC-11 | Achieved as an ordering. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test |
 | [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Login and administrator functions not built |
-| [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. No independent test set, no user evaluation |
+| [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years completed; satellite validation and user evaluation outstanding |
 
 ### 5.10.2 Discussion
 
-The model has real but modest skill. Knowing the month alone gives an average
-precision of 0.124. Adding rainfall, the ocean indices and terrain roughly
-doubles it. This agrees with the expectation from the literature in Chapter 2
+In cross-validation the model has real but modest skill. Knowing the month
+alone gives an average precision of 0.124, and adding rainfall, the ocean
+indices and terrain roughly doubles it. The final test on 2017 to 2021
+(Section 5.7.5) qualifies this: the ability to rank regions carried over to
+years the model never saw, but the advantage over the season-only baseline
+did not, and the stated probabilities were about twice the observed flood
+rates. The cross-validated figures should therefore be read as an upper
+estimate. This agrees with the expectation from the literature in Chapter 2
 that antecedent rainfall and the Indian Ocean Dipole drive flooding in East
 Africa. [Cite the specific sources from Chapter 2.]
 
@@ -651,8 +718,10 @@ that the second run added inputs whose effect depends on other inputs, such as
 ocean indices that matter mainly in the short rains, and a tree-based model
 can represent such interactions directly. This explanation was not tested.
 
-The wide variation between folds (Table 5.16) shows that performance depends
-on which years are held out. Fold 2, which contains 2019, was the weakest for
+The wide variation between folds (Table 5.16) and the change of selected
+model between 1996 to 2016 and all years show that performance depends on
+which years are held out, and that the three candidates cannot be reliably
+separated with this amount of data. Fold 2, which contains 2019, was the weakest for
 every model. The system is better described as a ranking tool, which
 identifies where and when the chance of flooding is raised, than as a forecast
 of individual floods. The decision to show a probability with a category, to
@@ -667,11 +736,17 @@ separate from observation-based scores follows from this.
   inputs could not be used.
 - **Labels depend on reporting.** A flood that was not reported is labelled as
   no flood. The precision figures are affected as described in Section 5.7.4.
-- **No independent test set.** The cross-validation folds were used both to
-  select the model and to report its performance, so the reported scores are
-  somewhat optimistic. The `validate_unosat` command was written to score the
-  model on 2023 and 2024 satellite flood extents, which it never saw, but had
-  not been run because the UNOSAT products had not been downloaded.
+- **Weaker performance on later years.** On the 2017 to 2021 final test the
+  selected model did not beat the season-only baseline on average precision
+  and over-stated probabilities (Section 5.7.5). The risk categories should
+  be read as an ordering of regions and not as calibrated probabilities.
+- **The final test shares the weaknesses of the labels.** It uses the same
+  flood archive, so it is independent in time but not in how floods were
+  recorded. The `validate_unosat` command was written to score the model on
+  2023 and 2024 satellite flood extents, but had not been run because the
+  UNOSAT products had not been downloaded.
+- **Model selection is unstable.** Different periods select different
+  models. The deployed Random Forest was selected on all years.
 - **No hyperparameter search and no explainability analysis.** Chapter 3
   proposed GridSearchCV and SHAP. Model settings were fixed, and feature
   contributions were examined only through logistic regression coefficients
