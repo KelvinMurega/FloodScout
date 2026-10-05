@@ -57,6 +57,12 @@ gitignored).
 > If you change the dev server's port, change `CORS_ALLOWED_ORIGINS` in
 > `floodscout/settings.py` to match, or the browser will block every request.
 
+> `VITE_API_BASE_URL` must also match `WEB_PORT` in the project's root `.env`,
+> which is the host port docker-compose publishes the API on. These drift apart
+> easily. The symptom is the banner *"Could not reach
+> http://localhost:PORT/api/regions/. Is the API running?"* — it names the port
+> it tried, so compare that against `docker compose ps`.
+
 ## What it draws
 
 Two views, chosen from the region bar under the header. The choice is kept in
