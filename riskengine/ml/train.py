@@ -25,6 +25,12 @@ Three things keep those held-out scores honest:
   alongside the base rate. It is the bar the real models have to clear to
   show that rainfall, El Niño and terrain add anything beyond "it is the
   rainy season".
+
+Cross-validation still picks the winner and reports its score from the same
+folds. `final_test` is the check on that: the years from FINAL_TEST_FROM on
+are set aside, the choice is made again without them, and they are scored
+once. The model that is saved is fitted on every year, because recent years
+are the most useful ones to have learned from.
 """
 
 from __future__ import annotations
@@ -61,6 +67,11 @@ RANDOM_STATE = 0
 
 # See the module docstring. Rows before this year are dropped.
 FIRST_TRAINING_YEAR = 1996
+
+# Years from this one on are the final test: set aside before any model is
+# compared, and scored once (see `final_test`). Fixed on 5 October 2026,
+# before the result was seen. Do not move it to get a better number.
+FINAL_TEST_FROM = 2017
 
 # The inputs of the season-only baseline.
 SEASON_FEATURES = ("month_sin", "month_cos")
@@ -351,14 +362,37 @@ def provenance(training_set: Path) -> dict:
     }
 
 
-def train(
-    training_set: Path,
-    oni: dict[tuple[int, int], float],
-    dmi: dict[tuple[int, int], float] | None = None,
-    first_year: int = FIRST_TRAINING_YEAR,
-) -> tuple[dict, dict]:
-    """Returns (artifact, metrics). Neither is written here."""
-    data = load_training_set(training_set, first_year)
+def subset(data: TrainingSet, rows: np.ndarray) -> TrainingSet:
+    """`data` restricted to `rows` (a boolean mask or an index array)."""
+    index = np.flatnonzero(rows) if rows.dtype == bool else rows
+    return TrainingSet(
+        features=data.features,
+        X=data.X[index],
+        y=data.y[index],
+        years=data.years[index],
+        months=data.months[index],
+        counties=data.counties[index],
+        dates=[data.dates[i] for i in index],
+        meta=data.meta,
+    )
+
+
+@dataclass
+class Selection:
+    """What cross-validation on one set of years decided, and the evidence."""
+
+    folds: list
+    held_out: dict[str, np.ndarray]  # per candidate, each row scored unseen
+    season: np.ndarray  # the same for the season-only baseline
+    comparison: dict
+    best: str
+    calibration_scores: dict
+    calibration: str
+    final_held_out: np.ndarray  # the winner's held-out probabilities, calibrated
+
+
+def select(data: TrainingSet) -> Selection:
+    """Compare the candidates on held-out years and pick a model and a calibration."""
     y = data.y
     folds = list(GroupKFold(CV_FOLDS).split(data.X, y, groups=data.years))
     all_columns = list(range(len(data.features)))
@@ -373,7 +407,6 @@ def train(
 
     season_columns = [data.column(name) for name in SEASON_FEATURES if name in data.features]
     season = held_out_probabilities(data, season_baseline, season_columns, folds)
-    fold_scores = _fold_scores(y, data.years, folds, {**held_out, "season-only": season})
 
     best = max(comparison, key=lambda name: comparison[name]["average_precision"])
 
@@ -384,15 +417,130 @@ def train(
         calibrated_held_out[method] = cross_calibrated(y, held_out[best], folds, method)
         calibration_scores[method] = _scores(y, calibrated_held_out[method])
     calibration = min(calibration_scores, key=lambda m: calibration_scores[m]["brier"])
-    final_held_out = calibrated_held_out[calibration]
+
+    return Selection(
+        folds=folds,
+        held_out=held_out,
+        season=season,
+        comparison=comparison,
+        best=best,
+        calibration_scores=calibration_scores,
+        calibration=calibration,
+        final_held_out=calibrated_held_out[calibration],
+    )
+
+
+def fit(data: TrainingSet, chosen: Selection):
+    """The chosen model fitted on every row of `data`.
+
+    Returns (model, pipeline, normals). `model` is `pipeline` with the chosen
+    calibration applied, or `pipeline` itself when none was kept.
+    """
+    normals = county_normals(data, np.arange(len(data.y)))
+    pipeline = candidates()[chosen.best].fit(with_normals(data, normals), data.y)
+    model = pipeline
+    if chosen.calibration != "none":
+        calibrator = Calibrator(chosen.calibration).fit(chosen.held_out[chosen.best], data.y)
+        model = CalibratedModel(pipeline, calibrator)
+    return model, pipeline, normals
+
+
+def final_test(data: TrainingSet, test_from: int) -> dict | None:
+    """Score years from `test_from` on with a model that never saw them.
+
+    The cross-validation in `train` both picks the model and reports its
+    score, so that score is a little flattering. Here the later years are
+    set aside first. The model and its calibration are chosen again on the
+    earlier years alone, fitted on them, and then scored once on the later
+    years. Nothing about the later years (their floods, or their rainfall
+    in the county normals) reaches the model.
+
+    None when either side of `test_from` has no rows or one class only.
+    """
+    is_test = data.years >= test_from
+    y_test = data.y[is_test]
+    if not is_test.any() or is_test.all() or not 0 < y_test.sum() < len(y_test):
+        return None
+    development = subset(data, ~is_test)
+    if not 0 < development.y.sum() < len(development.y):
+        return None
+
+    chosen = select(development)
+    model, _pipeline, normals = fit(development, chosen)
+
+    # Every row measured against the development years' normals.
+    X = with_normals(data, normals)
+    X_development, X_test = X[~is_test], X[is_test]
+    probabilities = model.predict_proba(X_test)[:, 1]
+
+    # The candidates that were not chosen, for the record. They play no part
+    # in the choice above.
+    others = {}
+    for name, pipeline in candidates().items():
+        if name != chosen.best:
+            fitted = pipeline.fit(X_development, development.y)
+            others[name] = _scores(y_test, fitted.predict_proba(X_test)[:, 1])
+
+    season_columns = [data.column(name) for name in SEASON_FEATURES if name in data.features]
+    season = season_baseline().fit(X_development[:, season_columns], development.y)
+    development_rate = float(development.y.mean())
+    test_rate = float(y_test.mean())
+
+    scores = _scores(y_test, probabilities)
+    season_scores = _scores(y_test, season.predict_proba(X_test[:, season_columns])[:, 1])
+    return {
+        "test_from": test_from,
+        "development_years": [int(development.years.min()), int(development.years.max())],
+        "test_years": [int(data.years[is_test].min()), int(data.years[is_test].max())],
+        "development_rows": len(development.y),
+        "rows": int(is_test.sum()),
+        "positives": int(y_test.sum()),
+        "base_rate": round(test_rate, 4),
+        "development_comparison": chosen.comparison,
+        "selected": chosen.best,
+        "calibration": chosen.calibration,
+        "scores": scores,
+        "other_candidates": others,
+        "baselines": {
+            "base-rate": {
+                "roc_auc": 0.5,
+                "average_precision": round(test_rate, 4),
+                # The rate known before the test years, not their own.
+                "brier": round(
+                    float(brier_score_loss(y_test, np.full(len(y_test), development_rate))), 4
+                ),
+            },
+            "season-only": season_scores,
+        },
+        "lift_over_base_rate": round(scores["average_precision"] / test_rate, 2),
+        "lift_over_season_only": round(
+            scores["average_precision"] / season_scores["average_precision"], 2
+        ),
+        "band_calibration": _band_calibration(y_test, probabilities),
+        "threshold_errors": _threshold_errors(y_test, probabilities),
+    }
+
+
+def train(
+    training_set: Path,
+    oni: dict[tuple[int, int], float],
+    dmi: dict[tuple[int, int], float] | None = None,
+    first_year: int = FIRST_TRAINING_YEAR,
+    test_from: int | None = FINAL_TEST_FROM,
+) -> tuple[dict, dict]:
+    """Returns (artifact, metrics). Neither is written here."""
+    data = load_training_set(training_set, first_year)
+    y = data.y
+
+    chosen = select(data)
+    best, calibration = chosen.best, chosen.calibration
+    comparison, season = chosen.comparison, chosen.season
+    fold_scores = _fold_scores(
+        y, data.years, chosen.folds, {**chosen.held_out, "season-only": season}
+    )
 
     # The deployed model: normals from every year kept, fitted on every row.
-    all_rows = np.arange(len(y))
-    normals = county_normals(data, all_rows)
-    pipeline = candidates()[best].fit(with_normals(data, normals), y)
-    model = pipeline
-    if calibration != "none":
-        model = CalibratedModel(pipeline, Calibrator(calibration).fit(held_out[best], y))
+    model, pipeline, normals = fit(data, chosen)
 
     base_rate = float(y.mean())
     metrics = {
@@ -421,12 +569,13 @@ def train(
             comparison[best]["average_precision"] / _scores(y, season)["average_precision"], 2
         ),
         "calibration": calibration,
-        "calibration_comparison": calibration_scores,
+        "calibration_comparison": chosen.calibration_scores,
         "probability_bands": list(PROBABILITY_BANDS),
-        "band_calibration": _band_calibration(y, final_held_out),
+        "band_calibration": _band_calibration(y, chosen.final_held_out),
         "folds": fold_scores,
         "fold_summary": _fold_summary(fold_scores),
-        "threshold_errors": _threshold_errors(y, final_held_out),
+        "threshold_errors": _threshold_errors(y, chosen.final_held_out),
+        "final_test": final_test(data, test_from) if test_from else None,
         "provenance": provenance(training_set),
     }
     if best == "logreg":
