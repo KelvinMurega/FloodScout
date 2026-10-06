@@ -3,6 +3,7 @@ command, and the per-region latest-score endpoint.
 """
 
 import datetime as dt
+import json
 from io import StringIO
 from unittest import mock
 
@@ -26,11 +27,14 @@ from riskengine.ml.features import (
     rainfall_features,
 )
 from riskengine.ml.infer import (
+    METRICS_PATH,
     MODEL_VERSION,
     NEUTRAL_COMPONENT,
     RAINFALL_SATURATION_MM,
     infer,
     model_infer,
+    times_usual,
+    usual_chance,
 )
 
 from .models import RiskOutlook, RiskScore
@@ -556,3 +560,26 @@ class RefreshScoresCommandTests(TestCase):
     def test_the_interval_must_be_positive(self):
         with self.assertRaises(CommandError):
             call_command("refresh_scores", "--every-hours", "0", stdout=StringIO())
+
+
+class TimesUsualTests(APITestCase):
+    def test_a_probability_is_a_multiple_of_the_usual_chance(self):
+        self.assertEqual(times_usual(0.30, usual=0.10), 3.0)
+        self.assertEqual(times_usual(0.02, usual=0.0968), 0.2)
+
+    def test_nothing_to_compare_with_gives_none(self):
+        self.assertIsNone(times_usual(0.30, usual=None))
+        self.assertIsNone(times_usual(None, usual=0.10))
+
+    def test_the_usual_chance_is_the_trained_base_rate(self):
+        # The shipped model and its metrics.json are in the repository.
+        self.assertEqual(usual_chance(), json.loads(METRICS_PATH.read_text())["base_rate"])
+
+    def test_scores_carry_the_multiple_in_the_api(self):
+        region = make_region("Alpha")
+        RiskScore.objects.create(
+            region=region, predicted_value=0.29, risk_category=RiskScore.RiskCategory.VERY_HIGH
+        )
+        response = self.client.get(f"/api/risk-scores/latest/?region={region.id}")
+        self.assertEqual(response.data["times_usual"], times_usual(0.29))
+        self.assertGreater(response.data["times_usual"], 2.5)
