@@ -280,8 +280,11 @@ Training wrote two files to `riskengine/ml/artifacts/`. `flood_model.joblib`
 holds the fitted pipeline, the list of inputs in order, the probability bands,
 the county rainfall normals and the two index tables, so scoring needs no
 network access. `metrics.json` holds the results reported in Section 5.7. The
-model version, `flood-random-forest-20261002`, is stored on every score the
-model produces.
+model version, `flood-random-forest-20261005`, is stored on every score the
+model produces. `metrics.json` also records the Git commit, the SHA-256 of the
+training set, the random seed and the scikit-learn version of the run. The
+5 October run repeated the 2 October run on the same data and seed in order
+to record the per-fold results, and its scores were identical.
 
 ## 5.5 System Implementation
 
@@ -527,9 +530,7 @@ year.
 | 6 (1997, 2003, 2009, 2015) | 2,256 / 227 | 0.207 | 0.220 | 0.413 | 0.262 |
 | **Mean (standard deviation)** | | 0.202 (0.106) | 0.266 (0.118) | 0.297 (0.098) | 0.239 (0.073) |
 
-Source: the cross-validation of `train.py` re-run on 5 October 2026 with the
-same data and seed. [These per-fold figures are not yet written to
-`metrics.json`; commit the script that produces them.]
+Source: `folds` and `fold_summary` in `metrics.json`.
 
 Performance varied widely between folds. The Random Forest's average
 precision ranged from 0.168 to 0.413, and its ROC AUC from 0.719 to 0.872
@@ -571,8 +572,8 @@ one, where it stated 31% on average and 26% occurred.
 | **Warning** | 1,008 (true positives) | 3,689 (false positives) |
 | **No warning** | 398 (false negatives) | 9,428 (true negatives) |
 
-At this threshold recall was 71.7%, precision 21.5% and specificity 71.9%
-(F1 0.33). Restricting the warning to Very High (above 20%) raised precision
+Source: `threshold_errors` in `metrics.json`. At this threshold recall was
+71.7%, precision 21.5% and specificity 71.9% (F1 0.33). Restricting the warning to Very High (above 20%) raised precision
 to 26.4% and specificity to 87.6%, and lowered recall to 41.6%.
 
 The two kinds of error have different consequences. A false negative is a
@@ -680,10 +681,7 @@ separate from observation-based scores follows from this.
 - **Point rainfall.** Rainfall was sampled at one representative point per
   county, which is a weak description of a large county.
 - **Seasonal outlook.** The forecast rainfall comes from a different model
-  than the training rainfall and no bias correction was applied. The stored
-  outlook rows were also produced by the earlier model version
-  (`flood-logreg-20261001`) and had not been regenerated with the selected
-  model.
+  than the training rainfall and no bias correction was applied.
 - **Data sources differ from the proposal.** [Chapter 3 proposed CHIRPS
   rainfall, SRTM elevation and Sentinel-1 flood labels through Google Earth
   Engine. ERA5, Copernicus DEM and the flood archive were used instead.

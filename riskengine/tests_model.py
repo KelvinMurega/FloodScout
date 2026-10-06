@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import json
 import math
 import tempfile
@@ -123,6 +124,56 @@ class TrainingTests(SimpleTestCase):
         self.assertEqual(set(scores), {"none", "sigmoid", "isotonic"})
         chosen = self.metrics["calibration"]
         self.assertEqual(scores[chosen]["brier"], min(s["brier"] for s in scores.values()))
+
+    def test_every_fold_reports_its_years_and_each_model_s_scores(self):
+        folds = self.metrics["folds"]
+        self.assertEqual(len(folds), train.CV_FOLDS)
+        self.assertEqual(sum(fold["rows"] for fold in folds), self.metrics["rows"])
+        self.assertEqual(sum(fold["positives"] for fold in folds), self.metrics["positives"])
+        years = [year for fold in folds for year in fold["years"]]
+        self.assertEqual(sorted(years), list(range(1996, 2022)))  # each year held out once
+        models = {"logreg", "random-forest", "gradient-boosting", "season-only"}
+        self.assertEqual(set(folds[0]["scores"]), models)
+        self.assertEqual(set(self.metrics["fold_summary"]), models)
+        selected = self.metrics["selected"]
+        values = [fold["scores"][selected]["average_precision"] for fold in folds]
+        self.assertAlmostEqual(
+            self.metrics["fold_summary"][selected]["average_precision_mean"],
+            np.mean(values),
+            places=3,
+        )
+
+    def test_threshold_errors_add_up_and_recall_falls_as_the_bar_rises(self):
+        rows = self.metrics["threshold_errors"]
+        self.assertEqual([row["threshold"] for row in rows], list(train.PROBABILITY_BANDS))
+        for row in rows:
+            self.assertEqual(
+                row["true_positives"] + row["false_negatives"], self.metrics["positives"]
+            )
+            total = sum(row[key] for key in row if key.startswith(("true_", "false_")))
+            self.assertEqual(total, self.metrics["rows"])
+        recalls = [row["recall"] for row in rows]
+        self.assertEqual(recalls, sorted(recalls, reverse=True))
+
+    def test_provenance_ties_the_result_to_its_data_and_seed(self):
+        recorded = self.metrics["provenance"]
+        self.assertEqual(
+            recorded["training_set_sha256"], hashlib.sha256(self.path.read_bytes()).hexdigest()
+        )
+        self.assertEqual(recorded["random_state"], train.RANDOM_STATE)
+        self.assertIn("git_commit", recorded)
+
+    def test_git_commit_follows_a_branch_ref_and_is_none_outside_a_checkout(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.assertIsNone(train.git_commit(root))
+            (root / ".git" / "refs" / "heads").mkdir(parents=True)
+            (root / ".git" / "HEAD").write_text("ref: refs/heads/topic\n")
+            (root / ".git" / "refs" / "heads" / "topic").write_text("abc123\n")
+            self.assertEqual(train.git_commit(root), "abc123")
+            (root / ".git" / "refs" / "heads" / "topic").unlink()
+            (root / ".git" / "packed-refs").write_text("# pack-refs\ndef456 refs/heads/topic\n")
+            self.assertEqual(train.git_commit(root), "def456")
 
     def test_artifact_records_features_indices_and_rain_sampling(self):
         self.assertEqual(self.artifact["features"], list(FEATURE_NAMES))

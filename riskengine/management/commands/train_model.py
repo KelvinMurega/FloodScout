@@ -61,6 +61,21 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"Calibration kept: {metrics['calibration']}")
         self.stdout.write("")
+        self.stdout.write("Average precision by fold, mean (standard deviation):")
+        for name, summary in metrics["fold_summary"].items():
+            self.stdout.write(
+                f"  {name:<18} {summary['average_precision_mean']:.3f} "
+                f"({summary['average_precision_sd']:.3f})"
+            )
+        self.stdout.write("")
+        self.stdout.write("As a warning, on held-out years:")
+        for row in metrics["threshold_errors"]:
+            self.stdout.write(
+                f"  above {100 * row['threshold']:.0f}%: caught {row['true_positives']} floods, "
+                f"missed {row['false_negatives']}, {row['false_positives']} false alarms "
+                f"(recall {row['recall']:.3f}, precision {row['precision']:.3f})"
+            )
+        self.stdout.write("")
         self.stdout.write("Risk bands on held-out years:")
         for band in metrics["band_calibration"]:
             observed = band["observed_flood_rate"]
