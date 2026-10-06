@@ -388,3 +388,46 @@ at 36.8%. Wajir East is furthest from a mapped river at 83.4 km.
 The ICPAC 100-year inundation map on HDX was the first choice for the flood
 zone, but its server could not be reached on the day; the Copernicus map
 replaced it.
+
+---
+
+## 5. UNOSAT satellite flood extents (validation only)
+
+Used by `validate_unosat` to check the model against floods it never saw.
+Never used in training. Downloaded by hand into `data/external/unosat/`
+(gitignored) on 5 October 2026 and listed for the command in
+`riskengine/ml/unosat_events.json`.
+
+| | |
+|---|---|
+| **Publisher** | United Nations Satellite Centre (UNOSAT), UNITAR |
+| **Found through** | Humanitarian Data Exchange, organisation `unosat` |
+| **Licence** | Creative Commons Attribution Share-Alike (CC BY-SA), as stated on HDX |
+| **Sensor** | NOAA-20 / Suomi NPP VIIRS, 375 m, cumulative over five days |
+
+| Activation | File | Layers used | Scored for |
+|---|---|---|---|
+| FL20231124KEN, floods of November 2023 | `https://unosat.org/static/unosat_filesystem/3761/FL20231124KEN_gdb.zip` (5.9 MB) | `VIIRS_20231119_20231123_MaximumFloodWaterExtent_KEN` and `VIIRS_20231124_20231128_MaximumFloodWaterExtent_KEN`, merged | 30 days ending 28 November 2023 |
+| FL20240426KEN, floods of April and May 2024 | `https://unosat.org/static/unosat_filesystem/3839/FL20240426KEN_gdb.zip` (12.4 MB) | `VIIRS_20240424_20240428_MaximumFloodWaterExtent_Kenya` | 30 days ending 28 April 2024 |
+
+Two more files were downloaded and not used: product 3828 (the same
+national April 2024 layer, in an earlier, smaller geodatabase) and
+FL20230321KEN (Dagahaley refugee camp, March 2023, a few square kilometres).
+
+Unzip each archive into a folder named `<activation>_<product number>`, for
+example `data/external/unosat/FL20231124KEN_3761/`.
+
+### Caveats
+
+- **Flood water only.** UNOSAT publishes permanent water as its own layer
+  and leaves it out of the flood extent. The overlap between the two is
+  about 100 km² in either event.
+- **Lake shores.** Water beyond the reference shoreline of Lake Turkana and
+  Lake Baringo counts as flood, although those lakes have been high for
+  years. It makes Turkana, Marsabit and Baringo "flooded" in both events.
+- **Cloud.** Each geodatabase has a `CloudObstruction` layer. It is not
+  used: a county hidden by cloud is counted as dry.
+- **Resolution.** At 375 m the sensor misses narrow river and urban
+  flooding. The high-resolution layers in the same files (Garissa, Dadaab,
+  Nairobi and Kiambu, the Tana and Galana rivers) cover parts of counties
+  only and are not used.

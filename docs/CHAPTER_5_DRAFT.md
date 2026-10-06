@@ -338,7 +338,7 @@ Ingestion was implemented as Django management commands.
 | `train_model` | `training_set.csv` | `flood_model.joblib`, `metrics.json` |
 | `score_regions` | Database contents and the saved model | One `RiskScore` per region for a date |
 | `flood_outlook` | ECMWF seasonal forecast and the saved model | `RiskOutlook` rows |
-| `validate_unosat` | UNOSAT satellite flood extents | Model scores for 2023 and 2024 (not yet run, see Section 5.10.3) |
+| `validate_unosat` | UNOSAT satellite flood extents | Model scores for 2023 and 2024 (Section 5.7.6) |
 
 The computed county areas were checked against the areas geoBoundaries
 publishes and agreed to within 0.08% over all 47 counties.
@@ -650,6 +650,53 @@ model selection. [Agree with the supervisor whether to deploy the Logistic
 Regression on the grounds of simplicity and stability, and state the reason
 here.]
 
+### 5.7.6 Validation Against Satellite Flood Extents
+
+The final test uses the same flood archive as training. To test the model
+against labels that do not come from that archive, the deployed model was
+scored against flood water mapped from satellite by the United Nations
+Satellite Centre (UNOSAT) for two events after the training period: the short
+rains of November 2023 and the long rains of April 2024. Each product is a
+national map of flood water from the VIIRS sensor at 375 m resolution, with
+permanent water already removed. For each event the model scored all 47
+counties for the 30 days ending on the last image date, and a county was
+counted as flooded when at least 5 km² of it lay inside the mapped water.
+
+**Table 5.21: Deployed model against UNOSAT flood extents**
+
+| Event | Counties flooded | ROC AUC | Average precision |
+|---|---|---|---|
+| 19 to 28 November 2023 | 31 of 47 | 0.744 | 0.886 |
+| 24 to 28 April 2024 | 26 of 47 | 0.430 | 0.499 |
+| Both events | 57 of 94 | 0.616 | 0.740 |
+
+Source: `riskengine/ml/artifacts/unosat_validation.csv`, produced by
+`validate_unosat` on 5 October 2026.
+
+The two events gave opposite results. For November 2023 the model ranked the
+counties well: those it scored highest, among them Garissa, Tana River, Wajir
+and Isiolo, were the ones with the most mapped water. For April 2024 the
+ranking was worse than chance. The model gave its highest probabilities to
+wet highland counties such as Nyandarua and Bomet, where no flood water was
+mapped, and lower probabilities to Turkana, Garissa and Kisumu, where it was.
+The same pattern was found when the threshold was raised to 25, 50 and
+100 km² (ROC AUC between 0.32 and 0.38 for April 2024), so it does not depend
+on the threshold.
+
+Only the ranking can be compared with the earlier results. Water was mapped
+in 61% of these county-events, whereas a flood was recorded in 10% of the
+training records, so the two labels measure different things and the
+probabilities cannot be judged against this one.
+
+The cause of the April 2024 result was not established. Three explanations
+are possible. A 375 m sensor detects wide, shallow flooding on arid lowlands
+far better than the fast river and urban flooding that affected Nairobi and
+Mai Mahiu in that month. Cloud cover over the highlands hides flooding
+there, and a county under cloud was counted as dry. Part of the water mapped
+in Turkana, Marsabit and Baringo is lake shore beyond the reference
+shoreline and not flooding from this event. With 94 county-events from two
+floods, the result is indicative and not conclusive.
+
 ## 5.8 Version Control and Implementation Evidence
 
 Project repository: [github.com/KelvinMurega/FloodScout](https://github.com/KelvinMurega/FloodScout)
@@ -689,7 +736,7 @@ the submitted work.
 
 [Replace the objective wording with the approved objectives from Chapter 1.]
 
-**Table 5.21: Evidence against each objective**
+**Table 5.22: Evidence against each objective**
 
 | Objective | Implemented output | Evidence | Result |
 |---|---|---|---|
@@ -697,7 +744,7 @@ the submitted work.
 | [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three candidates against two baselines | Tables 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.767) but did not beat the season-only baseline on average precision, and its probabilities were too high |
 | [Objective 3: classify regions into risk categories] | Four probability bands | Table 5.17; TC-11 | Achieved as an ordering. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test |
 | [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Login and administrator functions not built |
-| [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years completed; satellite validation and user evaluation outstanding |
+| [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years and satellite validation completed; user evaluation outstanding |
 
 ### 5.10.2 Discussion
 
@@ -707,7 +754,11 @@ indices and terrain roughly doubles it. The final test on 2017 to 2021
 (Section 5.7.5) qualifies this: the ability to rank regions carried over to
 years the model never saw, but the advantage over the season-only baseline
 did not, and the stated probabilities were about twice the observed flood
-rates. The cross-validated figures should therefore be read as an upper
+rates. Against satellite flood extents (Section 5.7.6) the ranking held for
+the short rains of 2023 and failed for the long rains of 2024. The two ocean
+indices carry most of their information in the short rains, which is
+consistent with the model being weaker in the long rains, although this was
+not tested directly. The cross-validated figures should therefore be read as an upper
 estimate. This agrees with the expectation from the literature in Chapter 2
 that antecedent rainfall and the Indian Ocean Dipole drive flooding in East
 Africa. [Cite the specific sources from Chapter 2.]
@@ -740,11 +791,10 @@ separate from observation-based scores follows from this.
   selected model did not beat the season-only baseline on average precision
   and over-stated probabilities (Section 5.7.5). The risk categories should
   be read as an ordering of regions and not as calibrated probabilities.
-- **The final test shares the weaknesses of the labels.** It uses the same
-  flood archive, so it is independent in time but not in how floods were
-  recorded. The `validate_unosat` command was written to score the model on
-  2023 and 2024 satellite flood extents, but had not been run because the
-  UNOSAT products had not been downloaded.
+- **Inconsistent result against satellite extents.** The model ranked
+  counties well for the November 2023 floods and worse than chance for the
+  April 2024 floods (Section 5.7.6). The comparison rests on two events, a
+  coarse sensor and no correction for cloud.
 - **Model selection is unstable.** Different periods select different
   models. The deployed Random Forest was selected on all years.
 - **No hyperparameter search and no explainability analysis.** Chapter 3

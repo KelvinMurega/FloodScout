@@ -30,7 +30,8 @@ product. `covers` lists the counties the product analysed, or "all". A
 county outside it is left out rather than counted as dry, because UNOSAT
 not mapping a county does not mean it did not flood. `extent` is anything
 GDAL reads (shapefile, GeoPackage, GeoJSON, KML, a .gdb folder); `layer`
-picks one if the file has several.
+picks one if the file has several, by position or by name. A list of layers
+is merged, for a product that maps one flood over several image dates.
 
 UNOSAT's "satellite detected water" usually includes permanent water
 (lakes, reservoirs) unless the product separates it. Use the flood-only
@@ -70,9 +71,10 @@ OUTPUT_PATH = DATA_DIR / "processed" / "unosat_validation.csv"
 
 
 def load_extent(path: Path, layer=0) -> GEOSGeometry:
-    """Every polygon in the layer, merged, in lon/lat."""
+    """Every polygon in the layer (or layers), merged, in lon/lat."""
     source = DataSource(str(path))
-    shapes = [feature.geom.geos for feature in source[layer]]
+    layers = layer if isinstance(layer, list) else [layer]
+    shapes = [feature.geom.geos for name in layers for feature in source[name]]
     if not shapes:
         raise CommandError(f"No features in {path} (layer {layer}).")
     for shape in shapes:
