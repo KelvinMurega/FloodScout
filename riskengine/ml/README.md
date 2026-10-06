@@ -85,9 +85,17 @@ The winner's probabilities are then calibrated (Platt or isotonic, see
 `calibration.py`) if that lowers the held-out Brier score. This targets the
 overconfidence in the top band noted below.
 
-The figures below are the 5 October 2026 run: 14,523 county-months from
-1996 to 2021, of which 1,406 (9.7%) have a recorded flood. It repeats the
-2 October run on the same data and seed, and its scores are identical.
+The figures below are the 6 October 2026 run on Google Colab, through
+`notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996 to
+2021, of which 1,406 (9.7%) have a recorded flood. The saved model and
+`metrics.json` are the files that run downloaded. It repeats the 2 and
+5 October runs on a laptop with the same data and seed. The Random Forest
+and Logistic Regression scores are identical, the Gradient Boosting scores
+differ in the fourth decimal place, and the saved model gives the same
+probability for every training row.
+
+The notebook is committed with its outputs, so the charts can be read on
+GitHub without running anything. The same charts are in `docs/figures/`.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
@@ -143,7 +151,7 @@ and must not be moved to get a better number.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
-| Gradient Boosting, sigmoid-calibrated (what 1996–2016 chose) | 0.767 | 0.153 | 0.0754 |
+| Gradient Boosting, sigmoid-calibrated (what 1996–2016 chose) | 0.767 | 0.153 | 0.0753 |
 | Logistic Regression (not chosen) | 0.852 | 0.275 | 0.0674 |
 | Random Forest (not chosen) | 0.782 | 0.186 | 0.0820 |
 | Season only | 0.694 | 0.177 | 0.0626 |
@@ -174,7 +182,9 @@ supervisor and to state openly, not one this result makes by itself.
 table above, `folds` and
 `fold_summary` for the first table, `threshold_errors` for the second, and
 `provenance` for the commit, the SHA-256 of the training set, the seed and
-the scikit-learn version the run used.
+the scikit-learn version the run used. The commit is empty for a Colab run,
+because the uploaded bundle is not a git checkout. The 6 October bundle was
+built from commit `51e4de2`.
 
 ## Checking against satellite floods
 
@@ -191,7 +201,9 @@ docker compose run --rm web python manage.py validate_unosat riskengine/ml/unosa
 A county counts as flooded when at least 5 km² of it is inside the mapped
 flood water (`--min-km2`). Run on 5 October 2026 against
 `flood-random-forest-20261005`, with the per-county rows kept in
-`artifacts/unosat_validation.csv`:
+`artifacts/unosat_validation.csv`. The Colab-trained
+`flood-random-forest-20261006` gives the same probabilities, so the run was
+not repeated:
 
 | Event | Counties flooded | ROC AUC | Average precision |
 |---|---|---|---|

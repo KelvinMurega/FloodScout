@@ -1,5 +1,5 @@
 {
-  "version": "flood-random-forest-20261005",
+  "version": "flood-random-forest-20261006",
   "target": "DFO large flood recorded in the county within the 30-day window",
   "rows": 14523,
   "positives": 1406,
@@ -51,8 +51,8 @@
       "brier": 0.0798
     },
     "gradient-boosting": {
-      "roc_auc": 0.7498,
-      "average_precision": 0.2153,
+      "roc_auc": 0.7499,
+      "average_precision": 0.2154,
       "brier": 0.0856
     }
   },
@@ -270,8 +270,8 @@
           "roc_auc": 0.797
         },
         "gradient-boosting": {
-          "average_precision": 0.2618,
-          "roc_auc": 0.7053
+          "average_precision": 0.2622,
+          "roc_auc": 0.7052
         },
         "season-only": {
           "average_precision": 0.2074,
@@ -374,7 +374,7 @@
     "scores": {
       "roc_auc": 0.7667,
       "average_precision": 0.1532,
-      "brier": 0.0754
+      "brier": 0.0753
     },
     "other_candidates": {
       "logreg": {
@@ -462,7 +462,7 @@
     ]
   },
   "provenance": {
-    "git_commit": "4517bd1ee1bfad1b2975935e18d130347e59002b",
+    "git_commit": null,
     "training_set_sha256": "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033",
     "random_state": 0,
     "scikit_learn": "1.9.1"

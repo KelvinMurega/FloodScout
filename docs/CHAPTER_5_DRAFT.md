@@ -46,7 +46,7 @@ minimum.
 | Database server | `postgis/postgis:16-3.4` container (PostgreSQL 16.4, PostGIS 3.4) | Stored region geometry and supported spatial queries | `select version(), postgis_version()` |
 | Application server | `python:3.12-slim` container (Python 3.12.15) running the Django development server on port 8000 | Served the REST API | `Dockerfile`, `docker-compose.yml` |
 | Client | [Browser name and version used in testing], Vite development server on port 5173 | Displayed the dashboard | [Screenshot or browser "About" page] |
-| Model training | The same laptop, CPU only; optionally Google Colab through `notebooks/train_flood_model.ipynb` | The training set has 14,523 rows, so no GPU was needed | `riskengine/ml/artifacts/metrics.json` |
+| Model training | Google Colab (free CPU runtime, scikit-learn 1.9.1) through `notebooks/train_flood_model.ipynb`; the same code also runs on the laptop | The training set has 14,523 rows, so no GPU was needed | The executed notebook; `riskengine/ml/artifacts/metrics.json` |
 | Network | Internet access during data ingestion only | Open-Meteo, NOAA and the flood archive are fetched over HTTPS; once the data is in the database, scoring and the dashboard work offline | `README.md`, "Full demo from a clean database" |
 
 ### 5.2.2 Software, Services and Configuration
@@ -280,11 +280,19 @@ Training wrote two files to `riskengine/ml/artifacts/`. `flood_model.joblib`
 holds the fitted pipeline, the list of inputs in order, the probability bands,
 the county rainfall normals and the two index tables, so scoring needs no
 network access. `metrics.json` holds the results reported in Section 5.7. The
-model version, `flood-random-forest-20261005`, is stored on every score the
-model produces. `metrics.json` also records the Git commit, the SHA-256 of the
-training set, the random seed and the scikit-learn version of the run. The
-5 October run repeated the 2 October run on the same data and seed in order
-to record the per-fold results, and its scores were identical.
+model version, `flood-random-forest-20261006`, is stored on every score the
+model produces. `metrics.json` also records the SHA-256 of the training set,
+the random seed and the scikit-learn version of the run.
+
+The saved model was trained on Google Colab on 6 October 2026. The training
+set and the training code were uploaded as one bundle, built from commit
+`51e4de2`, and the notebook `notebooks/train_flood_model.ipynb` ran the same
+`train.py` that the application uses. The notebook is kept in the repository
+with its outputs, and its charts are in `docs/figures/`. The run repeated the
+2 and 5 October runs made on the laptop with the same data and seed. The
+Random Forest and Logistic Regression scores were identical, the Gradient
+Boosting scores differed in the fourth decimal place, and the saved model
+gave the same probability for every training record.
 
 ## 5.5 System Implementation
 
@@ -605,7 +613,7 @@ was seen.
 |---|---|---|---|
 | Base rate of 1996 to 2016 | 0.500 | 0.068 | 0.0643 |
 | Season only | 0.694 | 0.177 | 0.0626 |
-| **Gradient Boosting, sigmoid-calibrated (selected on 1996 to 2016)** | **0.767** | **0.153** | **0.0754** |
+| **Gradient Boosting, sigmoid-calibrated (selected on 1996 to 2016)** | **0.767** | **0.153** | **0.0753** |
 | Logistic Regression (not selected) | 0.852 | 0.275 | 0.0674 |
 | Random Forest (not selected) | 0.782 | 0.186 | 0.0820 |
 
