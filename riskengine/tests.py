@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -523,3 +524,35 @@ class RiskOutlookAPITests(APITestCase):
         response = self.client.get(reverse("risk-outlook-list"), {"month": "November"})
 
         self.assertEqual(response.status_code, 400)
+
+
+class RefreshScoresCommandTests(TestCase):
+    COMMANDS = "riskengine.management.commands.refresh_scores"
+
+    def test_fetches_rainfall_then_scores(self):
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual([call.args[0] for call in run.call_args_list], ["seed_rainfall", "score_regions"])
+
+    def test_a_failed_fetch_stops_a_single_run(self):
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):
+            with self.assertRaises(CommandError):
+                call_command("refresh_scores", stdout=StringIO())
+
+    def test_on_a_schedule_a_failed_run_is_reported_and_the_next_one_still_happens(self):
+        class Stop(Exception):
+            pass
+
+        stderr = StringIO()
+        with mock.patch(
+            f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")
+        ) as run, mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, Stop]) as sleep:
+            with self.assertRaises(Stop):
+                call_command("refresh_scores", "--every-hours", "24", stdout=StringIO(), stderr=stderr)
+        self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
+        sleep.assert_called_with(24 * 3600)
+        self.assertIn("no network", stderr.getvalue())
+
+    def test_the_interval_must_be_positive(self):
+        with self.assertRaises(CommandError):
+            call_command("refresh_scores", "--every-hours", "0", stdout=StringIO())

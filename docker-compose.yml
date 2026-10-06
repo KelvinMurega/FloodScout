@@ -36,5 +36,19 @@ services:
       db:
         condition: service_healthy
 
+  # Keeps the dashboard current: fetches the latest rainfall and rescores
+  # every region when it starts and once a day after that.
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: python manage.py refresh_scores --every-hours 24
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgis_data:

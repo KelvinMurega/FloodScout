@@ -79,10 +79,12 @@ configuration, were the Open-Meteo archive, forecast, elevation and seasonal
 APIs; the NOAA Climate Prediction Center index files; the Dartmouth Flood
 Observatory archive; and the geoBoundaries repository.
 
-The Docker Compose file defined two services. The `db` service ran the PostGIS
-image with a named volume for its data and a health check. The `web` service
-was built from the project `Dockerfile`, mounted the source directory, read
-its settings from `.env` and started only after the database was healthy.
+The Docker Compose file defined three services. The `db` service ran the
+PostGIS image with a named volume for its data and a health check. The `web`
+service was built from the project `Dockerfile`, mounted the source
+directory, read its settings from `.env` and started only after the database
+was healthy. The `scheduler` service used the same image and ran the
+`refresh_scores` command once a day (Section 5.5.2).
 `.env`, the `data/` folders and the Earth Engine credential folder
 (`.secrets/`) were excluded from version control by `.gitignore`. An
 `.env.example` file with placeholder values was committed in their place.
@@ -366,6 +368,7 @@ Ingestion was implemented as Django management commands.
 | `build_training_set` | Flood archive, ERA5 rainfall, ONI, DMI | `training_set.csv` |
 | `train_model` | `training_set.csv` | `flood_model.joblib`, `metrics.json` |
 | `score_regions` | Database contents and the saved model | One `RiskScore` per region for a date |
+| `refresh_scores` | Runs `seed_rainfall` then `score_regions`, once or on a repeat | Scores for the current date |
 | `flood_outlook` | ECMWF seasonal forecast and the saved model | `RiskOutlook` rows |
 | `validate_unosat` | UNOSAT satellite flood extents | Model scores for 2023 and 2024 (Section 5.7.6) |
 
@@ -426,7 +429,12 @@ screen had not been built at the time of writing (Section 5.10.3).
 The dashboard is a separate Vite and Leaflet application in `frontend/`. It
 communicates with the API over HTTP only.
 
-One complete task proceeds as follows.
+One complete task proceeds as follows. Steps 1 and 2 run without an operator:
+the `scheduler` service runs them through `refresh_scores` when the system
+starts and once a day after that. If a run fails, for example because the
+rainfall service cannot be reached, the previous scores stay in place and the
+next run tries again. The dashboard states the date the scores are for and
+flags them when they are more than two days old.
 
 1. `seed_rainfall` stores the latest daily rainfall for all 337 regions.
 2. `score_regions` builds an input row per region, obtains a probability from

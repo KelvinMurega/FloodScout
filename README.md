@@ -116,7 +116,7 @@ Four commands bring the whole walking skeleton up with **real** data. Run them
 in order; each is safe to re-run.
 
 ```bash
-docker compose up -d                  # PostGIS + API
+docker compose up -d                  # PostGIS, API and the daily refresh
 docker compose run --rm web python manage.py migrate
 docker compose run --rm web python manage.py seed_regions    # 47 county boundaries
 docker compose run --rm web python manage.py seed_regions --level sub_county  # 290 sub-counties
@@ -131,8 +131,17 @@ Then start the map (see below). `seed_terrain` and `seed_rainfall` need network
 access; everything after that works offline, because the values are in the
 database.
 
-Re-run `seed_rainfall` then `score_regions` on the morning of a demo to refresh
-the map with the latest observed rainfall.
+While the stack is up, the `scheduler` service keeps the map current: it runs
+`refresh_scores` (`seed_rainfall` then `score_regions`) when it starts and once
+a day after that. The dashboard shows the date the scores are for, and says so
+when they are more than two days old. To refresh by hand:
+
+```bash
+docker compose run --rm web python manage.py refresh_scores
+```
+
+The seasonal outlook is not part of the daily refresh; run `flood_outlook`
+when a new monthly forecast is out.
 
 ### Where the numbers come from
 

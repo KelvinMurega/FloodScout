@@ -56,6 +56,10 @@ const LABEL_CHAR_PX = 6.2;
 // cue alongside the fill, so the areas stand out to colour-blind readers too.
 const RELOCATE_DASH = "5 4";
 
+// Scores older than this are flagged on screen. The scheduler refreshes
+// them daily, so two days means a refresh was missed.
+const STALE_AFTER_DAYS = 2;
+
 const els = {
   status: document.getElementById("status"),
   provenance: document.getElementById("provenance"),
@@ -390,6 +394,8 @@ function renderProvenance(scores) {
   }
 
   const looksLikePlaceholder = versions.every((v) => /stub|heuristic|placeholder/i.test(v));
+  // The newest date any score on screen is for: what "current" means here.
+  const latest = scores.map((s) => s.prediction_date).filter(Boolean).sort().at(-1);
   els.provenance.hidden = false;
   els.provenance.replaceChildren();
 
@@ -409,8 +415,19 @@ function renderProvenance(scores) {
       " — a documented placeholder, not a trained model. Not for operational use.",
     );
   } else {
-    els.provenance.append("Scores produced by ", label, ".");
+    els.provenance.append(`Scores for ${formatDate(latest)}, produced by `, label, ".");
+    const age = daysSince(latest);
+    if (age > STALE_AFTER_DAYS) {
+      els.provenance.append(` These are ${age} days old: the daily refresh has not run.`);
+    }
   }
+}
+
+/** Whole days from an ISO date to now; 0 when the date is missing or ahead. */
+function daysSince(isoString) {
+  const then = new Date(isoString).valueOf();
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / 86_400_000));
 }
 
 function renderRegionBar() {
