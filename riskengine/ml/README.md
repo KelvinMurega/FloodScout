@@ -349,6 +349,53 @@ shore beyond the reference shoreline, not this event.
 The permanent-water layer is already removed by UNOSAT (about 100 km² of
 overlap in either extent).
 
+### Sub-counties
+
+The model is trained on counties and applied to sub-counties, each scored
+from its own rainfall and terrain against its county's normal. The same two
+extents are the only check on that:
+
+```bash
+docker compose run --rm web python manage.py validate_unosat riskengine/ml/unosat_events.json --level sub_county
+```
+
+Run on 6 October 2026, same 5 km² threshold, rows kept in
+`artifacts/unosat_validation_sub_county.csv`:
+
+| Event | Sub-counties flooded | ROC AUC | Average precision |
+|---|---|---|---|
+| Short rains, November 2023 | 89 of 290 | 0.767 | 0.689 |
+| Long rains, April 2024 | 55 of 290 | 0.491 | 0.176 |
+| Both | 144 of 580 | 0.654 | 0.465 |
+| Ranked within their own county, both events | 43 county-events | 0.461 | n/a |
+
+| Band the model gave | Sub-county-events | Flooded |
+|---|---|---|
+| Low | 0 | n/a |
+| Moderate | 51 | 10% |
+| High | 227 | 19% |
+| Very High | 302 | 32% |
+
+- **Across the country, sub-counties are ranked about as well as
+  counties** (0.654 against 0.616), with the same split between the two
+  events.
+- **Within a county they are not ranked at all.** The last row takes each
+  county where some sub-counties flooded and some did not, and asks whether
+  the flooded ones were scored higher. 0.46 is no better than a coin. A
+  sub-county's score is right about as often as its county's score is, and
+  the difference between two sub-counties of one county carries no
+  information.
+- That is what the inputs would predict. Sub-counties of one county share
+  the season, the ocean indices, the county normal and the county area, and
+  ERA5 rainfall at about 25 km is nearly the same across a small county.
+  What separates them is terrain at one point, which the model barely uses.
+- The same cautions apply as for counties: two events, a coarse sensor, and
+  cloud counted as dry. A sub-county is also smaller than many flood
+  patches a 375 m sensor can map, and 5 km² is a large share of an urban one.
+
+The dashboard should be read accordingly: the sub-county view shows where a
+county's risk sits on the map, not which of its sub-counties is worse.
+
 ## Known limits
 
 - **Skill on later years is weaker than cross-validation says.** See "The
@@ -362,7 +409,8 @@ overlap in either extent).
   before 1996 and under-records 1997–98. The model inherits that.
 - **Trained on counties, applied to sub-counties.** A sub-county is scored
   from its own rainfall and terrain against its county's normal rainfall.
-  That has not been validated at sub-county scale.
+  Against satellite extents this does not rank sub-counties within a county
+  better than chance (see "Sub-counties" above).
 - **Drainage is measured but not used yet.** `seed_drainage` fills river
   distance, flood-zone share and built-up share for every region, and they
   were tried as inputs on 1 October 2026. Held-out average precision moved

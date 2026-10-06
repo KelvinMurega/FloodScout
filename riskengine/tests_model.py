@@ -517,3 +517,86 @@ class OutlookAveragingTests(SimpleTestCase):
         region_observed, region_forecast = _per_region([["a", "b"], ["c"]], observed, forecast)
         self.assertEqual(region_observed, [{day: 3.0}, {day: 9.0}])
         self.assertEqual(region_forecast, [[{day: 20.0}, {day: 30.0}], [{day: 5.0}, {day: 6.0}]])
+
+
+class ValidateUnosatSubCountyTests(TestCase):
+    def test_sub_counties_are_scored_and_ranked_within_their_county(self):
+        county = _county("Wetland", 36.0, -1.0)
+        for name, x in (("West", 36.0), ("East", 36.5)):
+            half = Polygon.from_bbox((x, -1.0, x + 0.5, 0.0))
+            half.srid = 4326
+            Region.objects.create(
+                name=name,
+                county_name="Wetland",
+                level=Region.Level.SUB_COUNTY,
+                parent=county,
+                geom=MultiPolygon(half, srid=4326),
+                area_size=6000.0,
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            extent = Path(tmp) / "water.geojson"
+            # About 490 km² of water, all of it in West.
+            extent.write_text(json.dumps({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {}, "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[36.1, -0.6], [36.3, -0.6], [36.3, -0.4], [36.1, -0.4], [36.1, -0.6]]],
+                }}],
+            }))
+            manifest = Path(tmp) / "events.json"
+            manifest.write_text(json.dumps([{
+                "name": "Test event", "date": "2024-05-05", "extent": str(extent), "covers": ["Wetland"],
+            }]))
+            output = Path(tmp) / "out.csv"
+            wet_rain = {dt.date(2024, 5, 5) - dt.timedelta(days=d): 20.0 for d in range(61)}
+            dry_rain = {dt.date(2024, 5, 5) - dt.timedelta(days=d): 0.0 for d in range(61)}
+            stdout = StringIO()
+            commands = "riskengine.management.commands.validate_unosat"
+            with mock.patch(
+                f"{commands}.county_rainfall", return_value=({"West": wet_rain, "East": dry_rain}, 1)
+            ) as rainfall, mock.patch(f"{commands}.fetch_oni", return_value={}), mock.patch(
+                f"{commands}.fetch_dmi", return_value={}
+            ), mock.patch(f"{commands}.SUB_COUNTY_OUTPUT_PATH", output):
+                call_command("validate_unosat", str(manifest), "--level", "sub_county", stdout=stdout)
+
+            with output.open() as handle:
+                rows = {row["sub_county"]: row for row in csv.DictReader(handle)}
+
+        # `covers` names the county; its sub-counties are what is scored.
+        self.assertEqual(set(rows), {"West", "East"})
+        self.assertEqual({row["county"] for row in rows.values()}, {"Wetland"})
+        self.assertEqual((rows["West"]["flooded"], rows["East"]["flooded"]), ("1", "0"))
+        # Sub-county rainfall is cached apart from county rainfall.
+        self.assertEqual(rainfall.call_args.kwargs["cache_dir"].name, "sub_county")
+        self.assertIn("Ranked within their own county", stdout.getvalue())
+
+    def test_within_county_ranking_skips_counties_that_cannot_be_ranked(self):
+        from riskengine.management.commands.validate_unosat import within_county_auc
+
+        def row(county, flooded, probability):
+            return {"event": "E", "county": county, "flooded": flooded, "probability": probability}
+
+        results = [
+            row("A", 1, 0.9), row("A", 0, 0.1),  # ranked correctly: 1.0
+            row("B", 1, 0.2), row("B", 0, 0.6),  # ranked backwards: 0.0
+            row("C", 0, 0.5), row("C", 0, 0.4),  # nothing flooded: left out
+        ]
+        self.assertEqual(within_county_auc(results), (0.5, 2))
+        self.assertIsNone(within_county_auc(results[4:]))
+
+    def test_a_slash_in_a_name_does_not_break_the_rainfall_cache(self):
+        from riskengine.management.commands.build_training_set import open_meteo_rainfall
+
+        region = _county("Sigowet/Soin", 35.0, -1.0)
+        day = dt.date(2024, 4, 1)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "riskengine.management.commands.build_training_set.fetch_archive_rainfall",
+            return_value=[{day: 4.0}],
+        ):
+            cache = Path(tmp) / "sub_county"
+            fetched = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
+            again = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
+            self.assertEqual([path.name for path in cache.iterdir()], [f"Sigowet-Soin_{day}_{day}.json"])
+        self.assertEqual(fetched, {"Sigowet/Soin": {day: 4.0}})
+        self.assertEqual(again, fetched)  # read back from the cache

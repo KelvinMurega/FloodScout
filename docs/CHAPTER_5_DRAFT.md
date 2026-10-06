@@ -768,6 +768,37 @@ in Turkana, Marsabit and Baringo is lake shore beyond the reference
 shoreline and not flooding from this event. With 94 county-events from two
 floods, the result is indicative and not conclusive.
 
+The same two extents were used to check the sub-county scores, which had no
+other validation because the model was trained on counties. All 290
+sub-counties were scored for each event from their own rainfall and terrain.
+
+**Table 5.21b: Deployed model against UNOSAT flood extents, by sub-county**
+
+| Event | Sub-counties flooded | ROC AUC | Average precision |
+|---|---|---|---|
+| 19 to 28 November 2023 | 89 of 290 | 0.767 | 0.689 |
+| 24 to 28 April 2024 | 55 of 290 | 0.491 | 0.176 |
+| Both events | 144 of 580 | 0.654 | 0.465 |
+| Sub-counties ranked within their own county, both events | 43 county-events | 0.461 | n/a |
+
+Source: `riskengine/ml/artifacts/unosat_validation_sub_county.csv`, produced
+by `validate_unosat --level sub_county` on 6 October 2026.
+
+Across the country the sub-counties were ranked about as well as the
+counties (ROC AUC 0.654 against 0.616), with the same contrast between the
+two events. The last row asks a stricter question. For each county in which
+some sub-counties flooded and some did not, it measures whether the flooded
+ones received the higher scores. The mean over 43 such county-events was
+0.461, which is no better than chance. The model therefore places a
+sub-county correctly to the extent that it places its county correctly, and
+the difference in score between two sub-counties of the same county carries
+no information. This follows from the inputs: sub-counties of one county
+share the season, the ocean indices, the county rainfall normal and the
+county area, and reanalysis rainfall at a resolution of about 25 km differs
+little across a small county. The sub-county view of the dashboard should be
+read as showing where a county's risk lies on the map, and not as ranking
+the sub-counties of that county.
+
 ### 5.7.7 Model Explanation
 
 Chapter 3 proposed SHAP to explain the model. Permutation importance was used
@@ -859,7 +890,7 @@ the submitted work.
 |---|---|---|---|
 | [Objective 1: collect and prepare geospatial and environmental data] | Ingestion commands and a 14,523-record training set | Tables 5.3, 5.4, 5.8; TC-01 to TC-07 | Achieved for counties. Sub-county rainfall and terrain are stored but were not used in training |
 | [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three tuned candidates against two baselines | Tables 5.6a, 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.801) but beat the season-only baseline on average precision only narrowly (1.08 times), and its probabilities were too high |
-| [Objective 3: classify regions into risk categories] | Four probability bands | Table 5.17; TC-11 | Achieved as an ordering. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test |
+| [Objective 3: classify regions into risk categories] | Four probability bands | Tables 5.17, 5.21b; TC-11 | Achieved as an ordering of counties. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test, and sub-counties of the same county were not ranked better than chance |
 | [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Login and administrator functions not built |
 | [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years and satellite validation completed; user evaluation outstanding |
 
@@ -922,8 +953,10 @@ separate from observation-based scores follows from this.
   settings per model over a few values each (Table 5.6a). SHAP was replaced
   by permutation importance on held-out years, for the reasons given in
   Section 5.7.7. The ocean indices were found to be unstable inputs.
-- **Sub-county scores are not validated.** The model was trained on counties
-  and applied to sub-counties using the county's rainfall normal and area.
+- **Sub-county scores do not separate sub-counties of one county.** The model
+  was trained on counties and applied to sub-counties using the county's
+  rainfall normal and area. Against satellite extents, sub-counties were
+  ranked within their own county no better than chance (Section 5.7.6).
 - **Point rainfall.** Rainfall was sampled at one representative point per
   county, which is a weak description of a large county.
 - **Seasonal outlook.** The forecast rainfall comes from a different model

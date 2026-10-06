@@ -85,13 +85,19 @@ def county_area(region) -> float | None:
     return county.area_size
 
 
-def open_meteo_rainfall(counties, start, end, log=print):
-    """{county name: {date: mm}} at each county's representative point, cached per county."""
-    RAINFALL_DIR.mkdir(parents=True, exist_ok=True)
+def open_meteo_rainfall(counties, start, end, log=print, cache_dir: Path = RAINFALL_DIR):
+    """{region name: {date: mm}} at each region's representative point, cached per region.
+
+    `cache_dir` keeps regions of another level apart: a sub-county can share
+    its name with a county.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
     rainfall = {}
     missing = []
     for county in counties:
-        path = RAINFALL_DIR / f"{county.name}_{start}_{end}.json"
+        # Some sub-county names hold a slash ("Sigowet/Soin").
+        safe_name = county.name.replace("/", "-").replace("\\", "-")
+        path = cache_dir / f"{safe_name}_{start}_{end}.json"
         if path.exists():
             cached = json.loads(path.read_text())
             rainfall[county.name] = {dt.date.fromisoformat(day): mm for day, mm in cached.items()}
@@ -111,12 +117,12 @@ def open_meteo_rainfall(counties, start, end, log=print):
     return rainfall
 
 
-def county_rainfall(counties, start, end, source: str, log=print):
+def county_rainfall(counties, start, end, source: str, log=print, cache_dir: Path = RAINFALL_DIR):
     """Daily rainfall per county from `source`, and how many points scoring should average."""
     if source == "earth-engine":
         series = earth_engine_rain.fetch_county_rainfall(counties, start, end, EE_RAINFALL_DIR, log=log)
         return series, earth_engine_rain.SCORING_POINTS
-    return open_meteo_rainfall(counties, start, end, log=log), 1
+    return open_meteo_rainfall(counties, start, end, log=log, cache_dir=cache_dir), 1
 
 
 class Command(BaseCommand):
