@@ -403,6 +403,13 @@ The probability is classified into four categories using fixed bands.
 The bands sit around the 9.68% base rate. "Very High" therefore means well
 above the usual chance. It does not mean a flood is expected.
 
+The dashboard presents a score as a multiple of the base rate, for example
+"about 3.2 times the usual chance", and not as a percentage. The final test
+(Section 5.7.5) showed that the model orders regions correctly but states
+probabilities about twice too high, so the relative figure is the claim the
+evidence supports. The API serves it as `times_usual` beside the unchanged
+`predicted_value`.
+
 ### 5.5.4 Application Tier
 
 The REST API was implemented with Django REST Framework under `/api/`.
@@ -444,8 +451,9 @@ flags them when they are more than two days old.
 4. Counties are coloured by risk category. [Figure 5.1: national view.]
 5. The user selects a focus region, for example Lake Basin, and the dashboard
    requests and draws its sub-counties. [Figure 5.2: focus-region view.]
-6. The user selects a region to see its probability, category, model version
-   and, for High or Very High, lower-risk neighbouring regions.
+6. The user selects a region to see its category, its chance of a large flood
+   as a multiple of the usual chance, the model version and, for High or
+   Very High, lower-risk neighbouring regions.
    [Figure 5.3: region detail panel.]
 7. The user picks a future month on the period bar to see the seasonal
    outlook, which is labelled as an outlook and gives no relocation guidance.
@@ -479,8 +487,9 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 116 tests. On 5 October 2026 all 116 passed in 57.6
-seconds (`docker compose run --rm web python manage.py test`). Table 5.13
+The suite contained 141 tests. On 6 October 2026 all 141 passed in 466
+seconds (`docker compose run --rm web python manage.py test`). Most of that
+time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
 Chapter 4.]
 
@@ -943,6 +952,10 @@ separate from observation-based scores follows from this.
   inputs could not be used.
 - **Labels depend on reporting.** A flood that was not reported is labelled as
   no flood. The precision figures are affected as described in Section 5.7.4.
+- **Scores are shown relative to the usual chance.** Because the stated
+  probabilities were too high on the final test, the dashboard shows a
+  multiple of the base rate. The multiple inherits the same overstatement at
+  the top of the range; it is a ranking aid and not a calibrated quantity.
 - **Weaker performance on later years.** On the 2017 to 2021 final test the
   selected model beat the season-only baseline on average precision only
   narrowly and over-stated probabilities (Section 5.7.5). The test years were

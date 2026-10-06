@@ -35,6 +35,7 @@ result, in the database or in the API.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import joblib
@@ -63,6 +64,36 @@ _MODEL = load_model()
 
 # Stored on every RiskScore row.
 MODEL_VERSION = _MODEL["version"] if _MODEL else HEURISTIC_VERSION
+
+# Written next to the model by the same training run.
+METRICS_PATH = ARTIFACT_PATH.with_name("metrics.json")
+
+
+def usual_chance(path: Path = METRICS_PATH) -> float | None:
+    """The share of training county-months with a recorded flood, about 0.10.
+
+    None when there is no trained model: the heuristic's value is not a
+    probability, so there is nothing to compare it with.
+    """
+    if _MODEL is None or not path.exists():
+        return None
+    return json.loads(path.read_text()).get("base_rate")
+
+
+USUAL_CHANCE = usual_chance()
+
+
+def times_usual(probability: float | None, usual: float | None = USUAL_CHANCE) -> float | None:
+    """A flood probability as a multiple of the usual chance.
+
+    This is what the dashboard shows. On the 2017 to 2021 final test the
+    model ordered regions correctly but its probabilities ran about twice
+    too high, so "three times the usual chance" is a claim the evidence
+    supports and "31%" is not.
+    """
+    if probability is None or not usual:
+        return None
+    return round(probability / usual, 1)
 
 # --- The rule of thumb, in full ------------------------------------------
 

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .advisory import relocation_advisory
+from .ml.infer import times_usual
 from .models import RiskOutlook, RiskScore
 
 
@@ -11,6 +12,7 @@ class RiskScoreSerializer(serializers.ModelSerializer):
     region_name = serializers.CharField(source="region.name", read_only=True)
     region_level = serializers.CharField(source="region.level", read_only=True)
     relocation_advisory = serializers.SerializerMethodField()
+    times_usual = serializers.SerializerMethodField()
 
     class Meta:
         model = RiskScore
@@ -22,6 +24,9 @@ class RiskScoreSerializer(serializers.ModelSerializer):
             "county_name",
             "prediction_date",
             "predicted_value",
+            # The same value as a multiple of the usual chance of a flood.
+            # null for a placeholder score. See riskengine/ml/infer.py.
+            "times_usual",
             "risk_category",
             "relocation_advisory",
             # Always exposed: an API consumer must be able to tell a placeholder
@@ -31,6 +36,9 @@ class RiskScoreSerializer(serializers.ModelSerializer):
 
     def get_relocation_advisory(self, score) -> str:
         return relocation_advisory(score.risk_category)
+
+    def get_times_usual(self, score) -> float | None:
+        return times_usual(score.predicted_value)
 
 
 class RiskOutlookSerializer(serializers.ModelSerializer):
@@ -43,6 +51,9 @@ class RiskOutlookSerializer(serializers.ModelSerializer):
     region_name = serializers.CharField(source="region.name", read_only=True)
     region_level = serializers.CharField(source="region.level", read_only=True)
     predicted_value = serializers.FloatField(source="flood_probability", read_only=True)
+    times_usual = serializers.SerializerMethodField()
+    times_usual_low = serializers.SerializerMethodField()
+    times_usual_high = serializers.SerializerMethodField()
 
     class Meta:
         model = RiskOutlook
@@ -54,10 +65,22 @@ class RiskOutlookSerializer(serializers.ModelSerializer):
             "county_name",
             "month",
             "predicted_value",
+            "times_usual",
             "probability_low",
             "probability_high",
+            "times_usual_low",
+            "times_usual_high",
             "rain_vs_normal",
             "risk_category",
             "model_version",
             "issued_on",
         ]
+
+    def get_times_usual(self, outlook) -> float | None:
+        return times_usual(outlook.flood_probability)
+
+    def get_times_usual_low(self, outlook) -> float | None:
+        return times_usual(outlook.probability_low)
+
+    def get_times_usual_high(self, outlook) -> float | None:
+        return times_usual(outlook.probability_high)

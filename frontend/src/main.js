@@ -151,8 +151,15 @@ function swatch(category) {
   return span;
 }
 
-function formatPercent(value) {
-  return typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "—";
+/**
+ * A score as a multiple of the usual chance of a large flood. The model
+ * ranks regions reliably but its probabilities run high, so the multiple is
+ * shown and the percentage is not.
+ */
+function formatTimesUsual(times) {
+  if (typeof times !== "number") return "—";
+  if (times >= 0.9 && times <= 1.1) return "About the usual chance";
+  return `About ${times.toFixed(1)} times the usual chance`;
 }
 
 function formatMonth(isoDate) {
@@ -642,10 +649,12 @@ function renderDetail(regionId) {
   } else if (isOutlook()) {
     entries = [
       ...(isRegionView() ? [["County", score.county_name]] : []),
-      ["Chance of a large flood", formatPercent(score.predicted_value)],
+      ["Chance of a large flood", formatTimesUsual(score.times_usual)],
       [
         "Range across forecasts",
-        `${formatPercent(score.probability_low)} to ${formatPercent(score.probability_high)}`,
+        typeof score.times_usual_low === "number" && typeof score.times_usual_high === "number"
+          ? `${score.times_usual_low.toFixed(1)} to ${score.times_usual_high.toFixed(1)} times usual`
+          : "—",
       ],
       [
         "Forecast rain",
@@ -660,7 +669,11 @@ function renderDetail(regionId) {
     entries = [
         ...(isRegionView() ? [["County", score.county_name]] : []),
         ...(isRegionView() ? [["Advisory", advisoryFor(score.relocation_advisory)]] : []),
-        ["Predicted value", formatValue(score.predicted_value)],
+        // A placeholder score has no usual chance to compare with.
+        ...(typeof score.times_usual === "number"
+          ? [["Chance of a large flood", formatTimesUsual(score.times_usual)]]
+          : []),
+        ["Model output", formatValue(score.predicted_value)],
         ["Prediction date", formatDate(score.prediction_date)],
         ["Model version", score.model_version ?? "—"],
     ];

@@ -20,6 +20,13 @@ A large flood is recorded in about 10% of county-months, so the bands sit
 around that base rate. "Very High" means roughly a one-in-four chance, nearly
 three times the usual. It does not mean a flood is expected.
 
+The dashboard does not show the probability as a percentage. It shows it as
+a multiple of that usual chance ("about 3.2 times the usual chance"), which
+the API serves as `times_usual` beside `predicted_value`. On the final test
+below, the bands kept their order but the probabilities ran about twice too
+high, so the ordering is what the evidence supports. `times_usual()` in
+`infer.py` divides by `base_rate` from `metrics.json`.
+
 ## What it learns from
 
 One row per county per month, January 1996 to September 2021. Sources are
