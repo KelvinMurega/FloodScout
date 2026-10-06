@@ -176,6 +176,17 @@ npm run dev
 See `frontend/README.md` for the API-URL configuration and why the client is a
 separate app rather than a Django template.
 
+## Tests and checks
+
+```bash
+docker compose run --rm web python manage.py test
+ruff check .          # pip install ruff; rules are in ruff.toml
+```
+
+GitHub Actions runs both on every pull request into `develop` and `main`
+(`.github/workflows/ci.yml`), using the same `docker-compose.yml`, so the
+check tests what runs locally.
+
 ## Status
 
 Repo and Django scaffold created as part of Sprint 1 setup (see

@@ -1,0 +1,13 @@
+# Lint settings for CI (.github/workflows/ci.yml) and local runs: `ruff check .`
+target-version = "py312"
+line-length = 100
+extend-exclude = ["*/migrations/*", "notebooks"]
+
+[lint]
+# Named explicitly so a ruff upgrade can not change what CI enforces.
+# E4/E7/E9 and F are real errors (bad imports, undefined or unused names);
+# I keeps imports sorted.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[lint.isort]
+known-first-party = ["accounts", "api", "floodscout", "geodata", "riskengine"]

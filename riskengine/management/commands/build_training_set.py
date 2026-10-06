@@ -37,7 +37,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from geodata.management.commands.seed_terrain import representative_point
 from geodata.models import Region
-from geodata.services import dfo
+from geodata.services import dfo, earth_engine_rain
 from geodata.services.climate_indices import (
     ClimateIndexError,
     dmi_for,
@@ -45,7 +45,6 @@ from geodata.services.climate_indices import (
     fetch_oni,
     oni_for,
 )
-from geodata.services import earth_engine_rain
 from geodata.services.open_meteo import OpenMeteoError, fetch_archive_rainfall
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, WINDOW_DAYS, feature_row
 

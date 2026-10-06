@@ -68,7 +68,13 @@ from geodata.services import earth_engine_rain
 from geodata.services.climate_indices import ClimateIndexError, fetch_dmi, fetch_oni
 from geodata.services.open_meteo import OpenMeteoError
 from riskengine.ml.features import HISTORY_DAYS
-from riskengine.ml.infer import classify, flood_probabilities, load_model, model_thresholds, region_row
+from riskengine.ml.infer import (
+    classify,
+    flood_probabilities,
+    load_model,
+    model_thresholds,
+    region_row,
+)
 
 from .build_training_set import DATA_DIR, RAINFALL_DIR, county_rainfall
 
