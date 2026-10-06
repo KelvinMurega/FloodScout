@@ -59,12 +59,25 @@ class GeospatialFeature(models.Model):
     region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="geospatial_features")
     elevation = models.FloatField(help_text="Metres above sea level")
     slope = models.FloatField(help_text="Degrees")
-    # Nullable because there is no free, keyless source for it. Elevation
-    # and slope are ingested from a real DEM (see
-    # geodata/services/open_meteo.py); distance to the nearest watercourse
-    # needs a hydrography layer that is not wired up yet, and inventing a
-    # number would be worse than recording that it is unknown.
-    distance_to_river = models.FloatField(help_text="Metres", null=True, blank=True)
+    # The three below describe how readily water collects and how poorly it
+    # drains. They are filled by `seed_drainage`, separately from elevation
+    # and slope, and are null until it has run: an unknown is recorded as
+    # unknown, never as a guess.
+    distance_to_river = models.FloatField(
+        help_text="Metres from the region's representative point to the nearest mapped river",
+        null=True,
+        blank=True,
+    )
+    flood_zone_fraction = models.FloatField(
+        help_text="Share of the region inside the modelled 100-year river flood extent, 0-1",
+        null=True,
+        blank=True,
+    )
+    built_up_fraction = models.FloatField(
+        help_text="Share of the region covered by buildings, 0-1",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         # These inputs are static per county, so one row per Region is the

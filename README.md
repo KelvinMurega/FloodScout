@@ -121,8 +121,10 @@ docker compose run --rm web python manage.py migrate
 docker compose run --rm web python manage.py seed_regions    # 47 county boundaries
 docker compose run --rm web python manage.py seed_regions --level sub_county  # 290 sub-counties
 docker compose run --rm web python manage.py seed_terrain    # real elevation + slope (Open-Meteo DEM)
-docker compose run --rm web python manage.py seed_rainfall   # real daily rainfall, last 14 days
+docker compose run --rm web python manage.py seed_rainfall   # real daily rainfall, last 61 days
 docker compose run --rm web python manage.py score_regions   # one RiskScore per county and sub-county for today
+docker compose run --rm web python manage.py flood_outlook   # county outlook for the next three months
+docker compose run --rm web python manage.py flood_outlook --level sub_county
 ```
 
 Then start the map (see below). `seed_terrain` and `seed_rainfall` need network
@@ -140,11 +142,14 @@ the map with the latest observed rainfall.
 | Elevation, slope | Open-Meteo elevation API (Copernicus DEM GLO-90) | yes |
 | Daily rainfall | Open-Meteo `precipitation_sum`, past days only | yes |
 | Distance to river | not ingested | left null, never invented |
-| **Risk score** | `riskengine/ml/infer.py` | **no — documented placeholder** |
+| **Risk score** | `riskengine/ml/infer.py` | trained model, modest skill |
 
-The inputs are measurements. The scorer that turns them into a category is
-still `heuristic-stub-v0`, a transparent rule of thumb, and every row and every
-API response says so. Do not present the output as a model result.
+The inputs are measurements. The scorer is a random forest trained on
+recorded floods from 1996 to 2021. Its output is the chance that a large
+flood is recorded in a region in a 30-day window. `riskengine/ml/README.md`
+says how it was trained, how well it does and where it is weak; read it
+before presenting a result. Every row and API response carries the
+`model_version` that produced it.
 
 ## Dashboard (Client Tier)
 

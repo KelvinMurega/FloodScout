@@ -128,7 +128,14 @@ body {
   line-height: 1.45;
   color: var(--text-secondary);
   background: var(--surface-page);
-  max-width: 46ch;
+  /* Take the width the titles leave, so the long outlook note wraps to two
+     lines at most; anything longer scrolls instead of growing the header. */
+  flex: 1 1 46ch;
+  max-width: 120ch;
+  box-sizing: content-box;
+  max-height: calc(2 * 1.45em);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .provenance strong {
@@ -145,6 +152,10 @@ body {
   overflow-x: auto;
   background: var(--surface-1);
   border-bottom: 1px solid var(--hairline);
+}
+
+.region-bar[hidden] {
+  display: none;
 }
 
 .region-bar__button {

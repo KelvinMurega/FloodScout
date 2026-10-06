@@ -48,3 +48,36 @@ class RiskScore(models.Model):
 
     def __str__(self) -> str:
         return f"{self.region} — {self.risk_category} ({self.prediction_date:%Y-%m-%d})"
+
+
+class RiskOutlook(models.Model):
+    """A forecast-driven flood probability for a region for a month ahead.
+
+    Written by `flood_outlook` from a seasonal rainfall forecast. Kept apart
+    from RiskScore on purpose: a RiskScore is computed from rain that has
+    fallen, an outlook from rain that is only predicted, and the dashboard's
+    "latest score" must never quietly be the second kind.
+    """
+
+    region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="risk_outlooks")
+    month = models.DateField(help_text="First day of the month the outlook is for")
+    flood_probability = models.FloatField(help_text="Mean over the forecast ensemble")
+    probability_low = models.FloatField(help_text="10th percentile of the ensemble")
+    probability_high = models.FloatField(help_text="90th percentile of the ensemble")
+    rain_vs_normal = models.FloatField(
+        null=True, blank=True, help_text="Median forecast rainfall over the county's normal"
+    )
+    risk_category = models.CharField(max_length=10, choices=RiskScore.RiskCategory.choices)
+    model_version = models.CharField(max_length=50)
+    issued_on = models.DateField(help_text="The day the forecast was fetched")
+
+    class Meta:
+        ordering = ["month", "region_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["region", "month"], name="unique_riskoutlook_region_month"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.region} — {self.risk_category} ({self.month:%Y-%m} outlook)"

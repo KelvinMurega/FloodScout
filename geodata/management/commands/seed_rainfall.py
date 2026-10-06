@@ -1,8 +1,10 @@
 """Populate geodata.EnvironmentalData with real recent daily rainfall.
 
-One row per county per day, in millimetres, sampled at the same
-representative point `seed_terrain` uses. Only dates that have already
-happened are stored — nothing here is a forecast.
+One row per region per day, in millimetres. Measured the way the trained
+model was trained: at the representative point `seed_terrain` uses, or
+averaged over several points across the region when the model was trained
+on area-averaged rainfall (see geodata/services/sampling.py). Only dates
+that have already happened are stored — nothing here is a forecast.
 
 Re-running overwrites the days it covers rather than appending duplicates,
 so it is safe on a cron or before a demo.
@@ -15,12 +17,11 @@ from django.db import transaction
 
 from geodata.models import EnvironmentalData, Region
 from geodata.services.open_meteo import OpenMeteoError, fetch_daily_rainfall
+from geodata.services.sampling import regional_rainfall
 
-from .seed_terrain import representative_point
-
-# The placeholder scorer looks at a 7-day window; 14 gives it a full window
-# plus history to look back over without a second fetch.
-DEFAULT_PAST_DAYS = 14
+# The trained model reads the 30 days up to the scoring date and the 30
+# before those (riskengine/ml/features.py); a day over covers the edge.
+DEFAULT_PAST_DAYS = 61
 
 
 class Command(BaseCommand):
@@ -45,6 +46,12 @@ class Command(BaseCommand):
             default=None,
             help="Only counties or only sub-counties. Defaults to both.",
         )
+        parser.add_argument(
+            "--points",
+            type=int,
+            default=None,
+            help="Points per region to average. Defaults to what the trained model expects.",
+        )
 
     def handle(self, *args, **options):
         past_days = options["past_days"]
@@ -63,13 +70,23 @@ class Command(BaseCommand):
         if not regions:
             raise CommandError("No regions in the database — run `seed_regions` first.")
 
+        points = options["points"]
+        if points is None:
+            from riskengine.ml.infer import rain_points  # noqa: PLC0415  (loads the model)
+
+            points = rain_points()
+        if points < 1:
+            raise CommandError("--points must be at least 1.")
+
         self.stdout.write(
-            f"Fetching {past_days} days of rainfall for {len(regions)} regions"
+            f"Fetching {past_days} days of rainfall for {len(regions)} regions "
+            f"({points} point{'s' if points > 1 else ''} each)"
         )
 
-        points = [representative_point(region) for region in regions]
         try:
-            series = fetch_daily_rainfall(points, past_days=past_days)
+            series = regional_rainfall(
+                regions, lambda pts: fetch_daily_rainfall(pts, past_days=past_days), points
+            )
         except OpenMeteoError as exc:
             raise CommandError(str(exc)) from exc
 

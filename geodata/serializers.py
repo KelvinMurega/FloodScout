@@ -32,7 +32,15 @@ class RegionSerializer(GeoFeatureModelSerializer):
 class GeospatialFeatureSerializer(serializers.ModelSerializer):
     class Meta:
         model = GeospatialFeature
-        fields = ["id", "region", "elevation", "slope", "distance_to_river"]
+        fields = [
+            "id",
+            "region",
+            "elevation",
+            "slope",
+            "distance_to_river",
+            "flood_zone_fraction",
+            "built_up_fraction",
+        ]
 
 
 class EnvironmentalDataSerializer(serializers.ModelSerializer):

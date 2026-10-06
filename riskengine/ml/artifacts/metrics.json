@@ -1,0 +1,111 @@
+{
+  "version": "flood-random-forest-20261002",
+  "target": "DFO large flood recorded in the county within the 30-day window",
+  "rows": 14523,
+  "positives": 1406,
+  "base_rate": 0.0968,
+  "period": [
+    "1996-01-31",
+    "2021-09-30"
+  ],
+  "first_training_year": 1996,
+  "features": [
+    "rain_30d",
+    "rain_7d_max",
+    "rain_prev_30d",
+    "rain_30d_ratio",
+    "oni",
+    "dmi",
+    "oni_short_rains",
+    "dmi_short_rains",
+    "month_sin",
+    "month_cos",
+    "elevation",
+    "slope",
+    "log_area"
+  ],
+  "rain_source": "open-meteo-point",
+  "validation": "6-fold cross-validation grouped by year, normals refit per fold",
+  "baseline_brier": 0.0874,
+  "baselines": {
+    "base-rate": {
+      "roc_auc": 0.5,
+      "average_precision": 0.0968,
+      "brier": 0.0874
+    },
+    "season-only": {
+      "roc_auc": 0.5645,
+      "average_precision": 0.1235,
+      "brier": 0.0873
+    }
+  },
+  "comparison": {
+    "logreg": {
+      "roc_auc": 0.7655,
+      "average_precision": 0.2385,
+      "brier": 0.083
+    },
+    "random-forest": {
+      "roc_auc": 0.7867,
+      "average_precision": 0.2535,
+      "brier": 0.0798
+    },
+    "gradient-boosting": {
+      "roc_auc": 0.7498,
+      "average_precision": 0.2153,
+      "brier": 0.0856
+    }
+  },
+  "selected": "random-forest",
+  "lift_over_base_rate": 2.62,
+  "lift_over_season_only": 2.05,
+  "calibration": "none",
+  "calibration_comparison": {
+    "none": {
+      "roc_auc": 0.7867,
+      "average_precision": 0.2535,
+      "brier": 0.0798
+    },
+    "sigmoid": {
+      "roc_auc": 0.777,
+      "average_precision": 0.2413,
+      "brier": 0.0802
+    },
+    "isotonic": {
+      "roc_auc": 0.7614,
+      "average_precision": 0.2166,
+      "brier": 0.0814
+    }
+  },
+  "probability_bands": [
+    0.05,
+    0.1,
+    0.2
+  ],
+  "band_calibration": [
+    {
+      "band": "low",
+      "rows": 7048,
+      "mean_predicted": 0.0194,
+      "observed_flood_rate": 0.0231
+    },
+    {
+      "band": "moderate",
+      "rows": 2778,
+      "mean_predicted": 0.0726,
+      "observed_flood_rate": 0.0846
+    },
+    {
+      "band": "high",
+      "rows": 2484,
+      "mean_predicted": 0.1423,
+      "observed_flood_rate": 0.1703
+    },
+    {
+      "band": "very_high",
+      "rows": 2213,
+      "mean_predicted": 0.312,
+      "observed_flood_rate": 0.2643
+    }
+  ]
+}

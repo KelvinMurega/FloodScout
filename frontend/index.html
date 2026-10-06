@@ -18,10 +18,11 @@
         </div>
         <!-- Filled from the model_version actually present in the data, never
              hardcoded, so it cannot drift from what the API returned. -->
-        <p class="provenance" id="provenance" role="status" hidden></p>
+        <p class="provenance" id="provenance" role="status" tabindex="0" hidden></p>
       </header>
 
       <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
+      <nav class="region-bar" id="period-bar" aria-label="Choose today or a month ahead" hidden></nav>
 
       <main class="app__main">
         <div class="map-wrap">

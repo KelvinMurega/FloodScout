@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from geodata.models import Region
-from riskengine.ml.infer import MODEL_VERSION, infer
+from riskengine.ml.infer import HEURISTIC_VERSION, MODEL_VERSION, infer
 from riskengine.models import RiskScore
 
 
@@ -100,6 +100,7 @@ class Command(BaseCommand):
             f"RiskScore rows for {target_date.isoformat()}: "
             f"{RiskScore.objects.filter(prediction_date=start_of_day(target_date)).count()}"
         )
-        self.stdout.write(self.style.WARNING(
-            f"These are placeholder scores from {MODEL_VERSION}, not model predictions."
-        ))
+        if MODEL_VERSION == HEURISTIC_VERSION:
+            self.stdout.write(self.style.WARNING(
+                f"These are placeholder scores from {MODEL_VERSION}, not model predictions."
+            ))

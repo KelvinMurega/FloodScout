@@ -97,6 +97,17 @@ sub-counties when the region spans more than one county. The side panel adds:
   adjacent sub-counties with a lower score, safest first, including any
   across a county line.
 
+**Today or a month ahead.** A second bar under the region bar switches either
+view between today's scores and the seasonal outlook for a coming month. It
+lists the months from `GET /risk-outlook/months/` and is hidden when there are
+none. Picking a month swaps the scores request for
+`GET /risk-outlook/?month=<YYYY-MM-01>` with the same `level` and
+`focus_region` params. Outlook rows have the same shape as scores, so the map,
+legend and table draw them unchanged. The header says the map is an outlook,
+the detail panel shows the chance of a large flood with its range across the
+forecast ensemble, and the relocation panel and dashed outlines are hidden: an
+outlook is a chance months ahead, not grounds to tell anyone to move.
+
 Regions are joined to scores on the Feature's `id` (the `Region` pk).
 
 There is no basemap. The polygons are the whole map, and the view is locked to

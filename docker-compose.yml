@@ -22,6 +22,8 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - .:/app
+      # Earth Engine credential from `earthengine authenticate`, kept out of git.
+      - ./.secrets/earthengine:/root/.config/earthengine
     ports:
       # Host port is configurable: 8000 is often already taken (on Windows a
       # vendor service frequently squats on it), and a bind clash leaves the

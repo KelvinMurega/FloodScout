@@ -7,7 +7,7 @@ from geodata.views import (
     GeospatialFeatureViewSet,
     RegionViewSet,
 )
-from riskengine.views import RiskScoreViewSet
+from riskengine.views import RiskOutlookViewSet, RiskScoreViewSet
 
 from . import views
 
@@ -17,6 +17,7 @@ router.register("focus-regions", FocusRegionViewSet, basename="focus-region")
 router.register("geospatial-features", GeospatialFeatureViewSet, basename="geospatial-feature")
 router.register("environmental-data", EnvironmentalDataViewSet, basename="environmental-data")
 router.register("risk-scores", RiskScoreViewSet, basename="risk-score")
+router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),

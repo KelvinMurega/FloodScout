@@ -9,6 +9,9 @@
  *               score, with the sub-counties where relocation is advised
  *               listed and outlined.
  *
+ * Either view can show today's scores or the seasonal outlook for a month
+ * ahead; the period bar switches between them.
+ *
  * The view lives in the URL hash (#/coast), so it survives a reload and the
  * browser's back button leaves a region. Nothing here knows how a score was
  * produced, only what the API says produced it.
@@ -23,6 +26,8 @@ import {
   fetchFocusRegions,
   fetchLatestScores,
   fetchLowerRiskNeighbours,
+  fetchOutlook,
+  fetchOutlookMonths,
   fetchRegions,
 } from "./api.js";
 import {
@@ -55,6 +60,7 @@ const els = {
   status: document.getElementById("status"),
   provenance: document.getElementById("provenance"),
   regionBar: document.getElementById("region-bar"),
+  periodBar: document.getElementById("period-bar"),
   regionIntro: document.getElementById("region-intro"),
   relocation: document.getElementById("relocation"),
   detailHeading: document.getElementById("detail-heading"),
@@ -68,8 +74,13 @@ const els = {
 const state = {
   // Loaded once.
   counties: null,
-  countyScores: new Map(),
   focusRegions: [],
+  // Months a seasonal outlook exists for: [{ month, issued_on }].
+  outlookMonths: [],
+  // null is today's scores; otherwise the outlook month, as the API names it.
+  period: null,
+  // County scores per period, fetched on first use.
+  countyCache: new Map(),
   focusByCountyId: new Map(),
   // Per region, fetched on first open.
   regionCache: new Map(),
@@ -136,8 +147,29 @@ function swatch(category) {
   return span;
 }
 
+function formatPercent(value) {
+  return typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "—";
+}
+
+function formatMonth(isoDate) {
+  const parsed = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(parsed.valueOf())) return isoDate;
+  return parsed.toLocaleDateString(undefined, { year: "numeric", month: "long" });
+}
+
 function isRegionView() {
   return state.focus !== null;
+}
+
+function isOutlook() {
+  return state.period !== null;
+}
+
+/** Scores for the current period: today's, or the outlook for its month. */
+function fetchScores(params) {
+  return isOutlook()
+    ? fetchOutlook({ ...params, month: state.period })
+    : fetchLatestScores(params);
 }
 
 /* ------------------------------------------------------------------ map */
@@ -215,16 +247,21 @@ function updateLabelVisibility() {
 
 let refit = null;
 
-/** Fit `bounds` to the panel and stop the view wandering away from it. */
+/** How far the map can be dragged past the fitted view, as a share of it. */
+const PAN_MARGIN = 0.5;
+
+/** Fit `bounds` to the panel and stop the view wandering far away from it. */
 function lockTo(bounds) {
-  map.setMaxBounds(null);
   map.setMinZoom(0);
   refit = () => {
+    map.setMaxBounds(null);
     map.setMinZoom(map.getBoundsZoom(bounds, false, L.point(16, 16)));
     map.fitBounds(bounds, { padding: [16, 16], animate: false });
+    // The limit is measured from the fitted view, not from `bounds`: a limit
+    // smaller than the view pins the map in place and it cannot be dragged.
+    map.setMaxBounds(map.getBounds().pad(PAN_MARGIN));
   };
   refit();
-  map.setMaxBounds(bounds.pad(0.12));
   map.options.maxBoundsViscosity = 1;
 }
 
@@ -357,7 +394,15 @@ function renderProvenance(scores) {
   els.provenance.replaceChildren();
 
   const label = el("strong", null, versions.join(", "));
-  if (looksLikePlaceholder) {
+  if (isOutlook()) {
+    const issued = state.outlookMonths.find((m) => m.month === state.period)?.issued_on;
+    els.provenance.append(
+      `Outlook for ${formatMonth(state.period)} from `,
+      label,
+      `, driven by a seasonal rainfall forecast issued ${formatDate(issued)}. ` +
+        "A chance of a large flood, not a prediction of one, and less certain than today's scores.",
+    );
+  } else if (looksLikePlaceholder) {
     els.provenance.append(
       "Scores produced by ",
       label,
@@ -384,6 +429,29 @@ function renderRegionBar() {
   }
 }
 
+function renderPeriodBar() {
+  els.periodBar.hidden = state.outlookMonths.length === 0;
+  els.periodBar.replaceChildren();
+
+  const options = [
+    { period: null, name: "Today" },
+    ...state.outlookMonths.map((m) => ({
+      period: m.month,
+      name: `${formatMonth(m.month)} outlook`,
+    })),
+  ];
+  for (const option of options) {
+    const button = el("button", "region-bar__button", option.name);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(option.period === state.period));
+    button.addEventListener("click", () => {
+      state.period = option.period;
+      route();
+    });
+    els.periodBar.append(button);
+  }
+}
+
 function renderLegend(scores) {
   const counts = new Map();
   for (const score of scores) {
@@ -401,7 +469,7 @@ function renderLegend(scores) {
     els.legend.append(item);
   }
 
-  if (isRegionView()) {
+  if (isRegionView() && !isOutlook()) {
     const item = el("li", "legend__item");
     item.append(
       el("span", "legend__swatch legend__swatch--dashed"),
@@ -447,7 +515,8 @@ function regionButton(score) {
 }
 
 function renderRelocation(scores) {
-  if (!isRegionView()) {
+  // No relocation advice from an outlook: it is a chance, months ahead.
+  if (!isRegionView() || isOutlook()) {
     els.relocation.hidden = true;
     return;
   }
@@ -550,15 +619,35 @@ function renderDetail(regionId) {
   els.detail.append(badge);
 
   const rows = el("dl", "detail__rows");
-  const entries = score
-    ? [
+  let entries;
+  if (!score) {
+    entries = [["Status", "No risk score recorded for this area."]];
+  } else if (isOutlook()) {
+    entries = [
+      ...(isRegionView() ? [["County", score.county_name]] : []),
+      ["Chance of a large flood", formatPercent(score.predicted_value)],
+      [
+        "Range across forecasts",
+        `${formatPercent(score.probability_low)} to ${formatPercent(score.probability_high)}`,
+      ],
+      [
+        "Forecast rain",
+        typeof score.rain_vs_normal === "number"
+          ? `${score.rain_vs_normal.toFixed(1)} times normal`
+          : "—",
+      ],
+      ["Outlook for", formatMonth(score.month)],
+      ["Model version", score.model_version ?? "—"],
+    ];
+  } else {
+    entries = [
         ...(isRegionView() ? [["County", score.county_name]] : []),
         ...(isRegionView() ? [["Advisory", advisoryFor(score.relocation_advisory)]] : []),
         ["Predicted value", formatValue(score.predicted_value)],
         ["Prediction date", formatDate(score.prediction_date)],
         ["Model version", score.model_version ?? "—"],
-      ]
-    : [["Status", "No risk score recorded for this area."]];
+    ];
+  }
 
   for (const [term, value] of entries) {
     rows.append(el("dt", null, term), el("dd", null, value));
@@ -575,7 +664,7 @@ function renderDetail(regionId) {
       });
       els.detail.append(open);
     }
-  } else if (score && score.relocation_advisory !== "none") {
+  } else if (score && !isOutlook() && score.relocation_advisory !== "none") {
     renderNeighbours(regionId, els.detail);
   }
 }
@@ -673,10 +762,30 @@ function select(regionId, { pan = false } = {}) {
 
 /* ---------------------------------------------------------------- views */
 
-function showOverview() {
+function loadCountyScores() {
+  const period = state.period;
+  if (!state.countyCache.has(period)) {
+    state.countyCache.set(
+      period,
+      fetchScores({ level: "county" }).catch((error) => {
+        state.countyCache.delete(period); // let a retry refetch
+        throw error;
+      }),
+    );
+  }
+  return state.countyCache.get(period);
+}
+
+async function showOverview() {
+  const slug = currentSlug();
+  const period = state.period;
+  const scores = await loadCountyScores();
+  // Another view may have been chosen while this one loaded.
+  if (currentSlug() !== slug || state.period !== period) return;
+
   state.focus = null;
   clearView();
-  state.scoresByRegion = state.countyScores;
+  state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
 
   const features = state.counties.features;
   drawOutline(features);
@@ -684,35 +793,39 @@ function showOverview() {
   if (layer.getLayers().length > 0) lockTo(layer.getBounds());
   updateLabelVisibility();
 
-  const scores = [...state.countyScores.values()];
+  renderProvenance(scores);
   renderRegionBar();
+  renderPeriodBar();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "County";
   renderEmptyDetail();
   renderLegend(scores);
   renderTable(features);
+  setStatus(null);
 }
 
 async function loadRegion(focus) {
-  if (!state.regionCache.has(focus.slug)) {
+  const key = `${focus.slug}|${state.period}`;
+  if (!state.regionCache.has(key)) {
     const params = { level: "sub_county", focus_region: focus.slug };
     state.regionCache.set(
-      focus.slug,
-      Promise.all([fetchRegions(params), fetchLatestScores(params)]).catch((error) => {
-        state.regionCache.delete(focus.slug); // let a retry refetch
+      key,
+      Promise.all([fetchRegions(params), fetchScores(params)]).catch((error) => {
+        state.regionCache.delete(key); // let a retry refetch
         throw error;
       }),
     );
   }
-  return state.regionCache.get(focus.slug);
+  return state.regionCache.get(key);
 }
 
 async function showRegion(focus) {
   setStatus(`Loading ${focus.name} sub-counties…`);
+  const period = state.period;
   const [subCounties, scores] = await loadRegion(focus);
   // Another view may have been chosen while this one loaded.
-  if (currentSlug() !== focus.slug) return;
+  if (currentSlug() !== focus.slug || state.period !== period) return;
 
   state.focus = focus;
   clearView();
@@ -768,7 +881,9 @@ async function showRegion(focus) {
   if (bounds.isValid()) lockTo(bounds);
   updateLabelVisibility();
 
+  renderProvenance(scores);
   renderRegionBar();
+  renderPeriodBar();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "Sub-county";
@@ -796,7 +911,7 @@ async function route() {
     if (focus) {
       await showRegion(focus);
     } else {
-      showOverview();
+      await showOverview();
     }
   } catch (error) {
     console.error(error);
@@ -808,21 +923,20 @@ async function load() {
   try {
     setStatus("Loading counties and risk scores…");
 
-    const [counties, scores, focusRegions] = await Promise.all([
+    const [counties, focusRegions, outlookMonths] = await Promise.all([
       fetchRegions(),
-      fetchLatestScores({ level: "county" }),
       fetchFocusRegions(),
+      // The outlook is an extra: without it the dashboard still shows today.
+      fetchOutlookMonths().catch(() => []),
     ]);
 
     state.counties = counties;
-    state.countyScores = new Map(scores.map((score) => [score.region, score]));
     state.focusRegions = focusRegions;
+    state.outlookMonths = outlookMonths;
     for (const focus of focusRegions) {
       for (const county of focus.counties) state.focusByCountyId.set(county.id, focus);
     }
 
-    renderProvenance(scores);
-    setStatus(null);
     console.info(
       `FloodScout: ${counties.features.length} counties, ${focusRegions.length} focus regions, from ${API_BASE_URL}`,
     );
