@@ -12,7 +12,8 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
-from django.contrib.gis.geos import MultiPolygon, Point as GEOSPoint, Polygon
+from django.contrib.gis.geos import MultiPolygon, Polygon
+from django.contrib.gis.geos import Point as GEOSPoint
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase

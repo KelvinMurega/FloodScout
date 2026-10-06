@@ -10,15 +10,15 @@ from unittest import mock
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.test import TestCase
 
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
-from riskengine.management.commands.score_regions import start_of_day
 from geodata.services.climate_indices import oni_for, parse_oni
+from riskengine.management.commands.score_regions import start_of_day
 from riskengine.ml import train
 from riskengine.ml.features import (
     FEATURE_NAMES,
