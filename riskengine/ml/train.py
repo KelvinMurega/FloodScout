@@ -26,6 +26,14 @@ Three things keep those held-out scores honest:
   show that rainfall, El Niño and terrain add anything beyond "it is the
   rainy season".
 
+Each candidate's settings are searched over a small grid (`tune`), and the
+grid's choice is used only where it scores higher than the fixed settings
+under that same honest procedure.
+
+`permutation_importances` and `_error_breakdown` say what the chosen model
+leans on and where it is wrong: which inputs its held-out score depends on,
+and which counties and months its missed floods and false alarms fall in.
+
 Cross-validation still picks the winner and reports its score from the same
 folds. `final_test` is the check on that: the years from FINAL_TEST_FROM on
 are set aside, the choice is made again without them, and they are scored
@@ -48,9 +56,10 @@ import sklearn
 from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GridSearchCV, GroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -82,6 +91,30 @@ SEASON_FEATURES = ("month_sin", "month_cos")
 # `band_calibration` in metrics.json shows how often floods were actually
 # recorded in each band on held-out years.
 PROBABILITY_BANDS = (0.05, 0.10, 0.20)
+
+# A probability above this is a warning in the error breakdown: the High
+# and Very High bands.
+WARNING_THRESHOLD = PROBABILITY_BANDS[1]
+
+# The settings each candidate is searched over, by pipeline parameter. Kept
+# small: six folds of whole years cannot tell fine settings apart. Every
+# grid contains the fixed setting in `candidates()`, so the search can also
+# conclude that nothing beats it. The number of trees is not searched,
+# because more trees only make a forest less noisy.
+PARAM_GRIDS = {
+    "logreg": {"logisticregression__C": [0.01, 0.1, 1.0, 10.0]},
+    "random-forest": {
+        "randomforestclassifier__min_samples_leaf": [5, 20, 50],
+        "randomforestclassifier__max_features": ["sqrt", 0.5],
+    },
+    "gradient-boosting": {
+        "gradientboostingclassifier__max_depth": [2, 3],
+        "gradientboostingclassifier__learning_rate": [0.02, 0.05, 0.1],
+    },
+}
+
+# Times each input is shuffled per fold when measuring its importance.
+PERMUTATION_REPEATS = 5
 
 
 def candidates() -> dict:
@@ -211,6 +244,91 @@ def held_out_probabilities(data: TrainingSet, make_model, columns, folds) -> np.
         model = make_model().fit(X[train_rows], data.y[train_rows])
         out[test_rows] = model.predict_proba(X[test_rows])[:, 1]
     return out
+
+
+def tune(data: TrainingSet, folds) -> dict[str, dict]:
+    """The grid-search choice of settings for each candidate.
+
+    Scored by average precision on the held-out years of `folds`.
+    GridSearchCV cannot refit the county normals inside each fold, so here
+    `rain_30d_ratio` uses normals from every row of `data`. That small leak
+    touches only which settings are proposed: `select` scores the proposal
+    with per-fold normals, like everything else, before using it.
+    """
+    X = with_normals(data, county_normals(data, np.arange(len(data.y))))
+    chosen = {}
+    for name, pipeline in candidates().items():
+        search = GridSearchCV(
+            pipeline, PARAM_GRIDS[name], scoring="average_precision", cv=folds, refit=False, n_jobs=-1
+        )
+        chosen[name] = search.fit(X, data.y).best_params_
+    return chosen
+
+
+def _short(params: dict) -> dict:
+    """Pipeline parameters without the step prefix, for metrics.json."""
+    return {name.split("__", 1)[-1]: value for name, value in params.items()}
+
+
+def permutation_importances(data: TrainingSet, make_model, folds) -> dict[str, dict]:
+    """How far held-out average precision falls when one input is shuffled.
+
+    Measured fold by fold on the years the model did not see, so an input
+    the model merely memorised scores nothing. Mean and standard deviation
+    over the folds. Inputs that carry the same information share the credit:
+    shuffling `rain_30d` leaves `rain_30d_ratio` intact.
+    """
+    drops = []
+    for train_rows, test_rows in folds:
+        X = with_normals(data, county_normals(data, train_rows))
+        model = make_model().fit(X[train_rows], data.y[train_rows])
+        result = permutation_importance(
+            model,
+            X[test_rows],
+            data.y[test_rows],
+            scoring="average_precision",
+            n_repeats=PERMUTATION_REPEATS,
+            random_state=RANDOM_STATE,
+        )
+        drops.append(result.importances_mean)
+    drops = np.array(drops)
+    return {
+        name: {
+            "mean": round(float(drops[:, column].mean()), 4),
+            "sd": round(float(drops[:, column].std(ddof=1)), 4) if len(drops) > 1 else None,
+        }
+        for column, name in enumerate(data.features)
+    }
+
+
+def _error_breakdown(data: TrainingSet, probabilities, threshold: float = WARNING_THRESHOLD) -> dict:
+    """Missed floods and false alarms by calendar month and by county.
+
+    A probability above `threshold` is a warning. Shows whether the errors
+    sit in particular seasons or places.
+    """
+    warned = probabilities > threshold
+    flooded = data.y == 1
+
+    def count(inside) -> dict:
+        return {
+            "rows": int(inside.sum()),
+            "floods": int((inside & flooded).sum()),
+            "caught": int((inside & flooded & warned).sum()),
+            "missed": int((inside & flooded & ~warned).sum()),
+            "false_alarms": int((inside & ~flooded & warned).sum()),
+        }
+
+    return {
+        "threshold": threshold,
+        "by_month": [
+            {"month": int(month), **count(data.months == month)} for month in sorted(set(data.months))
+        ],
+        "by_county": [
+            {"county": str(county), **count(data.counties == county)}
+            for county in sorted(set(data.counties))
+        ],
+    }
 
 
 def cross_calibrated(y, probabilities, folds, method: str) -> np.ndarray:
@@ -382,6 +500,8 @@ class Selection:
     """What cross-validation on one set of years decided, and the evidence."""
 
     folds: list
+    pipelines: dict  # per candidate, unfitted, with the settings that were kept
+    tuning: dict  # per candidate, the fixed and searched settings and their scores
     held_out: dict[str, np.ndarray]  # per candidate, each row scored unseen
     season: np.ndarray  # the same for the season-only baseline
     comparison: dict
@@ -391,19 +511,50 @@ class Selection:
     final_held_out: np.ndarray  # the winner's held-out probabilities, calibrated
 
 
-def select(data: TrainingSet) -> Selection:
-    """Compare the candidates on held-out years and pick a model and a calibration."""
+def select(data: TrainingSet, tune_models: bool = True) -> Selection:
+    """Compare the candidates on held-out years and pick a model and a calibration.
+
+    With `tune_models`, each candidate's settings are first searched over
+    PARAM_GRIDS. The searched settings replace the fixed ones only where
+    they score a higher average precision on the same held-out years.
+    """
     y = data.y
     folds = list(GroupKFold(CV_FOLDS).split(data.X, y, groups=data.years))
     all_columns = list(range(len(data.features)))
+    searched = tune(data, folds) if tune_models else {}
 
+    def unseen(pipeline):
+        return held_out_probabilities(data, lambda: clone(pipeline), all_columns, folds)
+
+    pipelines = {}
+    tuning = {}
     comparison = {}
     held_out = {}
     for name, pipeline in candidates().items():
-        held_out[name] = held_out_probabilities(
-            data, lambda pipeline=pipeline: clone(pipeline), all_columns, folds
-        )
+        pipelines[name] = pipeline
+        held_out[name] = unseen(pipeline)
         comparison[name] = _scores(y, held_out[name])
+        if name not in searched:
+            continue
+        current = pipeline.get_params()
+        tuning[name] = {
+            "grid": _short(PARAM_GRIDS[name]),
+            "fixed_settings": _short({key: current[key] for key in searched[name]}),
+            "searched_settings": _short(searched[name]),
+            "fixed": comparison[name],
+            "searched": comparison[name],
+            "adopted": False,
+        }
+        if all(current[key] == value for key, value in searched[name].items()):
+            continue  # the search chose the fixed settings
+        tuned = clone(pipeline).set_params(**searched[name])
+        tuned_held_out = unseen(tuned)
+        tuning[name]["searched"] = _scores(y, tuned_held_out)
+        if tuning[name]["searched"]["average_precision"] > comparison[name]["average_precision"]:
+            tuning[name]["adopted"] = True
+            pipelines[name] = tuned
+            held_out[name] = tuned_held_out
+            comparison[name] = tuning[name]["searched"]
 
     season_columns = [data.column(name) for name in SEASON_FEATURES if name in data.features]
     season = held_out_probabilities(data, season_baseline, season_columns, folds)
@@ -420,6 +571,8 @@ def select(data: TrainingSet) -> Selection:
 
     return Selection(
         folds=folds,
+        pipelines=pipelines,
+        tuning=tuning,
         held_out=held_out,
         season=season,
         comparison=comparison,
@@ -437,7 +590,7 @@ def fit(data: TrainingSet, chosen: Selection):
     calibration applied, or `pipeline` itself when none was kept.
     """
     normals = county_normals(data, np.arange(len(data.y)))
-    pipeline = candidates()[chosen.best].fit(with_normals(data, normals), data.y)
+    pipeline = clone(chosen.pipelines[chosen.best]).fit(with_normals(data, normals), data.y)
     model = pipeline
     if chosen.calibration != "none":
         calibrator = Calibrator(chosen.calibration).fit(chosen.held_out[chosen.best], data.y)
@@ -445,14 +598,14 @@ def fit(data: TrainingSet, chosen: Selection):
     return model, pipeline, normals
 
 
-def final_test(data: TrainingSet, test_from: int) -> dict | None:
+def final_test(data: TrainingSet, test_from: int, tune_models: bool = True) -> dict | None:
     """Score years from `test_from` on with a model that never saw them.
 
     The cross-validation in `train` both picks the model and reports its
     score, so that score is a little flattering. Here the later years are
     set aside first. The model and its calibration are chosen again on the
-    earlier years alone, fitted on them, and then scored once on the later
-    years. Nothing about the later years (their floods, or their rainfall
+    earlier years alone (settings search included), fitted on them, and then
+    scored once on the later years. Nothing about the later years (their floods, or their rainfall
     in the county normals) reaches the model.
 
     None when either side of `test_from` has no rows or one class only.
@@ -465,7 +618,7 @@ def final_test(data: TrainingSet, test_from: int) -> dict | None:
     if not 0 < development.y.sum() < len(development.y):
         return None
 
-    chosen = select(development)
+    chosen = select(development, tune_models)
     model, _pipeline, normals = fit(development, chosen)
 
     # Every row measured against the development years' normals.
@@ -476,9 +629,9 @@ def final_test(data: TrainingSet, test_from: int) -> dict | None:
     # The candidates that were not chosen, for the record. They play no part
     # in the choice above.
     others = {}
-    for name, pipeline in candidates().items():
+    for name, pipeline in chosen.pipelines.items():
         if name != chosen.best:
-            fitted = pipeline.fit(X_development, development.y)
+            fitted = clone(pipeline).fit(X_development, development.y)
             others[name] = _scores(y_test, fitted.predict_proba(X_test)[:, 1])
 
     season_columns = [data.column(name) for name in SEASON_FEATURES if name in data.features]
@@ -497,6 +650,7 @@ def final_test(data: TrainingSet, test_from: int) -> dict | None:
         "positives": int(y_test.sum()),
         "base_rate": round(test_rate, 4),
         "development_comparison": chosen.comparison,
+        "tuning": chosen.tuning,
         "selected": chosen.best,
         "calibration": chosen.calibration,
         "scores": scores,
@@ -527,12 +681,30 @@ def train(
     dmi: dict[tuple[int, int], float] | None = None,
     first_year: int = FIRST_TRAINING_YEAR,
     test_from: int | None = FINAL_TEST_FROM,
+    tune_models: bool = True,
 ) -> tuple[dict, dict]:
     """Returns (artifact, metrics). Neither is written here."""
     data = load_training_set(training_set, first_year)
-    y = data.y
+    chosen = select(data, tune_models)
+    return build(data, chosen, training_set, oni, dmi, first_year, test_from, tune_models)
 
-    chosen = select(data)
+
+def build(
+    data: TrainingSet,
+    chosen: Selection,
+    training_set: Path,
+    oni: dict[tuple[int, int], float],
+    dmi: dict[tuple[int, int], float] | None = None,
+    first_year: int = FIRST_TRAINING_YEAR,
+    test_from: int | None = FINAL_TEST_FROM,
+    tune_models: bool = True,
+) -> tuple[dict, dict]:
+    """The artifact and metrics for a selection `select` already made on `data`.
+
+    Split from `train` so a caller that wants the held-out probabilities
+    (the notebook, for its curves) can keep `chosen` without selecting twice.
+    """
+    y = data.y
     best, calibration = chosen.best, chosen.calibration
     comparison, season = chosen.comparison, chosen.season
     fold_scores = _fold_scores(
@@ -563,6 +735,7 @@ def train(
             "season-only": _scores(y, season),
         },
         "comparison": comparison,
+        "tuning": chosen.tuning,
         "selected": best,
         "lift_over_base_rate": round(comparison[best]["average_precision"] / base_rate, 2),
         "lift_over_season_only": round(
@@ -575,7 +748,11 @@ def train(
         "folds": fold_scores,
         "fold_summary": _fold_summary(fold_scores),
         "threshold_errors": _threshold_errors(y, chosen.final_held_out),
-        "final_test": final_test(data, test_from) if test_from else None,
+        "error_breakdown": _error_breakdown(data, chosen.final_held_out),
+        "permutation_importance": permutation_importances(
+            data, lambda: clone(chosen.pipelines[best]), chosen.folds
+        ),
+        "final_test": final_test(data, test_from, tune_models) if test_from else None,
         "provenance": provenance(training_set),
     }
     if best == "logreg":

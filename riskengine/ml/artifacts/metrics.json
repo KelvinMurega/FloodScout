@@ -51,9 +51,102 @@
       "brier": 0.0798
     },
     "gradient-boosting": {
-      "roc_auc": 0.7499,
-      "average_precision": 0.2154,
-      "brier": 0.0856
+      "roc_auc": 0.76,
+      "average_precision": 0.2321,
+      "brier": 0.0811
+    }
+  },
+  "tuning": {
+    "logreg": {
+      "grid": {
+        "C": [
+          0.01,
+          0.1,
+          1.0,
+          10.0
+        ]
+      },
+      "fixed_settings": {
+        "C": 1.0
+      },
+      "searched_settings": {
+        "C": 1.0
+      },
+      "fixed": {
+        "roc_auc": 0.7655,
+        "average_precision": 0.2385,
+        "brier": 0.083
+      },
+      "searched": {
+        "roc_auc": 0.7655,
+        "average_precision": 0.2385,
+        "brier": 0.083
+      },
+      "adopted": false
+    },
+    "random-forest": {
+      "grid": {
+        "min_samples_leaf": [
+          5,
+          20,
+          50
+        ],
+        "max_features": [
+          "sqrt",
+          0.5
+        ]
+      },
+      "fixed_settings": {
+        "max_features": "sqrt",
+        "min_samples_leaf": 20
+      },
+      "searched_settings": {
+        "max_features": "sqrt",
+        "min_samples_leaf": 20
+      },
+      "fixed": {
+        "roc_auc": 0.7867,
+        "average_precision": 0.2535,
+        "brier": 0.0798
+      },
+      "searched": {
+        "roc_auc": 0.7867,
+        "average_precision": 0.2535,
+        "brier": 0.0798
+      },
+      "adopted": false
+    },
+    "gradient-boosting": {
+      "grid": {
+        "max_depth": [
+          2,
+          3
+        ],
+        "learning_rate": [
+          0.02,
+          0.05,
+          0.1
+        ]
+      },
+      "fixed_settings": {
+        "learning_rate": 0.05,
+        "max_depth": 3
+      },
+      "searched_settings": {
+        "learning_rate": 0.02,
+        "max_depth": 2
+      },
+      "fixed": {
+        "roc_auc": 0.7499,
+        "average_precision": 0.2154,
+        "brier": 0.0856
+      },
+      "searched": {
+        "roc_auc": 0.76,
+        "average_precision": 0.2321,
+        "brier": 0.0811
+      },
+      "adopted": true
     }
   },
   "selected": "random-forest",
@@ -129,8 +222,8 @@
           "roc_auc": 0.8202
         },
         "gradient-boosting": {
-          "average_precision": 0.3011,
-          "roc_auc": 0.8392
+          "average_precision": 0.3025,
+          "roc_auc": 0.8335
         },
         "season-only": {
           "average_precision": 0.2866,
@@ -158,8 +251,8 @@
           "roc_auc": 0.7562
         },
         "gradient-boosting": {
-          "average_precision": 0.1437,
-          "roc_auc": 0.719
+          "average_precision": 0.1362,
+          "roc_auc": 0.6924
         },
         "season-only": {
           "average_precision": 0.0785,
@@ -186,8 +279,8 @@
           "roc_auc": 0.8268
         },
         "gradient-boosting": {
-          "average_precision": 0.2382,
-          "roc_auc": 0.7236
+          "average_precision": 0.3593,
+          "roc_auc": 0.7894
         },
         "season-only": {
           "average_precision": 0.2516,
@@ -214,8 +307,8 @@
           "roc_auc": 0.7188
         },
         "gradient-boosting": {
-          "average_precision": 0.1624,
-          "roc_auc": 0.7194
+          "average_precision": 0.1288,
+          "roc_auc": 0.7084
         },
         "season-only": {
           "average_precision": 0.0702,
@@ -242,8 +335,8 @@
           "roc_auc": 0.8724
         },
         "gradient-boosting": {
-          "average_precision": 0.3241,
-          "roc_auc": 0.8056
+          "average_precision": 0.5362,
+          "roc_auc": 0.8662
         },
         "season-only": {
           "average_precision": 0.3179,
@@ -270,8 +363,8 @@
           "roc_auc": 0.797
         },
         "gradient-boosting": {
-          "average_precision": 0.2622,
-          "roc_auc": 0.7052
+          "average_precision": 0.3219,
+          "roc_auc": 0.7329
         },
         "season-only": {
           "average_precision": 0.2074,
@@ -294,10 +387,10 @@
       "roc_auc_sd": 0.0545
     },
     "gradient-boosting": {
-      "average_precision_mean": 0.2386,
-      "average_precision_sd": 0.0729,
-      "roc_auc_mean": 0.752,
-      "roc_auc_sd": 0.0559
+      "average_precision_mean": 0.2975,
+      "average_precision_sd": 0.1522,
+      "roc_auc_mean": 0.7705,
+      "roc_auc_sd": 0.0705
     },
     "season-only": {
       "average_precision_mean": 0.202,
@@ -338,6 +431,539 @@
       "specificity": 0.8759
     }
   ],
+  "error_breakdown": {
+    "threshold": 0.1,
+    "by_month": [
+      {
+        "month": 1,
+        "rows": 1222,
+        "floods": 148,
+        "caught": 107,
+        "missed": 41,
+        "false_alarms": 284
+      },
+      {
+        "month": 2,
+        "rows": 1222,
+        "floods": 0,
+        "caught": 0,
+        "missed": 0,
+        "false_alarms": 85
+      },
+      {
+        "month": 3,
+        "rows": 1222,
+        "floods": 68,
+        "caught": 45,
+        "missed": 23,
+        "false_alarms": 292
+      },
+      {
+        "month": 4,
+        "rows": 1222,
+        "floods": 325,
+        "caught": 277,
+        "missed": 48,
+        "false_alarms": 693
+      },
+      {
+        "month": 5,
+        "rows": 1222,
+        "floods": 323,
+        "caught": 274,
+        "missed": 49,
+        "false_alarms": 579
+      },
+      {
+        "month": 6,
+        "rows": 1222,
+        "floods": 88,
+        "caught": 2,
+        "missed": 86,
+        "false_alarms": 265
+      },
+      {
+        "month": 7,
+        "rows": 1222,
+        "floods": 2,
+        "caught": 1,
+        "missed": 1,
+        "false_alarms": 48
+      },
+      {
+        "month": 8,
+        "rows": 1222,
+        "floods": 55,
+        "caught": 29,
+        "missed": 26,
+        "false_alarms": 120
+      },
+      {
+        "month": 9,
+        "rows": 1222,
+        "floods": 53,
+        "caught": 23,
+        "missed": 30,
+        "false_alarms": 155
+      },
+      {
+        "month": 10,
+        "rows": 1175,
+        "floods": 108,
+        "caught": 67,
+        "missed": 41,
+        "false_alarms": 369
+      },
+      {
+        "month": 11,
+        "rows": 1175,
+        "floods": 120,
+        "caught": 90,
+        "missed": 30,
+        "false_alarms": 412
+      },
+      {
+        "month": 12,
+        "rows": 1175,
+        "floods": 116,
+        "caught": 93,
+        "missed": 23,
+        "false_alarms": 387
+      }
+    ],
+    "by_county": [
+      {
+        "county": "Baringo",
+        "rows": 309,
+        "floods": 46,
+        "caught": 39,
+        "missed": 7,
+        "false_alarms": 89
+      },
+      {
+        "county": "Bomet",
+        "rows": 309,
+        "floods": 40,
+        "caught": 30,
+        "missed": 10,
+        "false_alarms": 66
+      },
+      {
+        "county": "Bungoma",
+        "rows": 309,
+        "floods": 31,
+        "caught": 23,
+        "missed": 8,
+        "false_alarms": 104
+      },
+      {
+        "county": "Busia",
+        "rows": 309,
+        "floods": 25,
+        "caught": 18,
+        "missed": 7,
+        "false_alarms": 97
+      },
+      {
+        "county": "Elgeyo-Marakwet",
+        "rows": 309,
+        "floods": 41,
+        "caught": 31,
+        "missed": 10,
+        "false_alarms": 92
+      },
+      {
+        "county": "Embu",
+        "rows": 309,
+        "floods": 28,
+        "caught": 20,
+        "missed": 8,
+        "false_alarms": 54
+      },
+      {
+        "county": "Garissa",
+        "rows": 309,
+        "floods": 28,
+        "caught": 18,
+        "missed": 10,
+        "false_alarms": 71
+      },
+      {
+        "county": "Homa Bay",
+        "rows": 309,
+        "floods": 31,
+        "caught": 22,
+        "missed": 9,
+        "false_alarms": 85
+      },
+      {
+        "county": "Isiolo",
+        "rows": 309,
+        "floods": 32,
+        "caught": 25,
+        "missed": 7,
+        "false_alarms": 63
+      },
+      {
+        "county": "Kajiado",
+        "rows": 309,
+        "floods": 27,
+        "caught": 20,
+        "missed": 7,
+        "false_alarms": 67
+      },
+      {
+        "county": "Kakamega",
+        "rows": 309,
+        "floods": 35,
+        "caught": 18,
+        "missed": 17,
+        "false_alarms": 61
+      },
+      {
+        "county": "Kericho",
+        "rows": 309,
+        "floods": 38,
+        "caught": 32,
+        "missed": 6,
+        "false_alarms": 118
+      },
+      {
+        "county": "Kiambu",
+        "rows": 309,
+        "floods": 27,
+        "caught": 17,
+        "missed": 10,
+        "false_alarms": 68
+      },
+      {
+        "county": "Kilifi",
+        "rows": 309,
+        "floods": 19,
+        "caught": 10,
+        "missed": 9,
+        "false_alarms": 72
+      },
+      {
+        "county": "Kirinyaga",
+        "rows": 309,
+        "floods": 28,
+        "caught": 24,
+        "missed": 4,
+        "false_alarms": 92
+      },
+      {
+        "county": "Kisii",
+        "rows": 309,
+        "floods": 23,
+        "caught": 17,
+        "missed": 6,
+        "false_alarms": 90
+      },
+      {
+        "county": "Kisumu",
+        "rows": 309,
+        "floods": 39,
+        "caught": 33,
+        "missed": 6,
+        "false_alarms": 83
+      },
+      {
+        "county": "Kitui",
+        "rows": 309,
+        "floods": 34,
+        "caught": 26,
+        "missed": 8,
+        "false_alarms": 73
+      },
+      {
+        "county": "Kwale",
+        "rows": 309,
+        "floods": 16,
+        "caught": 9,
+        "missed": 7,
+        "false_alarms": 71
+      },
+      {
+        "county": "Laikipia",
+        "rows": 309,
+        "floods": 32,
+        "caught": 22,
+        "missed": 10,
+        "false_alarms": 75
+      },
+      {
+        "county": "Lamu",
+        "rows": 309,
+        "floods": 13,
+        "caught": 7,
+        "missed": 6,
+        "false_alarms": 76
+      },
+      {
+        "county": "Machakos",
+        "rows": 309,
+        "floods": 26,
+        "caught": 18,
+        "missed": 8,
+        "false_alarms": 65
+      },
+      {
+        "county": "Makueni",
+        "rows": 309,
+        "floods": 21,
+        "caught": 13,
+        "missed": 8,
+        "false_alarms": 76
+      },
+      {
+        "county": "Mandera",
+        "rows": 309,
+        "floods": 23,
+        "caught": 15,
+        "missed": 8,
+        "false_alarms": 75
+      },
+      {
+        "county": "Marsabit",
+        "rows": 309,
+        "floods": 37,
+        "caught": 22,
+        "missed": 15,
+        "false_alarms": 72
+      },
+      {
+        "county": "Meru",
+        "rows": 309,
+        "floods": 28,
+        "caught": 20,
+        "missed": 8,
+        "false_alarms": 56
+      },
+      {
+        "county": "Migori",
+        "rows": 309,
+        "floods": 20,
+        "caught": 15,
+        "missed": 5,
+        "false_alarms": 77
+      },
+      {
+        "county": "Mombasa",
+        "rows": 309,
+        "floods": 9,
+        "caught": 6,
+        "missed": 3,
+        "false_alarms": 79
+      },
+      {
+        "county": "Murang'a",
+        "rows": 309,
+        "floods": 29,
+        "caught": 21,
+        "missed": 8,
+        "false_alarms": 73
+      },
+      {
+        "county": "Nairobi",
+        "rows": 309,
+        "floods": 23,
+        "caught": 12,
+        "missed": 11,
+        "false_alarms": 58
+      },
+      {
+        "county": "Nakuru",
+        "rows": 309,
+        "floods": 43,
+        "caught": 32,
+        "missed": 11,
+        "false_alarms": 65
+      },
+      {
+        "county": "Nandi",
+        "rows": 309,
+        "floods": 39,
+        "caught": 30,
+        "missed": 9,
+        "false_alarms": 105
+      },
+      {
+        "county": "Narok",
+        "rows": 309,
+        "floods": 36,
+        "caught": 27,
+        "missed": 9,
+        "false_alarms": 73
+      },
+      {
+        "county": "Nyamira",
+        "rows": 309,
+        "floods": 31,
+        "caught": 25,
+        "missed": 6,
+        "false_alarms": 85
+      },
+      {
+        "county": "Nyandarua",
+        "rows": 309,
+        "floods": 32,
+        "caught": 26,
+        "missed": 6,
+        "false_alarms": 80
+      },
+      {
+        "county": "Nyeri",
+        "rows": 309,
+        "floods": 30,
+        "caught": 24,
+        "missed": 6,
+        "false_alarms": 79
+      },
+      {
+        "county": "Samburu",
+        "rows": 309,
+        "floods": 35,
+        "caught": 21,
+        "missed": 14,
+        "false_alarms": 48
+      },
+      {
+        "county": "Siaya",
+        "rows": 309,
+        "floods": 26,
+        "caught": 19,
+        "missed": 7,
+        "false_alarms": 107
+      },
+      {
+        "county": "Taita Taveta",
+        "rows": 309,
+        "floods": 19,
+        "caught": 14,
+        "missed": 5,
+        "false_alarms": 82
+      },
+      {
+        "county": "Tana River",
+        "rows": 309,
+        "floods": 34,
+        "caught": 22,
+        "missed": 12,
+        "false_alarms": 70
+      },
+      {
+        "county": "Tharaka",
+        "rows": 309,
+        "floods": 28,
+        "caught": 19,
+        "missed": 9,
+        "false_alarms": 59
+      },
+      {
+        "county": "Trans Nzoia",
+        "rows": 309,
+        "floods": 33,
+        "caught": 23,
+        "missed": 10,
+        "false_alarms": 103
+      },
+      {
+        "county": "Turkana",
+        "rows": 309,
+        "floods": 41,
+        "caught": 30,
+        "missed": 11,
+        "false_alarms": 92
+      },
+      {
+        "county": "Uasin Gishu",
+        "rows": 309,
+        "floods": 40,
+        "caught": 32,
+        "missed": 8,
+        "false_alarms": 109
+      },
+      {
+        "county": "Vihiga",
+        "rows": 309,
+        "floods": 35,
+        "caught": 24,
+        "missed": 11,
+        "false_alarms": 85
+      },
+      {
+        "county": "Wajir",
+        "rows": 309,
+        "floods": 21,
+        "caught": 14,
+        "missed": 7,
+        "false_alarms": 82
+      },
+      {
+        "county": "West Pokot",
+        "rows": 309,
+        "floods": 34,
+        "caught": 23,
+        "missed": 11,
+        "false_alarms": 67
+      }
+    ]
+  },
+  "permutation_importance": {
+    "rain_30d": {
+      "mean": 0.0048,
+      "sd": 0.0228
+    },
+    "rain_7d_max": {
+      "mean": 0.0067,
+      "sd": 0.0119
+    },
+    "rain_prev_30d": {
+      "mean": 0.0314,
+      "sd": 0.0128
+    },
+    "rain_30d_ratio": {
+      "mean": 0.0377,
+      "sd": 0.0301
+    },
+    "oni": {
+      "mean": 0.0276,
+      "sd": 0.0612
+    },
+    "dmi": {
+      "mean": -0.0179,
+      "sd": 0.0434
+    },
+    "oni_short_rains": {
+      "mean": -0.0053,
+      "sd": 0.0086
+    },
+    "dmi_short_rains": {
+      "mean": 0.0131,
+      "sd": 0.0192
+    },
+    "month_sin": {
+      "mean": 0.0923,
+      "sd": 0.0719
+    },
+    "month_cos": {
+      "mean": 0.0191,
+      "sd": 0.0155
+    },
+    "elevation": {
+      "mean": 0.0111,
+      "sd": 0.0115
+    },
+    "slope": {
+      "mean": 0.0037,
+      "sd": 0.0036
+    },
+    "log_area": {
+      "mean": 0.0079,
+      "sd": 0.0079
+    }
+  },
   "final_test": {
     "test_from": 2017,
     "development_years": [
@@ -354,9 +980,9 @@
     "base_rate": 0.0676,
     "development_comparison": {
       "logreg": {
-        "roc_auc": 0.7579,
-        "average_precision": 0.2264,
-        "brier": 0.0952
+        "roc_auc": 0.7603,
+        "average_precision": 0.229,
+        "brier": 0.0926
       },
       "random-forest": {
         "roc_auc": 0.7774,
@@ -364,23 +990,116 @@
         "brier": 0.085
       },
       "gradient-boosting": {
-        "roc_auc": 0.7555,
-        "average_precision": 0.2858,
-        "brier": 0.0869
+        "roc_auc": 0.7606,
+        "average_precision": 0.2866,
+        "brier": 0.0845
+      }
+    },
+    "tuning": {
+      "logreg": {
+        "grid": {
+          "C": [
+            0.01,
+            0.1,
+            1.0,
+            10.0
+          ]
+        },
+        "fixed_settings": {
+          "C": 1.0
+        },
+        "searched_settings": {
+          "C": 0.01
+        },
+        "fixed": {
+          "roc_auc": 0.7579,
+          "average_precision": 0.2264,
+          "brier": 0.0952
+        },
+        "searched": {
+          "roc_auc": 0.7603,
+          "average_precision": 0.229,
+          "brier": 0.0926
+        },
+        "adopted": true
+      },
+      "random-forest": {
+        "grid": {
+          "min_samples_leaf": [
+            5,
+            20,
+            50
+          ],
+          "max_features": [
+            "sqrt",
+            0.5
+          ]
+        },
+        "fixed_settings": {
+          "max_features": "sqrt",
+          "min_samples_leaf": 20
+        },
+        "searched_settings": {
+          "max_features": 0.5,
+          "min_samples_leaf": 50
+        },
+        "fixed": {
+          "roc_auc": 0.7774,
+          "average_precision": 0.2654,
+          "brier": 0.085
+        },
+        "searched": {
+          "roc_auc": 0.7535,
+          "average_precision": 0.2532,
+          "brier": 0.0871
+        },
+        "adopted": false
+      },
+      "gradient-boosting": {
+        "grid": {
+          "max_depth": [
+            2,
+            3
+          ],
+          "learning_rate": [
+            0.02,
+            0.05,
+            0.1
+          ]
+        },
+        "fixed_settings": {
+          "learning_rate": 0.05,
+          "max_depth": 3
+        },
+        "searched_settings": {
+          "learning_rate": 0.05,
+          "max_depth": 2
+        },
+        "fixed": {
+          "roc_auc": 0.7555,
+          "average_precision": 0.2858,
+          "brier": 0.0869
+        },
+        "searched": {
+          "roc_auc": 0.7606,
+          "average_precision": 0.2866,
+          "brier": 0.0845
+        },
+        "adopted": true
       }
     },
     "selected": "gradient-boosting",
     "calibration": "sigmoid",
     "scores": {
-      "roc_auc": 0.7667,
-      "average_precision": 0.1532,
-      "brier": 0.0753
+      "roc_auc": 0.8007,
+      "average_precision": 0.1905,
+      "brier": 0.0696
     },
     "other_candidates": {
       "logreg": {
-        "roc_auc": 0.8515,
-        "average_precision": 0.2745,
-        "brier": 0.0674
+        "roc_auc": 0.852,
+        "average_precision": 0.2695,
+        "brier": 0.065
       },
       "random-forest": {
         "roc_auc": 0.7823,
@@ -400,64 +1119,64 @@
         "brier": 0.0626
       }
     },
-    "lift_over_base_rate": 2.27,
-    "lift_over_season_only": 0.87,
+    "lift_over_base_rate": 2.82,
+    "lift_over_season_only": 1.08,
     "band_calibration": [
       {
         "band": "low",
-        "rows": 428,
-        "mean_predicted": 0.0393,
-        "observed_flood_rate": 0.0093
+        "rows": 500,
+        "mean_predicted": 0.0375,
+        "observed_flood_rate": 0.004
       },
       {
         "band": "moderate",
-        "rows": 769,
-        "mean_predicted": 0.0729,
-        "observed_flood_rate": 0.0182
+        "rows": 739,
+        "mean_predicted": 0.0719,
+        "observed_flood_rate": 0.0176
       },
       {
         "band": "high",
-        "rows": 800,
-        "mean_predicted": 0.1427,
-        "observed_flood_rate": 0.06
+        "rows": 705,
+        "mean_predicted": 0.1448,
+        "observed_flood_rate": 0.0525
       },
       {
         "band": "very_high",
-        "rows": 682,
-        "mean_predicted": 0.3532,
-        "observed_flood_rate": 0.1686
+        "rows": 735,
+        "mean_predicted": 0.3345,
+        "observed_flood_rate": 0.1755
       }
     ],
     "threshold_errors": [
       {
         "threshold": 0.05,
-        "true_positives": 177,
-        "false_positives": 2074,
-        "false_negatives": 4,
-        "true_negatives": 424,
-        "precision": 0.0786,
-        "recall": 0.9779,
-        "specificity": 0.1697
+        "true_positives": 179,
+        "false_positives": 2000,
+        "false_negatives": 2,
+        "true_negatives": 498,
+        "precision": 0.0821,
+        "recall": 0.989,
+        "specificity": 0.1994
       },
       {
         "threshold": 0.1,
-        "true_positives": 163,
-        "false_positives": 1319,
-        "false_negatives": 18,
-        "true_negatives": 1179,
-        "precision": 0.11,
-        "recall": 0.9006,
-        "specificity": 0.472
+        "true_positives": 166,
+        "false_positives": 1274,
+        "false_negatives": 15,
+        "true_negatives": 1224,
+        "precision": 0.1153,
+        "recall": 0.9171,
+        "specificity": 0.49
       },
       {
         "threshold": 0.2,
-        "true_positives": 115,
-        "false_positives": 567,
-        "false_negatives": 66,
-        "true_negatives": 1931,
-        "precision": 0.1686,
-        "recall": 0.6354,
-        "specificity": 0.773
+        "true_positives": 129,
+        "false_positives": 606,
+        "false_negatives": 52,
+        "true_negatives": 1892,
+        "precision": 0.1755,
+        "recall": 0.7127,
+        "specificity": 0.7574
       }
     ]
   },

@@ -82,7 +82,11 @@ class TrainingTests(SimpleTestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.path = Path(cls.tmp.name) / "training_set.csv"
         write_training_csv(cls.path)
-        cls.artifact, cls.metrics = train.train(cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5})
+        # The settings search has its own tests below; skipping it here keeps
+        # this class quick.
+        cls.artifact, cls.metrics = train.train(
+            cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5}, tune_models=False
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -208,8 +212,8 @@ class TrainingTests(SimpleTestCase):
         # Changing only how the test years' rain compares with normal must not
         # move the development side of the result at all.
         wetter.X[late, rain] *= 3
-        before = train.final_test(data, train.FINAL_TEST_FROM)
-        after = train.final_test(wetter, train.FINAL_TEST_FROM)
+        before = train.final_test(data, train.FINAL_TEST_FROM, tune_models=False)
+        after = train.final_test(wetter, train.FINAL_TEST_FROM, tune_models=False)
         self.assertEqual(before["development_comparison"], after["development_comparison"])
         self.assertEqual(before["selected"], after["selected"])
 
@@ -242,8 +246,86 @@ class TrainingTests(SimpleTestCase):
         path = Path(self.tmp.name) / "ee.csv"
         write_training_csv(path, first_year=2010)
         train.meta_path(path).write_text(json.dumps({"rain_source": "earth-engine-county-mean", "rain_points": 5}))
-        artifact, metrics = train.train(path, {}, {})
+        artifact, metrics = train.train(path, {}, {}, tune_models=False)
         self.assertEqual((artifact["rain_points"], metrics["rain_source"]), (5, "earth-engine-county-mean"))
+
+    def test_error_breakdown_accounts_for_every_flood_by_month_and_by_county(self):
+        breakdown = self.metrics["error_breakdown"]
+        at_threshold = next(
+            row for row in self.metrics["threshold_errors"] if row["threshold"] == breakdown["threshold"]
+        )
+        self.assertEqual([row["month"] for row in breakdown["by_month"]], list(range(1, 13)))
+        self.assertEqual(len(breakdown["by_county"]), 6)
+        for groups in (breakdown["by_month"], breakdown["by_county"]):
+            self.assertEqual(sum(row["rows"] for row in groups), self.metrics["rows"])
+            self.assertEqual(sum(row["caught"] for row in groups), at_threshold["true_positives"])
+            self.assertEqual(sum(row["missed"] for row in groups), at_threshold["false_negatives"])
+            self.assertEqual(sum(row["false_alarms"] for row in groups), at_threshold["false_positives"])
+
+    def test_permutation_importance_finds_the_input_the_floods_follow(self):
+        importance = self.metrics["permutation_importance"]
+        self.assertEqual(set(importance), set(FEATURE_NAMES))
+        # Floods in this data depend on rain_30d alone, and elevation never varies.
+        # The three inputs that carry it share the credit.
+        carries_rain = ("rain_30d", "rain_7d_max", "rain_30d_ratio")
+        rain = max(importance[name]["mean"] for name in carries_rain)
+        others = max(importance[name]["mean"] for name in FEATURE_NAMES if name not in carries_rain)
+        self.assertGreater(rain, 0)
+        self.assertGreater(rain, others)
+        self.assertEqual(importance["elevation"]["mean"], 0.0)
+
+
+SMALL_GRIDS = {
+    "logreg": {"logisticregression__C": [0.01, 1.0]},
+    "random-forest": {"randomforestclassifier__min_samples_leaf": [20, 50]},
+    "gradient-boosting": {"gradientboostingclassifier__max_depth": [1, 3]},
+}
+
+
+class TuningTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "training_set.csv"
+            write_training_csv(path, first_year=2004)
+            cls.data = train.load_training_set(path)
+        with mock.patch.dict(train.PARAM_GRIDS, SMALL_GRIDS):
+            cls.chosen = train.select(cls.data)
+
+    def test_every_grid_contains_the_fixed_settings(self):
+        for name, pipeline in train.candidates().items():
+            current = pipeline.get_params()
+            for parameter, values in train.PARAM_GRIDS[name].items():
+                self.assertIn(current[parameter], values, f"{name} {parameter}")
+
+    def test_each_candidate_reports_its_search(self):
+        self.assertEqual(set(self.chosen.tuning), set(train.candidates()))
+        for record in self.chosen.tuning.values():
+            self.assertEqual(set(record["searched_settings"]), set(record["fixed_settings"]))
+            for parameter, value in record["searched_settings"].items():
+                self.assertIn(value, record["grid"][parameter])
+
+    def test_searched_settings_are_kept_only_when_they_score_higher(self):
+        for name, record in self.chosen.tuning.items():
+            better = record["searched"]["average_precision"] > record["fixed"]["average_precision"]
+            self.assertEqual(record["adopted"], better, name)
+            pipeline = self.chosen.pipelines[name]
+            kept = pipeline[-1].get_params()
+            settings = record["searched_settings"] if record["adopted"] else record["fixed_settings"]
+            for parameter, value in settings.items():
+                self.assertEqual(kept[parameter], value)
+            self.assertEqual(
+                self.chosen.comparison[name], record["searched" if record["adopted"] else "fixed"]
+            )
+
+    def test_without_the_search_the_fixed_settings_are_used(self):
+        chosen = train.select(self.data, tune_models=False)
+        self.assertEqual(chosen.tuning, {})
+        for name, pipeline in train.candidates().items():
+            self.assertEqual(
+                repr(chosen.pipelines[name][-1].get_params()), repr(pipeline[-1].get_params())
+            )
 
 
 class CalibrationTests(SimpleTestCase):

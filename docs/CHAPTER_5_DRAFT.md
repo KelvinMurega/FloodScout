@@ -226,8 +226,29 @@ Three candidate models from Chapter 3 were trained on the 13 inputs.
 | Random Forest | Median imputation | 300 trees, minimum 20 samples per leaf, `random_state = 0` |
 | Gradient Boosting | Median imputation | 200 trees, depth 3, learning rate 0.05, subsample 0.8, `random_state = 0` |
 
-The settings were fixed in `riskengine/ml/train.py`. A hyperparameter search
-was not carried out [see Section 5.10.3; Chapter 3 proposed GridSearchCV].
+These are the starting settings, fixed in `riskengine/ml/train.py`. Each was
+then searched over a small grid, as proposed in Chapter 3.
+
+**Table 5.6a: Hyperparameter search (GridSearchCV, six folds grouped by year, scored by average precision)**
+
+| Model | Grid | Starting setting | Setting chosen by the search | Held-out average precision, starting to chosen | Outcome |
+|---|---|---|---|---|---|
+| Logistic Regression | `C`: 0.01, 0.1, 1, 10 | 1 | 1 | 0.239 | Starting setting confirmed |
+| Random Forest | `min_samples_leaf`: 5, 20, 50; `max_features`: sqrt, 0.5 | 20, sqrt | 20, sqrt | 0.254 | Starting setting confirmed |
+| Gradient Boosting | `max_depth`: 2, 3; `learning_rate`: 0.02, 0.05, 0.1 | 3, 0.05 | 2, 0.02 | 0.215 to 0.232 | Adopted |
+
+Source: `tuning` in `metrics.json`.
+
+The grids were kept small because six folds of whole years cannot separate
+fine differences between settings. Every grid contained the starting
+setting, so the search could also conclude that nothing was better. One
+adjustment to the standard procedure was needed. GridSearchCV cannot
+recompute the county rainfall normals inside each fold (Section 5.3.3), so
+the setting it proposed was scored a second time with the normals refitted
+per fold, beside the starting setting, and adopted only if it scored higher.
+The search confirmed the Logistic Regression and Random Forest settings and
+moved Gradient Boosting to shallower trees with a lower learning rate. The
+number of trees was not searched, since more trees only reduce noise.
 
 ### 5.4.2 Selection Criterion
 
@@ -285,14 +306,14 @@ model produces. `metrics.json` also records the SHA-256 of the training set,
 the random seed and the scikit-learn version of the run.
 
 The saved model was trained on Google Colab on 6 October 2026. The training
-set and the training code were uploaded as one bundle, built from commit
-`51e4de2`, and the notebook `notebooks/train_flood_model.ipynb` ran the same
-`train.py` that the application uses. The notebook is kept in the repository
-with its outputs, and its charts are in `docs/figures/`. The run repeated the
-2 and 5 October runs made on the laptop with the same data and seed. The
-Random Forest and Logistic Regression scores were identical, the Gradient
-Boosting scores differed in the fourth decimal place, and the saved model
-gave the same probability for every training record.
+set and the training code were uploaded as one bundle and the notebook
+`notebooks/train_flood_model.ipynb` ran the same `train.py` that the
+application uses. The notebook is kept in the repository with its outputs,
+and its charts are in `docs/figures/`. Two Colab runs were made that day,
+the second after the hyperparameter search was added. The search left the
+Random Forest unchanged, so the saved model gives the same probability for
+every training record as the models of the 2 and 5 October runs made on the
+laptop with the same data and seed.
 
 ## 5.5 System Implementation
 
@@ -514,7 +535,7 @@ model that had not seen its year.
 | Season only | 0.565 | 0.124 | 0.0873 |
 | Logistic Regression | 0.766 | 0.239 | 0.0830 |
 | **Random Forest (selected)** | **0.787** | **0.254** | **0.0798** |
-| Gradient Boosting | 0.750 | 0.215 | 0.0856 |
+| Gradient Boosting (tuned) | 0.760 | 0.232 | 0.0811 |
 
 Source: `riskengine/ml/artifacts/metrics.json`.
 
@@ -530,13 +551,13 @@ year.
 
 | Fold (held-out years) | Records / floods | Season only | Logistic Regression | Random Forest | Gradient Boosting |
 |---|---|---|---|---|---|
-| 1 (1996, 2002, 2008, 2014, 2020) | 2,820 / 232 | 0.287 | 0.247 | 0.288 | 0.301 |
-| 2 (2001, 2007, 2013, 2019, 2021) | 2,679 / 243 | 0.078 | 0.166 | 0.168 | 0.144 |
-| 3 (2000, 2006, 2012, 2018) | 2,256 / 307 | 0.252 | 0.480 | 0.351 | 0.238 |
-| 4 (1999, 2005, 2011, 2017) | 2,256 / 149 | 0.070 | 0.171 | 0.195 | 0.162 |
-| 5 (1998, 2004, 2010, 2016) | 2,256 / 248 | 0.318 | 0.314 | 0.365 | 0.324 |
-| 6 (1997, 2003, 2009, 2015) | 2,256 / 227 | 0.207 | 0.220 | 0.413 | 0.262 |
-| **Mean (standard deviation)** | | 0.202 (0.106) | 0.266 (0.118) | 0.297 (0.098) | 0.239 (0.073) |
+| 1 (1996, 2002, 2008, 2014, 2020) | 2,820 / 232 | 0.287 | 0.247 | 0.288 | 0.303 |
+| 2 (2001, 2007, 2013, 2019, 2021) | 2,679 / 243 | 0.078 | 0.166 | 0.168 | 0.136 |
+| 3 (2000, 2006, 2012, 2018) | 2,256 / 307 | 0.252 | 0.480 | 0.351 | 0.359 |
+| 4 (1999, 2005, 2011, 2017) | 2,256 / 149 | 0.070 | 0.171 | 0.195 | 0.129 |
+| 5 (1998, 2004, 2010, 2016) | 2,256 / 248 | 0.318 | 0.314 | 0.365 | 0.536 |
+| 6 (1997, 2003, 2009, 2015) | 2,256 / 227 | 0.207 | 0.220 | 0.413 | 0.322 |
+| **Mean (standard deviation)** | | 0.202 (0.106) | 0.266 (0.118) | 0.297 (0.098) | 0.298 (0.152) |
 
 Source: `folds` and `fold_summary` in `metrics.json`.
 
@@ -547,8 +568,11 @@ five folds of six and the season-only baseline in five, with fold 1 a tie. The
 advantage over the season-only baseline is smaller when folds are averaged
 (0.297 against 0.202, a ratio of 1.47) than when all records are pooled
 (2.05). Both figures are reported because the pooled figure alone would
-overstate the gain. With only six folds, the ranking of the Random Forest
-above the Logistic Regression is suggestive and not conclusive.
+overstate the gain. After tuning, Gradient Boosting has the same mean as the
+Random Forest (0.298 against 0.297) with a much wider spread, winning three
+folds and losing three; the Random Forest leads when all records are pooled.
+With only six folds, the ranking of the three candidates is suggestive and
+not conclusive.
 
 ### 5.7.3 Calibration
 
@@ -593,19 +617,58 @@ errors and not model errors: a flood may have occurred and not been recorded,
 and the circle method marks some counties as flooded that were not. The
 measured precision is therefore a lower bound of unknown tightness.
 
-[Recommended addition: break the false negatives down by county and by season
-to see whether they concentrate in particular places or months.]
+The errors were then broken down by calendar month and by county
+(`error_breakdown` in `metrics.json`; Figure `docs/figures/08_error_breakdown.png`).
+
+**Table 5.18a: Recorded floods and errors by calendar month, warning above 10%**
+
+| Month | Recorded floods | Missed | Share missed | False alarms |
+|---|---|---|---|---|
+| January | 148 | 41 | 28% | 284 |
+| February | 0 | 0 | n/a | 85 |
+| March | 68 | 23 | 34% | 292 |
+| April | 325 | 48 | 15% | 693 |
+| May | 323 | 49 | 15% | 579 |
+| June | 88 | 86 | 98% | 265 |
+| July | 2 | 1 | 50% | 48 |
+| August | 55 | 26 | 47% | 120 |
+| September | 53 | 30 | 57% | 155 |
+| October | 108 | 41 | 38% | 369 |
+| November | 120 | 30 | 25% | 412 |
+| December | 116 | 23 | 20% | 387 |
+
+The misses were not evenly spread. Almost every June flood was missed (86 of
+88). The model had learned the long rains as March to May and treated June as
+dry season, so flooding that continued into June received no warning. This
+is the clearest single weakness the evaluation found. April and May, the
+peak of the long rains, had the lowest share missed and also a third of all
+false alarms (1,272 of 3,689), because most counties were above the 10%
+threshold in those months whether or not a flood was recorded.
+
+By county, the share of recorded floods missed was highest in Kakamega
+(49%), Nairobi (48%), Kilifi (47%), Lamu (46%) and Kwale (44%), and lowest in
+Kirinyaga, Baringo and Kisumu (about 15%). Nairobi and the coastal counties
+flood from short, intense rainfall, which a 30-day total at one point
+describes poorly. False alarms were most frequent in the wet western
+highlands (Kericho, Uasin Gishu, Siaya, Nandi, Bungoma and Trans Nzoia), where
+a warning was given in about a third of all months with no flood recorded.
 
 ### 5.7.5 Final Test on 2017 to 2021
 
 The results above come from the same folds that were used to select the
 model, which makes them somewhat optimistic. A final test was therefore run.
-The years from 2017 onwards were set aside. The model and its calibration
-were selected again by the same cross-validation on 1996 to 2016 alone
+The years from 2017 onwards were set aside. The settings, the model and its
+calibration were selected again by the same procedure on 1996 to 2016 alone
 (11,844 records), fitted on those years, and then scored once on 2017 to 2021
 (2,679 records, 181 floods, 6.8%). The rainfall normals were computed from
 1996 to 2016 only. The boundary year was fixed in the code before the result
 was seen.
+
+The final test was first run on 5 October 2026 without the hyperparameter
+search and run again on 6 October with it. The second run is reported here.
+It is a second look at the test years, which weakens the test; the boundary
+and the selection procedure were not changed between the two runs. In the
+first run the selected model scored ROC AUC 0.767 and average precision 0.153.
 
 **Table 5.19: Final test on 2017 to 2021**
 
@@ -613,8 +676,8 @@ was seen.
 |---|---|---|---|
 | Base rate of 1996 to 2016 | 0.500 | 0.068 | 0.0643 |
 | Season only | 0.694 | 0.177 | 0.0626 |
-| **Gradient Boosting, sigmoid-calibrated (selected on 1996 to 2016)** | **0.767** | **0.153** | **0.0753** |
-| Logistic Regression (not selected) | 0.852 | 0.275 | 0.0674 |
+| **Gradient Boosting, tuned and sigmoid-calibrated (selected on 1996 to 2016)** | **0.801** | **0.191** | **0.0696** |
+| Logistic Regression, tuned (not selected) | 0.852 | 0.270 | 0.0650 |
 | Random Forest (not selected) | 0.782 | 0.186 | 0.0820 |
 
 Source: `final_test` in `metrics.json`.
@@ -623,26 +686,26 @@ Source: `final_test` in `metrics.json`.
 
 | Category | Records | Mean predicted probability | Floods actually recorded |
 |---|---|---|---|
-| Low | 428 | 3.9% | 0.9% |
-| Moderate | 769 | 7.3% | 1.8% |
-| High | 800 | 14.3% | 6.0% |
-| Very High | 682 | 35.3% | 16.9% |
+| Low | 500 | 3.8% | 0.4% |
+| Moderate | 739 | 7.2% | 1.8% |
+| High | 705 | 14.5% | 5.3% |
+| Very High | 735 | 33.5% | 17.6% |
 
 The final test gave a weaker result than the cross-validation, in three
 respects.
 
 First, the selection was not stable. On 1996 to 2016 the Gradient Boosting
-model had the highest cross-validated average precision (0.286, against
-0.265 for the Random Forest and 0.226 for the Logistic Regression), whereas
+model had the highest cross-validated average precision (0.287, against
+0.265 for the Random Forest and 0.229 for the Logistic Regression), whereas
 on all years the Random Forest was selected. On the test years the Logistic
 Regression, which was not selected in either case, scored best.
 
-Second, the selected model did not beat the season-only baseline on average
-precision (0.153 against 0.177). It did retain its ability to rank: the ROC
-AUC was 0.767, and the four categories remained in the correct order, with a
-Very High record about eighteen times more likely to have a recorded flood
-than a Low record. With a warning above 10%, 163 of 181 floods were caught
-(recall 90.1%) at a precision of 11.0%.
+Second, the selected model beat the season-only baseline on average
+precision only narrowly (0.191 against 0.177, a ratio of 1.08). It did retain
+its ability to rank: the ROC AUC was 0.801, and the four categories remained
+in the correct order, with a recorded flood in 17.6% of Very High records
+against 0.4% of Low records. With a warning above 10%, 166 of 181 floods were
+caught (recall 91.7%) at a precision of 11.5%.
 
 Third, the probabilities were too high. Floods were recorded in 6.8% of
 county-months in 2017 to 2021 against 10.3% in 1996 to 2016, and every
@@ -705,6 +768,52 @@ in Turkana, Marsabit and Baringo is lake shore beyond the reference
 shoreline and not flooding from this event. With 94 county-events from two
 floods, the result is indicative and not conclusive.
 
+### 5.7.7 Model Explanation
+
+Chapter 3 proposed SHAP to explain the model. Permutation importance was used
+in its place. It answers the same question, which inputs the predictions
+depend on, needs no additional package, and can be measured on held-out
+years, which the SHAP values of a fitted model cannot. Each input was
+shuffled in turn in the held-out years of each fold, and the fall in average
+precision was recorded.
+
+**Table 5.21a: Permutation importance of the selected Random Forest on held-out years**
+
+| Input | Mean fall in average precision | Standard deviation over six folds |
+|---|---|---|
+| Month (sine) | 0.092 | 0.072 |
+| Rainfall against the county normal | 0.038 | 0.030 |
+| Rainfall in the previous 30 days | 0.031 | 0.013 |
+| ONI | 0.028 | 0.061 |
+| Month (cosine) | 0.019 | 0.016 |
+| DMI in the short rains | 0.013 | 0.019 |
+| Elevation | 0.011 | 0.012 |
+| County area (control) | 0.008 | 0.008 |
+| Wettest 7 days | 0.007 | 0.012 |
+| Rainfall in 30 days | 0.005 | 0.023 |
+| Slope | 0.004 | 0.004 |
+| ONI in the short rains | -0.005 | 0.009 |
+| DMI | -0.018 | 0.043 |
+
+Source: `permutation_importance` in `metrics.json`; Figures
+`docs/figures/09_permutation_importance.png` and `10_partial_dependence.png`.
+
+The time of year was the most important input, followed by rainfall relative
+to the county's normal and rainfall in the month before. The three direct
+rainfall inputs carry much the same information, so the fall for each is
+small; shuffling one leaves the others intact. The ocean indices were
+unstable: ONI helped strongly in some folds and hurt in others, and the plain
+DMI had a negative mean, meaning that on unseen years the model did slightly
+better without it. The Random Forest's built-in impurity ranking places ONI
+and DMI first, so the model splits on them often, but that use does not carry
+over to years it has not seen. Terrain contributed little, as expected when
+every record of a county has the same elevation and slope.
+
+Partial dependence plots for the four most important inputs showed the
+expected direction in each case: the predicted probability rose towards
+April, with rainfall above normal, with a wetter previous month, and on the
+El Niño side of ONI.
+
 ## 5.8 Version Control and Implementation Evidence
 
 Project repository: [github.com/KelvinMurega/FloodScout](https://github.com/KelvinMurega/FloodScout)
@@ -749,7 +858,7 @@ the submitted work.
 | Objective | Implemented output | Evidence | Result |
 |---|---|---|---|
 | [Objective 1: collect and prepare geospatial and environmental data] | Ingestion commands and a 14,523-record training set | Tables 5.3, 5.4, 5.8; TC-01 to TC-07 | Achieved for counties. Sub-county rainfall and terrain are stored but were not used in training |
-| [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three candidates against two baselines | Tables 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.767) but did not beat the season-only baseline on average precision, and its probabilities were too high |
+| [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three tuned candidates against two baselines | Tables 5.6a, 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.801) but beat the season-only baseline on average precision only narrowly (1.08 times), and its probabilities were too high |
 | [Objective 3: classify regions into risk categories] | Four probability bands | Table 5.17; TC-11 | Achieved as an ordering. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test |
 | [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Login and administrator functions not built |
 | [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years and satellite validation completed; user evaluation outstanding |
@@ -761,8 +870,8 @@ alone gives an average precision of 0.124, and adding rainfall, the ocean
 indices and terrain roughly doubles it. The final test on 2017 to 2021
 (Section 5.7.5) qualifies this: the ability to rank regions carried over to
 years the model never saw, but the advantage over the season-only baseline
-did not, and the stated probabilities were about twice the observed flood
-rates. Against satellite flood extents (Section 5.7.6) the ranking held for
+shrank to almost nothing, and the stated probabilities were about twice the
+observed flood rates. Against satellite flood extents (Section 5.7.6) the ranking held for
 the short rains of 2023 and failed for the long rains of 2024. The two ocean
 indices carry most of their information in the short rains, which is
 consistent with the model being weaker in the long rains, although this was
@@ -796,8 +905,11 @@ separate from observation-based scores follows from this.
 - **Labels depend on reporting.** A flood that was not reported is labelled as
   no flood. The precision figures are affected as described in Section 5.7.4.
 - **Weaker performance on later years.** On the 2017 to 2021 final test the
-  selected model did not beat the season-only baseline on average precision
-  and over-stated probabilities (Section 5.7.5). The risk categories should
+  selected model beat the season-only baseline on average precision only
+  narrowly and over-stated probabilities (Section 5.7.5). The test years were
+  scored twice, before and after the hyperparameter search was added.
+- **Floods outside the main rainy months are missed.** Almost every June
+  flood had no warning (Section 5.7.4). The risk categories should
   be read as an ordering of regions and not as calibrated probabilities.
 - **Inconsistent result against satellite extents.** The model ranked
   counties well for the November 2023 floods and worse than chance for the
@@ -805,10 +917,11 @@ separate from observation-based scores follows from this.
   coarse sensor and no correction for cloud.
 - **Model selection is unstable.** Different periods select different
   models. The deployed Random Forest was selected on all years.
-- **No hyperparameter search and no explainability analysis.** Chapter 3
-  proposed GridSearchCV and SHAP. Model settings were fixed, and feature
-  contributions were examined only through logistic regression coefficients
-  in the first run.
+- **A small hyperparameter search, and permutation importance in place of
+  SHAP.** Chapter 3 proposed GridSearchCV and SHAP. The search covered two
+  settings per model over a few values each (Table 5.6a). SHAP was replaced
+  by permutation importance on held-out years, for the reasons given in
+  Section 5.7.7. The ocean indices were found to be unstable inputs.
 - **Sub-county scores are not validated.** The model was trained on counties
   and applied to sub-counties using the county's rainfall normal and area.
 - **Point rainfall.** Rainfall was sampled at one representative point per
