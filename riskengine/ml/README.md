@@ -81,18 +81,23 @@ second is what shows rainfall, the ocean indices and terrain add something
 beyond "it is the rainy season". `metrics.json` reports both as
 `lift_over_base_rate` and `lift_over_season_only`.
 
+Each model's settings are searched over a small grid with `GridSearchCV`
+on the same year folds (see "The settings search" below), and the searched
+settings are used only where they beat the fixed ones on held-out years.
+
 The winner's probabilities are then calibrated (Platt or isotonic, see
 `calibration.py`) if that lowers the held-out Brier score. This targets the
 overconfidence in the top band noted below.
 
-The figures below are the 6 October 2026 run on Google Colab, through
-`notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996 to
-2021, of which 1,406 (9.7%) have a recorded flood. The saved model and
-`metrics.json` are the files that run downloaded. It repeats the 2 and
-5 October runs on a laptop with the same data and seed. The Random Forest
-and Logistic Regression scores are identical, the Gradient Boosting scores
-differ in the fourth decimal place, and the saved model gives the same
-probability for every training row.
+The figures below are the second 6 October 2026 run on Google Colab,
+through `notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996
+to 2021, of which 1,406 (9.7%) have a recorded flood. The saved model and
+`metrics.json` are the files that run downloaded. It is the first run with
+the settings search. The search kept the Random Forest and Logistic
+Regression at their fixed settings, so their scores are the same as in the
+2 and 5 October runs on a laptop and the first Colab run, and the saved
+model gives the same probability for every training row. Gradient Boosting
+changed settings and scores higher than before.
 
 The notebook is committed with its outputs, so the charts can be read on
 GitHub without running anything. The same charts are in `docs/figures/`.
@@ -101,7 +106,7 @@ GitHub without running anything. The same charts are in `docs/figures/`.
 |---|---|---|---|
 | Random Forest (selected) | 0.787 | 0.254 | 0.0798 |
 | Logistic Regression | 0.766 | 0.239 | 0.0830 |
-| Gradient Boosting | 0.750 | 0.215 | 0.0856 |
+| Gradient Boosting | 0.760 | 0.232 | 0.0811 |
 | Season only | 0.565 | 0.124 | 0.0873 |
 | Always predict the base rate | 0.500 | 0.097 | 0.0874 |
 
@@ -123,11 +128,13 @@ lot with which years are held out:
 |---|---|---|
 | Random Forest | 0.297 | 0.098 |
 | Logistic Regression | 0.266 | 0.118 |
-| Gradient Boosting | 0.239 | 0.073 |
+| Gradient Boosting | 0.298 | 0.152 |
 | Season only | 0.202 | 0.105 |
 
 So the Random Forest's lead over the season-only model is 1.5 times when
-folds are averaged, against 2.1 times pooled. Quote both.
+folds are averaged, against 2.1 times pooled. Quote both. Averaged over
+folds the tuned Gradient Boosting is level with the Random Forest, with a
+much wider spread: it wins three folds and loses three.
 
 Treating a probability above a band edge as a warning, on held-out years:
 
@@ -140,19 +147,45 @@ Treating a probability above a band edge as a warning, on held-out years:
 Some false alarms are floods nobody recorded, and some "floods" are
 counties a circle touched that stayed dry, so the precision is a floor.
 
+### The settings search
+
+`PARAM_GRIDS` in `train.py` lists what is searched. Every grid holds the
+fixed setting, so the search can also conclude that nothing beats it.
+`GridSearchCV` proposes the best setting by average precision on the year
+folds. Because it cannot refit the county rainfall normals inside each
+fold, its proposal is then scored again with the normals refitted per fold,
+next to the fixed setting, and adopted only if it scores higher.
+
+| Model | Grid | Fixed | Searched | Average precision, fixed to searched | Result |
+|---|---|---|---|---|---|
+| Logistic Regression | `C`: 0.01, 0.1, 1, 10 | 1 | 1 | 0.239 | Fixed setting confirmed |
+| Random Forest | `min_samples_leaf`: 5, 20, 50; `max_features`: sqrt, 0.5 | 20, sqrt | 20, sqrt | 0.254 | Fixed setting confirmed |
+| Gradient Boosting | `max_depth`: 2, 3; `learning_rate`: 0.02, 0.05, 0.1 | 3, 0.05 | 2, 0.02 | 0.215 to 0.232 | Adopted |
+
+The search did not change which model is selected. It confirmed the Random
+Forest's settings and moved Gradient Boosting to shallower, slower trees,
+which still leaves it third on the pooled scores. `metrics.json` holds this
+under `tuning`, and the same search repeated on 1996 to 2016 under
+`final_test.tuning`. `train_model --no-tune` skips it.
+
 ### The final test: 2017 to 2021
 
 The figures above come from the same folds that picked the model, which
-flatters them. As a check, the years from 2017 on were set aside, the model
-and its calibration were chosen again on 1996 to 2016 alone, and 2017 to
-2021 were scored once (2,679 county-months, 181 floods, 6.8%). The boundary
-is `FINAL_TEST_FROM` in `train.py`. It was fixed before the result was seen
-and must not be moved to get a better number.
+flatters them. As a check, the years from 2017 on were set aside, the
+settings, the model and its calibration were chosen again on 1996 to 2016
+alone, and 2017 to 2021 were scored once (2,679 county-months, 181 floods,
+6.8%). The boundary is `FINAL_TEST_FROM` in `train.py`. It was fixed before
+the result was seen and must not be moved to get a better number.
+
+This table was first produced on 5 October without the settings search. It
+was produced again on 6 October with it, which is a second look at the test
+years. The boundary and the procedure for choosing did not change between
+the two; the earlier figures are in the git history.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
-| Gradient Boosting, sigmoid-calibrated (what 1996–2016 chose) | 0.767 | 0.153 | 0.0753 |
-| Logistic Regression (not chosen) | 0.852 | 0.275 | 0.0674 |
+| Gradient Boosting, sigmoid-calibrated (what 1996–2016 chose) | 0.801 | 0.191 | 0.0696 |
+| Logistic Regression (not chosen) | 0.852 | 0.270 | 0.0650 |
 | Random Forest (not chosen) | 0.782 | 0.186 | 0.0820 |
 | Season only | 0.694 | 0.177 | 0.0626 |
 | Always predict the 1996–2016 base rate | 0.500 | 0.068 | 0.0643 |
@@ -164,13 +197,14 @@ alongside it:
   Boosting, all years pick Random Forest, and on 2017 to 2021 the Logistic
   Regression does best. The three are too close, and the years too few, to
   say one is better.
-- **The chosen model did not beat the calendar.** Its average precision is
-  0.87 times the season-only model's. It still ranks well (ROC AUC 0.77)
-  and its bands are in the right order: 0.9%, 1.8%, 6.0% and 16.9% of Low,
+- **The chosen model barely beat the calendar.** Its average precision is
+  1.08 times the season-only model's (0.191 against 0.177). Without the
+  settings search it was 0.87 times. It ranks well (ROC AUC 0.80) and its
+  bands are in the right order: 0.4%, 1.8%, 5.3% and 17.6% of Low,
   Moderate, High and Very High county-months flooded.
 - **The probabilities are too high.** Floods were recorded in 6.8% of these
   county-months against 10.3% before, and every model scores a worse Brier
-  than always saying the earlier base rate. Very High said 35% where 17%
+  than always saying the earlier base rate. Very High said 33% where 18%
   flooded.
 
 The saved model is still the Random Forest fitted on every year. Switching
@@ -178,9 +212,80 @@ to the Logistic Regression because it won here would turn the test into a
 second round of model selection, so that is a decision to take with the
 supervisor and to state openly, not one this result makes by itself.
 
+### Where it is wrong
+
+Treating High and Very High as a warning (above 10%), on held-out years,
+`error_breakdown` in `metrics.json` splits the 398 missed floods and 3,689
+false alarms by calendar month and by county.
+
+- **June is missed almost entirely.** 86 of the 88 June floods had no
+  warning. The model has learned the long rains as March to May and treats
+  June as dry season, so a flood that runs on into June is not seen. April
+  and May miss 15% each; August and September miss about half of a small
+  number.
+- **A third of false alarms are in April and May** (1,272 of 3,689). In the
+  long rains most counties are above 10% whether or not a flood is recorded.
+- **By county, misses are highest in Kakamega, Nairobi, Kilifi, Lamu and
+  Kwale** (44% to 49% of their recorded floods) and lowest in Kirinyaga,
+  Baringo and Kisumu (about 15%). Nairobi and the coast flood from short,
+  intense rain that a 30-day total at one point describes poorly.
+- **False alarms are highest in the wet western highlands** (Kericho, Uasin
+  Gishu, Siaya, Nandi, Bungoma, Trans Nzoia: a warning in about a third of
+  all months with no flood recorded).
+
+### What it leans on
+
+`permutation_importance` in `metrics.json` is how far held-out average
+precision falls when one input is shuffled, measured on the years each fold
+never saw and averaged over the six folds.
+
+| Input | Fall in average precision | Standard deviation over folds |
+|---|---|---|
+| `month_sin` | 0.092 | 0.072 |
+| `rain_30d_ratio` | 0.038 | 0.030 |
+| `rain_prev_30d` | 0.031 | 0.013 |
+| `oni` | 0.028 | 0.061 |
+| `month_cos` | 0.019 | 0.016 |
+| `dmi_short_rains` | 0.013 | 0.019 |
+| `elevation` | 0.011 | 0.012 |
+| `log_area` | 0.008 | 0.008 |
+| `rain_7d_max` | 0.007 | 0.012 |
+| `rain_30d` | 0.005 | 0.023 |
+| `slope` | 0.004 | 0.004 |
+| `oni_short_rains` | -0.005 | 0.009 |
+| `dmi` | -0.018 | 0.043 |
+
+Read it this way:
+
+- **The time of year matters most**, then rainfall against the county's
+  normal and how wet the month before was. The three direct rainfall inputs
+  carry much the same information, so each one's fall is small: shuffling
+  `rain_30d` leaves `rain_30d_ratio` intact.
+- **The ocean indices are unstable.** ONI helps a lot in some folds and
+  hurts in others (the standard deviation is twice the mean). The plain DMI
+  has a negative mean: on unseen years the model did slightly better
+  without it. Its short-rains version is the one that helps. The forest
+  splits on both indices more than on anything else (they top its built-in
+  impurity ranking), which is the model fitting year-to-year patterns that
+  do not carry over, and is why this table and not that ranking is quoted.
+- **Terrain adds little**, as expected when every row of a county has the
+  same elevation and slope.
+
+The notebook also draws partial dependence for the four most important
+inputs (`docs/figures/10_partial_dependence.png`). The direction is the
+expected one in each: probability rises towards April, with rainfall above
+normal, with a wetter previous month, and on the El Niño side of ONI.
+
+SHAP, named in the proposal, was not used. Permutation importance answers
+the same question (which inputs the predictions depend on), needs no
+further dependency, and is measured on held-out years, which SHAP values
+of a fitted model are not.
+
 `artifacts/metrics.json` holds the current figures: `final_test` for the
-table above, `folds` and
-`fold_summary` for the first table, `threshold_errors` for the second, and
+final test table, `folds` and
+`fold_summary` for the fold table, `threshold_errors` for the warning table,
+`tuning`, `error_breakdown` and `permutation_importance` for the three
+sections above, and
 `provenance` for the commit, the SHA-256 of the training set, the seed and
 the scikit-learn version the run used. The commit is empty for a Colab run,
 because the uploaded bundle is not a git checkout. The 6 October bundle was

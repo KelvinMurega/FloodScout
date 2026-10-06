@@ -1,12 +1,13 @@
 """Train the flood model on data/processed/training_set.csv.
 
 Compares Logistic Regression, Random Forest and Gradient Boosting on
-held-out years, refits the best on everything, and writes it to
-riskengine/ml/artifacts/ where `infer()` picks it up. Run
-`build_training_set` first.
+held-out years, searching each one's settings over a small grid, refits the
+best on everything, and writes it to riskengine/ml/artifacts/ where
+`infer()` picks it up. Run `build_training_set` first.
 
 notebooks/train_flood_model.ipynb does the same thing on Google Colab, by
-calling the same `riskengine.ml.train`.
+calling the same `riskengine.ml.train`. The shipped model comes from that
+notebook; this command is for checking a change locally.
 """
 
 from __future__ import annotations
@@ -34,6 +35,12 @@ class Command(BaseCommand):
             ),
         )
 
+        parser.add_argument(
+            "--no-tune",
+            action="store_true",
+            help="Skip the settings search and compare the models at their fixed settings.",
+        )
+
     def handle(self, *args, **options):
         if not TRAINING_SET_PATH.exists():
             raise CommandError(
@@ -45,9 +52,13 @@ class Command(BaseCommand):
         except ClimateIndexError as exc:
             raise CommandError(str(exc)) from exc
 
-        self.stdout.write("Training (cross-validating three models, this takes a few minutes)")
+        self.stdout.write("Training (cross-validating three models, this takes several minutes)")
         artifact, metrics = train.train(
-            TRAINING_SET_PATH, oni, dmi, test_from=options["test_from"] or None
+            TRAINING_SET_PATH,
+            oni,
+            dmi,
+            test_from=options["test_from"] or None,
+            tune_models=not options["no_tune"],
         )
         train.save(artifact, metrics)
 
@@ -74,6 +85,23 @@ class Command(BaseCommand):
             f"the base rate, {metrics['lift_over_season_only']}x the season-only model"
         )
         self.stdout.write(f"Calibration kept: {metrics['calibration']}")
+        if metrics["tuning"]:
+            self.stdout.write("")
+            self.stdout.write("Settings search, average precision on held-out years:")
+            for name, record in metrics["tuning"].items():
+                self.stdout.write(
+                    f"  {name:<18} fixed {record['fixed']['average_precision']:.4f}, "
+                    f"searched {record['searched']['average_precision']:.4f} "
+                    f"{record['searched_settings']} "
+                    f"({'adopted' if record['adopted'] else 'fixed settings kept'})"
+                )
+        self.stdout.write("")
+        self.stdout.write("Permutation importance (fall in held-out average precision):")
+        ranked = sorted(
+            metrics["permutation_importance"].items(), key=lambda item: -item[1]["mean"]
+        )
+        for name, value in ranked:
+            self.stdout.write(f"  {name:<18} {value['mean']:>7.4f}")
         self.stdout.write("")
         self.stdout.write("Average precision by fold, mean (standard deviation):")
         for name, summary in metrics["fold_summary"].items():
