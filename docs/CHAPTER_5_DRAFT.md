@@ -425,11 +425,22 @@ The REST API was implemented with Django REST Framework under `/api/`.
 | `GET /api/risk-scores/latest-by-region/` | The latest score for every region in one database query |
 | `GET /api/risk-scores/lower-risk-neighbours/?region=<id>` | Adjacent regions with a lower risk category |
 | `GET /api/risk-outlook/`, `GET /api/risk-outlook/months/` | The seasonal outlook |
+| `POST /api/auth/token/` | A token and the user's role, for a valid username and password |
+| `POST /api/auth/logout/` | Deletes the caller's token |
+| `POST /api/risk-scores/rescore/` | Scores every region again. System Administrator only |
 
-All endpoints are read-only. Anonymous users may read; the default permission
-class is `IsAuthenticatedOrReadOnly`. The user model distinguishes
-administrators from end users, but administrator write endpoints and a login
-screen had not been built at the time of writing (Section 5.10.3).
+Anonymous users may read every `GET` endpoint; the default permission class
+is `IsAuthenticatedOrReadOnly`. A user signs in at `auth/token/` and sends
+the token with later requests. One endpoint writes: `rescore/`, which runs
+the same function as the `score_regions` command and is guarded by an
+`IsAdministrator` permission class built on the `role` field of the user
+model. An anonymous request to it is refused with HTTP 401 and a signed-in
+End User with HTTP 403. Sign-in attempts are limited to ten a minute per
+client address. The dashboard holds the token in memory only, so it is lost
+when the tab is closed. The other administrator tasks in the Use Case
+Diagram (uploading datasets, training the model, managing users) are done
+from the command line and the Django administration site, not through the
+API (Section 5.10.3).
 
 ### 5.5.5 Client Tier and User Workflow
 
@@ -487,7 +498,7 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 141 tests. On 6 October 2026 all 141 passed in 466
+The suite contained 159 tests. On 6 October 2026 all 159 passed in 594
 seconds (`docker compose run --rm web python manage.py test`). Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
@@ -518,10 +529,18 @@ Chapter 4.]
 | TC-19 | Model integrity | Rows before 1996 | Dropped from training | Pass |
 | TC-20 | Model integrity | Saved model file | Loads and scores a county and a sub-county | Pass |
 | TC-21 | IR-02, outlook | Outlook rows in the API | Carry no relocation advice | Pass |
+| TC-22 | Access control | Sign in with a valid username and password | HTTP 200 with a token and the role | Pass |
+| TC-23 | Access control | Sign in with a wrong password or unknown user | HTTP 400, no token created | Pass |
+| TC-24 | Access control | Anonymous `POST` to `rescore/` | HTTP 401, nothing scored | Pass |
+| TC-25 | Access control | End User `POST` to `rescore/` | HTTP 403, nothing scored | Pass |
+| TC-26 | Access control | System Administrator `POST` to `rescore/` | HTTP 200, one row per region | Pass |
+| TC-27 | Access control | Anonymous `GET` on every read endpoint | HTTP 200 | Pass |
+| TC-28 | Access control | Eleventh sign-in attempt within a minute | HTTP 429 | Pass |
+| TC-29 | Access control | Request with a token after signing out | HTTP 401 | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
-`riskengine/tests.py` and `riskengine/tests_model.py`. The `accounts` and `api`
-applications had no tests of their own.
+`riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and
+`api/tests.py`.
 
 ### 5.6.3 Defects and Corrective Action
 
@@ -908,7 +927,7 @@ the submitted work.
 | [Objective 1: collect and prepare geospatial and environmental data] | Ingestion commands and a 14,523-record training set | Tables 5.3, 5.4, 5.8; TC-01 to TC-07 | Achieved for counties. Sub-county rainfall and terrain are stored but were not used in training |
 | [Objective 2: develop a machine learning model that predicts flood risk] | Random Forest selected from three tuned candidates against two baselines | Tables 5.6a, 5.15 to 5.18 | Partly achieved. Cross-validated ROC AUC 0.787 and average precision 0.254, 2.05 times the season-only baseline. On the 2017 to 2021 final test the selected model ranked regions well (ROC AUC 0.801) but beat the season-only baseline on average precision only narrowly (1.08 times), and its probabilities were too high |
 | [Objective 3: classify regions into risk categories] | Four probability bands | Tables 5.17, 5.21b; TC-11 | Achieved as an ordering of counties. Categories were correctly ordered in cross-validation and on the final test. The probability attached to each category was not reliable on the final test, and sub-counties of the same county were not ranked better than chance |
-| [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Login and administrator functions not built |
+| [Objective 4: present risk on a web-based map] | REST API and Leaflet dashboard | Section 5.5.5; TC-13 to TC-17 | Core workflow achieved. Sign-in and one administrator function (rescore) built; the other administrator tasks are not in the dashboard |
 | [Objective 5: evaluate the system] | Automated tests and cross-validated model evaluation | Sections 5.6, 5.7 | Partly achieved. Independent test on later years and satellite validation completed; user evaluation outstanding |
 
 ### 5.10.2 Discussion
@@ -987,9 +1006,11 @@ separate from observation-based scores follows from this.
   Engine. ERA5, Copernicus DEM and the flood archive were used instead.
   State the reason: label generation from Sentinel-1 was the highest-risk
   task and the archive allowed a working system first.]
-- **Access control is incomplete.** Roles exist in the user model, but there
-  is no login screen and no administrator write endpoint. The API is read-only
-  for everyone.
+- **Access control covers one administrator function.** Sign-in and the
+  permission boundary are built and tested, but rescoring is the only
+  administrator task offered through the API and the dashboard. Uploading
+  datasets, training the model and managing users are done from the command
+  line and the Django administration site.
 - **Local deployment only.** The system ran on a development server with
   debugging enabled. No performance, load, security or usability testing was
   carried out, and no users other than the author used the system.

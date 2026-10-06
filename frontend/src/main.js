@@ -30,6 +30,7 @@ import {
   fetchOutlookMonths,
   fetchRegions,
 } from "./api.js";
+import { initAuth } from "./auth.js";
 import {
   CATEGORY_ORDER,
   advisoryFor,
@@ -950,6 +951,17 @@ async function route() {
 }
 
 async function load() {
+  // Before the data, so an administrator can still sign in and rescore when
+  // there are no scores to show yet.
+  initAuth(document.getElementById("auth"), {
+    // Scores are cached per view; drop them so the redraw fetches the new ones.
+    onRescored: () => {
+      state.countyCache.clear();
+      state.regionCache.clear();
+      return route();
+    },
+  });
+
   try {
     setStatus("Loading counties and risk scores…");
 

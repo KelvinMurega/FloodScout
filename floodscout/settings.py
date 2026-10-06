@@ -116,11 +116,16 @@ CORS_ALLOWED_ORIGINS = env.list(
 )
 
 REST_FRAMEWORK = {
+    # Token first: DRF takes the challenge header from the first class, and
+    # only a class that has one makes an anonymous request a 401 instead of
+    # a 403. The dashboard signs in at api/auth/token/.
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
+    # Sign-in attempts per client address (accounts/views.py).
+    "DEFAULT_THROTTLE_RATES": {"login": "10/min"},
 }
