@@ -103,6 +103,13 @@ Branch: `feat/temporal-holdout`
    the result, and do not change it afterwards.
 5. The deployed model is still fitted on all years. Say so in the README.
 
+*Done 5 October.* Result: 1996 to 2016 selected Gradient Boosting, which
+scored ROC AUC 0.767 and average precision 0.153 on 2017 to 2021, below the
+season-only baseline's 0.177. The Logistic Regression, not selected, scored
+0.275. Details are in `riskengine/ml/README.md`. This raises one decision for
+the supervisor: whether to deploy the Logistic Regression as the simpler and
+more stable model. Do not make that choice from the test score alone.
+
 ### 2b. Satellite validation
 
 Branch: `feat/unosat-validation`

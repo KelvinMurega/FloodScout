@@ -132,7 +132,46 @@ Treating a probability above a band edge as a warning, on held-out years:
 Some false alarms are floods nobody recorded, and some "floods" are
 counties a circle touched that stayed dry, so the precision is a floor.
 
-`artifacts/metrics.json` holds the current figures: `folds` and
+### The final test: 2017 to 2021
+
+The figures above come from the same folds that picked the model, which
+flatters them. As a check, the years from 2017 on were set aside, the model
+and its calibration were chosen again on 1996 to 2016 alone, and 2017 to
+2021 were scored once (2,679 county-months, 181 floods, 6.8%). The boundary
+is `FINAL_TEST_FROM` in `train.py`. It was fixed before the result was seen
+and must not be moved to get a better number.
+
+| Model | ROC AUC | Average precision | Brier |
+|---|---|---|---|
+| Gradient Boosting, sigmoid-calibrated (what 1996–2016 chose) | 0.767 | 0.153 | 0.0754 |
+| Logistic Regression (not chosen) | 0.852 | 0.275 | 0.0674 |
+| Random Forest (not chosen) | 0.782 | 0.186 | 0.0820 |
+| Season only | 0.694 | 0.177 | 0.0626 |
+| Always predict the 1996–2016 base rate | 0.500 | 0.068 | 0.0643 |
+
+This is a weaker result than the cross-validation, and it should be quoted
+alongside it:
+
+- **The choice of model is not stable.** 1996 to 2016 picks Gradient
+  Boosting, all years pick Random Forest, and on 2017 to 2021 the Logistic
+  Regression does best. The three are too close, and the years too few, to
+  say one is better.
+- **The chosen model did not beat the calendar.** Its average precision is
+  0.87 times the season-only model's. It still ranks well (ROC AUC 0.77)
+  and its bands are in the right order: 0.9%, 1.8%, 6.0% and 16.9% of Low,
+  Moderate, High and Very High county-months flooded.
+- **The probabilities are too high.** Floods were recorded in 6.8% of these
+  county-months against 10.3% before, and every model scores a worse Brier
+  than always saying the earlier base rate. Very High said 35% where 17%
+  flooded.
+
+The saved model is still the Random Forest fitted on every year. Switching
+to the Logistic Regression because it won here would turn the test into a
+second round of model selection, so that is a decision to take with the
+supervisor and to state openly, not one this result makes by itself.
+
+`artifacts/metrics.json` holds the current figures: `final_test` for the
+table above, `folds` and
 `fold_summary` for the first table, `threshold_errors` for the second, and
 `provenance` for the commit, the SHA-256 of the training set, the seed and
 the scikit-learn version the run used.
@@ -155,6 +194,10 @@ is not counted as dry. With a few events this is a few dozen to a hundred
 county-events: indicative, not conclusive.
 
 ## Known limits
+
+- **Skill on later years is weaker than cross-validation says.** See "The
+  final test" above. Treat the bands as an ordering of regions, not as
+  probabilities to quote.
 
 - **Labels are coarse.** The flood archive gives a centroid and an area, not
   an outline, so each flood is placed as a circle. Some counties inside the

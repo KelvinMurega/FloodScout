@@ -175,6 +175,49 @@ class TrainingTests(SimpleTestCase):
             (root / ".git" / "packed-refs").write_text("# pack-refs\ndef456 refs/heads/topic\n")
             self.assertEqual(train.git_commit(root), "def456")
 
+    def test_final_test_scores_only_years_the_choice_never_saw(self):
+        test = self.metrics["final_test"]
+        self.assertEqual(test["test_from"], train.FINAL_TEST_FROM)
+        self.assertEqual(test["development_years"], [1996, train.FINAL_TEST_FROM - 1])
+        self.assertEqual(test["test_years"], [train.FINAL_TEST_FROM, 2021])
+        self.assertEqual(test["rows"], (2021 - train.FINAL_TEST_FROM + 1) * 12 * 6)
+        self.assertEqual(test["development_rows"] + test["rows"], self.metrics["rows"])
+        self.assertIn(test["selected"], test["development_comparison"])
+        self.assertNotIn(test["selected"], test["other_candidates"])
+        self.assertEqual(sum(band["rows"] for band in test["band_calibration"]), test["rows"])
+        # Floods follow rainfall in this data, so a real model beats the calendar.
+        self.assertGreater(
+            test["scores"]["average_precision"],
+            test["baselines"]["season-only"]["average_precision"],
+        )
+
+    def test_final_test_normals_come_from_the_development_years(self):
+        data = train.load_training_set(self.path)
+        rain = data.column("rain_30d")
+        late = data.years >= train.FINAL_TEST_FROM
+        wetter = train.TrainingSet(
+            features=data.features,
+            X=data.X.copy(),
+            y=data.y,
+            years=data.years,
+            months=data.months,
+            counties=data.counties,
+            dates=data.dates,
+            meta=data.meta,
+        )
+        # Changing only how the test years' rain compares with normal must not
+        # move the development side of the result at all.
+        wetter.X[late, rain] *= 3
+        before = train.final_test(data, train.FINAL_TEST_FROM)
+        after = train.final_test(wetter, train.FINAL_TEST_FROM)
+        self.assertEqual(before["development_comparison"], after["development_comparison"])
+        self.assertEqual(before["selected"], after["selected"])
+
+    def test_final_test_is_skipped_when_a_side_is_empty(self):
+        data = train.load_training_set(self.path)
+        self.assertIsNone(train.final_test(data, 1996))
+        self.assertIsNone(train.final_test(data, 2030))
+
     def test_artifact_records_features_indices_and_rain_sampling(self):
         self.assertEqual(self.artifact["features"], list(FEATURE_NAMES))
         self.assertEqual(self.artifact["dmi"], {(2019, 9): 0.5})

@@ -22,6 +22,18 @@ from .build_training_set import TRAINING_SET_PATH
 class Command(BaseCommand):
     help = "Compare the three models on held-out years and save the best."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--test-from",
+            type=int,
+            default=train.FINAL_TEST_FROM,
+            metavar="YEAR",
+            help=(
+                "Years from this one on are set aside as the final test and scored once "
+                f"(default {train.FINAL_TEST_FROM}). 0 skips the final test."
+            ),
+        )
+
     def handle(self, *args, **options):
         if not TRAINING_SET_PATH.exists():
             raise CommandError(
@@ -34,7 +46,9 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
 
         self.stdout.write("Training (cross-validating three models, this takes a few minutes)")
-        artifact, metrics = train.train(TRAINING_SET_PATH, oni, dmi)
+        artifact, metrics = train.train(
+            TRAINING_SET_PATH, oni, dmi, test_from=options["test_from"] or None
+        )
         train.save(artifact, metrics)
 
         self.stdout.write("")
@@ -83,5 +97,27 @@ class Command(BaseCommand):
                 f"  {band['band']:<10} {band['rows']:>6} rows, flood recorded in "
                 f"{'n/a' if observed is None else f'{100 * observed:.1f}%'}"
             )
+        test = metrics["final_test"]
+        if test:
+            first, last = test["test_years"]
+            self.stdout.write("")
+            self.stdout.write(
+                f"Final test, {first} to {last} ({test['rows']} county-months, "
+                f"{test['positives']} floods), model chosen on earlier years only:"
+            )
+            rows = [(test["selected"], test["scores"])]
+            rows += [(f"({name})", scores) for name, scores in test["other_candidates"].items()]
+            rows += [(f"({name})", scores) for name, scores in test["baselines"].items()]
+            for name, scores in rows:
+                self.stdout.write(
+                    f"  {name:<20} {scores['roc_auc']:>8.3f} "
+                    f"{scores['average_precision']:>14.3f} {scores['brier']:>8.4f}"
+                )
+            for band in test["band_calibration"]:
+                observed = band["observed_flood_rate"]
+                self.stdout.write(
+                    f"  {band['band']:<10} {band['rows']:>6} rows, flood recorded in "
+                    f"{'n/a' if observed is None else f'{100 * observed:.1f}%'}"
+                )
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(f"Saved {artifact['version']} to {train.ARTIFACT_PATH}"))
