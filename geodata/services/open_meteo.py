@@ -1,10 +1,11 @@
 """Thin client for the two Open-Meteo endpoints FloodScout ingests from.
 
 Open-Meteo is used because it needs no API key, no registration and no
-credentials file — unlike Earth Engine, which is the long-term source for
-these same variables (see `geodata/services/earth_engine.py` and Sprint 2).
-This module exists so the walking skeleton can run on *real* elevation and
-*real* rainfall today, on any machine, without a credentials dance.
+credentials file — unlike Earth Engine, which is used only as an optional
+source of county-mean rainfall for training (see
+`geodata/services/earth_engine_rain.py`). This module lets the system run on
+*real* elevation and *real* rainfall on any machine, without a credentials
+dance.
 
 Sources, both free for non-commercial use and both citable:
 
