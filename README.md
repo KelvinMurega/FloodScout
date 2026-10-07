@@ -212,3 +212,15 @@ As of 7 October 2026, on `develop`:
 
 Not done yet: deployment (the system runs locally only), a performance test
 and user testing. `docs/GAP_CLOSURE_PLAN.md` is the current task list.
+
+## Licence and access
+
+Copyright © 2026 Murega Kelvin Mutwiri. All rights reserved.
+
+This repository is private. It is shared with the project supervisor and the
+examiners of Strathmore University for assessment of the capstone project.
+No licence is granted to copy, modify or redistribute the code, the trained
+model or the documents.
+
+The datasets the system reads belong to their publishers and keep their own
+licences, which are listed with each source in `docs/DATA_DICTIONARY.md`.

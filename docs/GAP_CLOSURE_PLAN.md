@@ -16,12 +16,12 @@ Status as of 7 October 2026.
 
 | Phase | Closes | Status | Still needs from Kelvin |
 |---|---|---|---|
-| 0. Repository clean-up | Stale PRs, `develop` behind `main`, uncommitted model, stale READMEs | Done, except PR #9 | Decision on PR #9 |
+| 0. Repository clean-up | Stale PRs, `develop` behind `main`, uncommitted model, stale READMEs | Done | — |
 | 1. Evaluation evidence in code | Per-fold and error figures have no committed source; outlook from old model | Done (#13) | — |
 | 2. Independent test | No held-out test set | Done (#14, #15, #18) | — |
 | 3. Chapter 3 promises | No hyperparameter search, no explainability, no error breakdown | Code done (#17); the report text is open | Supervisor's view on SHAP; the deviation text in Chapters 3 and 5 |
 | 4. Access control | No login, no administrator function | Done (#22) | — |
-| 5. CI and repository evidence | No CI, licence, tags or task record | CI done (#21); licence, issues, tag and supervisor access open | Licence choice |
+| 5. CI and repository evidence | No CI, licence, tags or task record | Done, except supervisor access (issue #27) | Confirm the supervisor can open the repository |
 | 6. Deployment and user testing | Local only; no performance, security or user evidence | Not started | Hosting choice, 3 to 5 testers |
 | 7. Report | Chapter 4 diagrams, Chapter 5 placeholders, AI example | Open | Mostly Kelvin's own work |
 
@@ -40,9 +40,14 @@ State on 5 October: `develop` is 10 commits behind `main` and has nothing
    commits that reached `main` through #11 and merged cleanly.
 2. Merge **#7** (configurable API port). *Done 5 October.* Port 8000 is taken
    on the development machine.
-3. Decide **#9** (Earth Engine SRTM and CHIRPS client, not in `main`). Open.
-   Nothing uses the module today. Merge it if the Sentinel-1 label work is
-   still planned; otherwise close it with that reason.
+3. Decide **#9** (Earth Engine SRTM and CHIRPS client, not in `main`).
+   *Closed without merging, 7 October.* The Sentinel-1 label work it was
+   kept for is not planned: the flood archive supplies the labels, and ERA5
+   and the Copernicus DEM replaced CHIRPS and SRTM. Nothing imports the
+   module, and the rest of the pull request (the `earthengine-api`
+   requirement, the credential volume, the four-tier README) reached
+   `develop` by other pull requests. The branch is kept, so the client can
+   be recovered.
 4. Set `develop` as the default branch on GitHub so new PRs target it.
    *Done.*
 5. On `feat/model-accuracy-improvements` (*done 5 October*, pull request
@@ -206,19 +211,22 @@ include an authentication row.
 
 Branch: `chore/ci-and-repo-evidence`
 
-Items 1 and 2 *done 6 October* (pull request #21). Items 3 to 6 are open.
+Items 1 and 2 *done 6 October* (pull request #21). Items 3 to 5 *done
+7 October*. Item 6 is open (issue #27).
 
 1. A GitHub Actions workflow that runs `python manage.py test` on every pull
    request into `develop` and `main`, with a `postgis/postgis:16-3.4` service
    container. Build the project's Dockerfile in the job so GDAL is present.
 2. Add `ruff` as a lint step.
 3. Add a `LICENSE` file, or a short access statement in the README if the
-   repository stays private.
+   repository stays private. *Done:* the repository stays private, so the
+   README has an access statement with all rights reserved. An open-source
+   licence can still be added later; the reverse is not possible.
 4. Create GitHub issues for the remaining tasks in this plan and link each
    pull request to its issue. This is the traceable task record the guideline
-   asks for.
+   asks for. *Done:* issues #25 to #41.
 5. After Phases 0 to 2 are merged, open `develop` into `main` and tag it
-   `v0.2-sprint2`.
+   `v0.2-sprint2`. *Done:* pull request #24; the tag is on `main`.
 6. Confirm the supervisor has access to the private repository.
 
 **Done when:** a pull request shows a passing check, and the Sprint II state
