@@ -1,5 +1,5 @@
 {
-  "version": "flood-random-forest-20261006",
+  "version": "flood-random-forest-20261007",
   "target": "DFO large flood recorded in the county within the 30-day window",
   "rows": 14523,
   "positives": 1406,
@@ -1181,7 +1181,8 @@
     ]
   },
   "provenance": {
-    "git_commit": null,
+    "git_commit": "e3be7cbcb4f5eea8cbdfc46495c7906941215fb2",
+    "run_id": "20261007T1204Z_e3be7cb",
     "training_set_sha256": "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033",
     "random_state": 0,
     "scikit_learn": "1.9.1"

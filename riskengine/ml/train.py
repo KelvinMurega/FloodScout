@@ -47,6 +47,7 @@ import csv
 import datetime as dt
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,6 +71,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_PATH = ARTIFACT_DIR / "flood_model.joblib"
 METRICS_PATH = ARTIFACT_DIR / "metrics.json"
+
+# How a Colab run, which is not a git checkout, is tied to its commit and to
+# its folder of outputs. `build_colab_bundle` writes the file; the notebook
+# sets the two variables.
+COMMIT_FILE = "COMMIT"
+COMMIT_ENV = "FLOODSCOUT_GIT_COMMIT"
+RUN_ID_ENV = "FLOODSCOUT_RUN_ID"
 
 CV_FOLDS = 6
 RANDOM_STATE = 0
@@ -447,11 +455,8 @@ def _threshold_errors(y, probabilities) -> list[dict]:
     return out
 
 
-def git_commit(root: Path = REPO_ROOT) -> str | None:
-    """The commit checked out in `root`, read from .git without needing git.
-
-    None outside a checkout, which is the case in the Colab bundle.
-    """
+def _commit_from_git_dir(root: Path) -> str | None:
+    """The commit checked out in `root`, read from .git without needing git."""
     git_dir = root / ".git"
     head = git_dir / "HEAD"
     if not head.is_file():
@@ -470,10 +475,30 @@ def git_commit(root: Path = REPO_ROOT) -> str | None:
     return None
 
 
+def git_commit(root: Path = REPO_ROOT) -> str | None:
+    """The commit the code came from.
+
+    Order: a real .git checkout, then the FLOODSCOUT_GIT_COMMIT environment
+    variable, then the COMMIT file `build_colab_bundle` writes into the
+    bundle, which is not a checkout.
+    """
+    found = _commit_from_git_dir(root)
+    if found:
+        return found
+    from_env = os.environ.get(COMMIT_ENV, "").strip()
+    if from_env:
+        return from_env
+    commit_file = root / COMMIT_FILE
+    if commit_file.is_file():
+        return commit_file.read_text().strip() or None
+    return None
+
+
 def provenance(training_set: Path) -> dict:
-    """What a result has to be traced back to: the code, the data and the seed."""
+    """What a result has to be traced back to: the code, the run, the data and the seed."""
     return {
         "git_commit": git_commit(),
+        "run_id": os.environ.get(RUN_ID_ENV, "").strip() or None,
         "training_set_sha256": hashlib.sha256(training_set.read_bytes()).hexdigest(),
         "random_state": RANDOM_STATE,
         "scikit_learn": sklearn.__version__,

@@ -7,7 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libproj-dev \
     gdal-bin \
     libgdal-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# `build_colab_bundle` asks git for the commit and the committed code. The
+# repository is mounted at /app and owned by the host user, which git refuses
+# to read unless the folder is marked safe.
+RUN git config --system --add safe.directory /app
 
 WORKDIR /app
 

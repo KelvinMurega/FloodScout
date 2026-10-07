@@ -96,11 +96,17 @@ The winner's probabilities are then calibrated (Platt or isotonic, see
 `calibration.py`) if that lowers the held-out Brier score. This targets the
 overconfidence in the top band noted below.
 
-The figures below are the second 6 October 2026 run on Google Colab,
-through `notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996
-to 2021, of which 1,406 (9.7%) have a recorded flood. The saved model and
-`metrics.json` are the files that run downloaded. It is the first run with
-the settings search. The search kept the Random Forest and Logistic
+The figures below are the 7 October 2026 run on Google Colab, through
+`notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996 to 2021,
+of which 1,406 (9.7%) have a recorded flood. The saved model and
+`metrics.json` are the files that run wrote to Google Drive. The run id is
+`20261007T1204Z_e3be7cb` and it was built from commit `e3be7cb`.
+
+The 7 October run repeats the second 6 October run with the same code path,
+data and seed, to record the commit and keep the outputs in Drive. Every
+figure in `metrics.json` is identical between the two; only the model
+version and the `provenance` block changed. The 6 October run was the first
+with the settings search. The search kept the Random Forest and Logistic
 Regression at their fixed settings, so their scores are the same as in the
 2 and 5 October runs on a laptop and the first Colab run, and the saved
 model gives the same probability for every training row. Gradient Boosting
@@ -187,7 +193,9 @@ the result was seen and must not be moved to get a better number.
 This table was first produced on 5 October without the settings search. It
 was produced again on 6 October with it, which is a second look at the test
 years. The boundary and the procedure for choosing did not change between
-the two; the earlier figures are in the git history.
+the two; the earlier figures are in the git history. The 7 October run
+scored the test years a third time, with nothing changed, and returned the
+6 October figures exactly. No choice was made from it.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
@@ -293,10 +301,12 @@ final test table, `folds` and
 `fold_summary` for the fold table, `threshold_errors` for the warning table,
 `tuning`, `error_breakdown` and `permutation_importance` for the three
 sections above, and
-`provenance` for the commit, the SHA-256 of the training set, the seed and
-the scikit-learn version the run used. The commit is empty for a Colab run,
-because the uploaded bundle is not a git checkout. The 6 October bundle was
-built from commit `51e4de2`.
+`provenance` for the commit, the run id, the SHA-256 of the training set,
+the seed and the scikit-learn version the run used. A Colab run is not a git
+checkout, so `build_colab_bundle` writes the commit into the bundle as a
+`COMMIT` file and `train.git_commit()` reads it there. The current model is
+run `20261007T1204Z_e3be7cb`, from commit `e3be7cb`. The 6 October run it
+replaces recorded no commit; its bundle was built from commit `51e4de2`.
 
 ## Checking against satellite floods
 
@@ -314,8 +324,8 @@ A county counts as flooded when at least 5 km² of it is inside the mapped
 flood water (`--min-km2`). Run on 5 October 2026 against
 `flood-random-forest-20261005`, with the per-county rows kept in
 `artifacts/unosat_validation.csv`. The Colab-trained
-`flood-random-forest-20261006` gives the same probabilities, so the run was
-not repeated:
+`flood-random-forest-20261006` and `flood-random-forest-20261007` give the
+same probabilities, so the run was not repeated:
 
 | Event | Counties flooded | ROC AUC | Average precision |
 |---|---|---|---|
@@ -454,9 +464,31 @@ docker compose run --rm web python manage.py score_regions        # today, into 
 docker compose run --rm web python manage.py flood_outlook        # the months ahead, into RiskOutlook
 ```
 
-To train on Google Colab instead, open `notebooks/train_flood_model.ipynb`
-and follow it. It runs the same `train.py` and gives back the two files that
-go in `artifacts/`.
+The shipped model is trained on Google Colab. Commit your work, then:
+
+```bash
+docker compose run --rm web python manage.py build_colab_bundle
+```
+
+This writes `data/processed/colab_bundle_<commit>.tar.gz`: the committed
+code, the training set, a `COMMIT` file and the SHA-256 of the training
+set. It refuses to run with uncommitted changes. Put the file in Google
+Drive under `MyDrive/FloodScout/data/`, open
+`notebooks/train_flood_model.ipynb` in Colab and run it all. It runs the
+same `train.py` and writes each run to its own folder,
+`MyDrive/FloodScout/runs/<run id>/`:
+
+| File | What it is |
+|---|---|
+| `flood_model.joblib`, `metrics.json` | The two files that go in `artifacts/` |
+| `figures/` | The charts, which go in `docs/figures/` |
+| `run.json` | Run id, commit, bundle, training set SHA-256, Python, processor, training time |
+| `log.txt` | What the training printed |
+| `environment.txt` | `pip freeze` of the Colab session |
+
+The run id is the UTC start time and the first seven characters of the
+commit, and `metrics.json` records it. Commit the executed notebook with the
+two files, so the recorded code matches the run.
 
 `infer()` loads `artifacts/flood_model.joblib` when it exists and falls back
 to the old heuristic when it does not. `RiskScore.model_version` says which

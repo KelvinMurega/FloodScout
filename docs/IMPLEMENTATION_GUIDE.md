@@ -53,7 +53,7 @@ for 47 counties and 290 sub-counties; a trained Random Forest compared
 against two baselines with year-grouped cross-validation; a final test on
 2017 to 2021; validation against UNOSAT satellite flood extents; a REST API
 with token sign-in and one administrator action; a Leaflet dashboard;
-a daily scheduled refresh; 159 passing tests; CI; tag `v0.2-sprint2`.
+a daily scheduled refresh; 167 passing tests; CI; tag `v0.2-sprint2`.
 
 **Honest rating (7 October):** engineering 8/10, ML evaluation rigour 8/10,
 actual predictive skill 5/10, alignment with the proposal 5/10, overall about
@@ -80,10 +80,10 @@ weakens the report, **L** = polish.
 
 | ID | Shortcoming | Sev | Fixed in |
 |---|---|---|---|
-| C-01 | `metrics.json` has `"git_commit": null` for the Colab run, because the uploaded bundle is not a git checkout | H | Phase 3 |
-| C-02 | The notebook uploads `colab_bundle.tar.gz` to the temporary runtime instead of mounting Google Drive | H | Phase 3 |
-| C-03 | No per-run folder in Drive holding the model, metrics, plots, environment and log | H | Phase 3 |
-| C-04 | No run identifier connecting an output to its code and data versions | M | Phase 3 |
+| C-01 | `metrics.json` has `"git_commit": null` for the Colab run, because the uploaded bundle is not a git checkout | H | Done: run `20261007T1204Z_e3be7cb` records commit `e3be7cb` |
+| C-02 | The notebook uploads `colab_bundle.tar.gz` to the temporary runtime instead of mounting Google Drive | H | Done in Phase 3 |
+| C-03 | No per-run folder in Drive holding the model, metrics, plots, environment and log | H | Done in Phase 3 |
+| C-04 | No run identifier connecting an output to its code and data versions | M | Done in Phase 3: the run id is in `metrics.json` and `run.json` |
 
 ### 2.3 Against the ML Fundamentals checklist ("Evidence students should prepare")
 
@@ -646,12 +646,12 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 |---|---|
 | Training set | 14,523 county-months, Jan 1996 to Sep 2021, 1,406 floods (9.68%), 13 inputs |
 | Validation | 6-fold cross-validation grouped by year, normals refitted per fold |
-| Selected model | Random Forest, model version `flood-random-forest-20261006`, seed 0, scikit-learn 1.9.1 |
+| Selected model | Random Forest, model version `flood-random-forest-20261007`, run `20261007T1204Z_e3be7cb`, commit `e3be7cb`, seed 0, scikit-learn 1.9.1 |
 | Cross-validation, pooled | ROC AUC 0.787, AP 0.254, Brier 0.0798; base rate AP 0.097; season-only AP 0.124 |
 | Lift | 2.62x base rate, 2.05x season-only (pooled); 1.47x season-only (fold mean) |
 | Warning above 10% (CV) | recall 71.7%, precision 21.5%, specificity 71.9%, F1 0.330, accuracy 71.9%, balanced accuracy 71.8% |
 | Final test 2017 to 2021 | selected Gradient Boosting (on 1996 to 2016): ROC AUC 0.801, AP 0.191; season-only AP 0.177; Logistic Regression AP 0.270 |
 | UNOSAT, counties | Nov 2023 ROC AUC 0.744; Apr 2024 0.430; both 0.616 |
 | UNOSAT, sub-counties within county | 0.461 (no better than chance) |
-| Tests | 159 passing, 6 October 2026, 594 seconds |
+| Tests | 167 passing, 7 October 2026, 686 seconds |
 | Repository | 58 commits on `develop`, 22 PRs opened, 21 merged, tag `v0.2-sprint2` (7 October 2026) |

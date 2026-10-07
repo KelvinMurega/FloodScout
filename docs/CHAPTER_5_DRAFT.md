@@ -303,19 +303,33 @@ Training wrote two files to `riskengine/ml/artifacts/`. `flood_model.joblib`
 holds the fitted pipeline, the list of inputs in order, the probability bands,
 the county rainfall normals and the two index tables, so scoring needs no
 network access. `metrics.json` holds the results reported in Section 5.7. The
-model version, `flood-random-forest-20261006`, is stored on every score the
-model produces. `metrics.json` also records the SHA-256 of the training set,
-the random seed and the scikit-learn version of the run.
+model version, `flood-random-forest-20261007`, is stored on every score the
+model produces. `metrics.json` also records the git commit of the code, the
+run identifier, the SHA-256 of the training set, the random seed and the
+scikit-learn version of the run.
 
-The saved model was trained on Google Colab on 6 October 2026. The training
-set and the training code were uploaded as one bundle and the notebook
-`notebooks/train_flood_model.ipynb` ran the same `train.py` that the
-application uses. The notebook is kept in the repository with its outputs,
-and its charts are in `docs/figures/`. Two Colab runs were made that day,
-the second after the hyperparameter search was added. The search left the
-Random Forest unchanged, so the saved model gives the same probability for
-every training record as the models of the 2 and 5 October runs made on the
-laptop with the same data and seed.
+The saved model was trained on Google Colab on 7 October 2026, in run
+`20261007T1204Z_e3be7cb` from commit `e3be7cb`. The command
+`build_colab_bundle` packed the committed code and the training set into one
+bundle, with the commit and the SHA-256 of the training set written inside
+it, and refused to run while there were uncommitted changes. The bundle was
+placed in Google Drive, and the notebook `notebooks/train_flood_model.ipynb`
+mounted the Drive, checked the training set against the recorded SHA-256 and
+ran the same `train.py` that the application uses. The run wrote its outputs
+to its own Drive folder, `FloodScout/runs/20261007T1204Z_e3be7cb/`: the
+model, `metrics.json`, the ten charts, the training log, the list of
+installed packages and `run.json`. Training took 1,040 seconds on the free
+Colab runtime (2 processor cores, Python 3.13.16; `run.json`). The notebook
+is kept in the repository with its outputs, and its charts are in
+`docs/figures/`.
+
+Two earlier Colab runs were made on 6 October, the second after the
+hyperparameter search was added. They were uploaded by hand and recorded no
+commit. The 7 October run repeated the second of them with the same data and
+seed to record the commit, and every figure in `metrics.json` came out
+identical. The search left the Random Forest unchanged, so the saved model
+gives the same probability for every training record as the models of the
+2 and 5 October runs made on the laptop with the same data and seed.
 
 ## 5.5 System Implementation
 
@@ -498,7 +512,7 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 159 tests. On 6 October 2026 all 159 passed in 594
+The suite contained 167 tests. On 7 October 2026 all 167 passed in 686
 seconds (`docker compose run --rm web python manage.py test`). Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
@@ -705,6 +719,10 @@ search and run again on 6 October with it. The second run is reported here.
 It is a second look at the test years, which weakens the test; the boundary
 and the selection procedure were not changed between the two runs. In the
 first run the selected model scored ROC AUC 0.767 and average precision 0.153.
+The 7 October retraining, made to record the commit of the run (Section
+5.4.4), scored the test years a third time with the code, data and seed
+unchanged and returned the 6 October figures exactly. No choice was made
+from it.
 
 **Table 5.19: Final test on 2017 to 2021**
 
