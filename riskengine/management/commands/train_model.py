@@ -40,6 +40,18 @@ class Command(BaseCommand):
             action="store_true",
             help="Skip the settings search and compare the models at their fixed settings.",
         )
+        parser.add_argument(
+            "--seeds",
+            type=int,
+            nargs="*",
+            default=list(train.SEEDS),
+            metavar="SEED",
+            help=(
+                "Seeds the cross-validation is repeated with, to show how much the scores "
+                f"vary (default {' '.join(map(str, train.SEEDS))}). Give none to skip. The "
+                f"saved model always uses seed {train.RANDOM_STATE}."
+            ),
+        )
 
     def handle(self, *args, **options):
         if not TRAINING_SET_PATH.exists():
@@ -59,6 +71,7 @@ class Command(BaseCommand):
             dmi,
             test_from=options["test_from"] or None,
             tune_models=not options["no_tune"],
+            seeds=tuple(options["seeds"]),
         )
         train.save(artifact, metrics)
 
@@ -125,6 +138,32 @@ class Command(BaseCommand):
                 f"  {band['band']:<10} {band['rows']:>6} rows, flood recorded in "
                 f"{'n/a' if observed is None else f'{100 * observed:.1f}%'}"
             )
+        variation = metrics["seed_variation"]
+        if variation:
+            self.stdout.write("")
+            self.stdout.write(
+                f"Average precision over seeds {variation['seeds']}, mean (standard deviation):"
+            )
+            for name in metrics["comparison"]:
+                record = variation[name]
+                if "note" in record:
+                    self.stdout.write(f"  {name:<18} {record['note']}")
+                else:
+                    spread = record["average_precision"]
+                    self.stdout.write(f"  {name:<18} {spread['mean']:.4f} ({spread['sd']})")
+        self.stdout.write("")
+        self.stdout.write("Average precision by share of the training years used:")
+        for point in metrics["learning_curve"]:
+            self.stdout.write(
+                f"  {100 * point['fraction']:>3.0f}%  {point['average_precision_mean']} "
+                f"({point['average_precision_sd']})"
+            )
+        compute = metrics["compute"]
+        self.stdout.write("")
+        self.stdout.write(
+            f"Computing: {compute['cores']} cores, {compute['cpu']}; cross-validation "
+            f"{compute['seconds_cross_validation']} s, final fit {compute['seconds_final_fit']} s"
+        )
         test = metrics["final_test"]
         if test:
             first, last = test["test_years"]
