@@ -6,8 +6,11 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import io
 import json
 import math
+import subprocess
+import tarfile
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -170,7 +173,8 @@ class TrainingTests(SimpleTestCase):
     def test_git_commit_follows_a_branch_ref_and_is_none_outside_a_checkout(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            self.assertIsNone(train.git_commit(root))
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+                self.assertIsNone(train.git_commit(root))
             (root / ".git" / "refs" / "heads").mkdir(parents=True)
             (root / ".git" / "HEAD").write_text("ref: refs/heads/topic\n")
             (root / ".git" / "refs" / "heads" / "topic").write_text("abc123\n")
@@ -178,6 +182,35 @@ class TrainingTests(SimpleTestCase):
             (root / ".git" / "refs" / "heads" / "topic").unlink()
             (root / ".git" / "packed-refs").write_text("# pack-refs\ndef456 refs/heads/topic\n")
             self.assertEqual(train.git_commit(root), "def456")
+
+    def test_git_commit_falls_back_to_the_environment_variable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: " fromenv1 \n"}):
+                self.assertEqual(train.git_commit(Path(folder)), "fromenv1")
+
+    def test_git_commit_falls_back_to_the_commit_file_in_the_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+                (root / train.COMMIT_FILE).write_text("fromfile2\n")
+                self.assertEqual(train.git_commit(root), "fromfile2")
+                (root / train.COMMIT_FILE).write_text("\n")
+                self.assertIsNone(train.git_commit(root))
+
+    def test_a_real_checkout_wins_over_the_variable_and_the_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".git").mkdir()
+            (root / ".git" / "HEAD").write_text("checkout3\n")
+            (root / train.COMMIT_FILE).write_text("fromfile2\n")
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: "fromenv1"}):
+                self.assertEqual(train.git_commit(root), "checkout3")
+
+    def test_provenance_records_the_run_id_when_one_is_set(self):
+        with mock.patch.dict("os.environ", {train.RUN_ID_ENV: "20261007T1200Z_abc1234"}):
+            self.assertEqual(train.provenance(self.path)["run_id"], "20261007T1200Z_abc1234")
+        with mock.patch.dict("os.environ", {train.RUN_ID_ENV: ""}):
+            self.assertIsNone(train.provenance(self.path)["run_id"])
 
     def test_final_test_scores_only_years_the_choice_never_saw(self):
         test = self.metrics["final_test"]
@@ -600,3 +633,97 @@ class ValidateUnosatSubCountyTests(TestCase):
             self.assertEqual([path.name for path in cache.iterdir()], [f"Sigowet-Soin_{day}_{day}.json"])
         self.assertEqual(fetched, {"Sigowet/Soin": {day: 4.0}})
         self.assertEqual(again, fetched)  # read back from the cache
+
+
+class BuildColabBundleTests(SimpleTestCase):
+    """The bundle is the committed code plus the training set, tied to one commit."""
+
+    COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.training_set = self.root / "data" / "processed" / "training_set.csv"
+        self.training_set.parent.mkdir(parents=True)
+        self.training_set.write_bytes(b"date,county,flood\n2019-11-30,Wetland,1\n")
+        train.meta_path(self.training_set).write_text('{"rain_source": "test"}')
+
+    def _git(self, status=b""):
+        """Stands in for git: a clean checkout of COMMIT holding three files."""
+        code = io.BytesIO()
+        with tarfile.open(fileobj=code, mode="w") as archive:
+            for name in (
+                "riskengine/ml/train.py",
+                "riskengine/ml/artifacts/flood_model.joblib",
+                "requirements.txt",
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = 4
+                archive.addfile(info, io.BytesIO(b"code"))
+        answers = {
+            "status": status,
+            "rev-parse": self.COMMIT.encode() + b"\n",
+            "archive": code.getvalue(),
+        }
+
+        def run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, stdout=answers[command[1]], stderr=b"")
+
+        return mock.patch("subprocess.run", side_effect=run)
+
+    def test_bundle_holds_the_committed_code_the_data_and_the_commit(self):
+        from riskengine.management.commands.build_colab_bundle import build_bundle
+
+        with self._git() as git:
+            path, commit = build_bundle(self.root, self.training_set, self.root / "out")
+
+        self.assertEqual(commit, self.COMMIT)
+        self.assertEqual(path.name, "colab_bundle_0123456.tar.gz")
+        archive_call = git.call_args_list[-1].args[0]
+        self.assertEqual(archive_call[:4], ["git", "archive", "--format=tar", "HEAD"])
+        with tarfile.open(path) as bundle:
+            names = set(bundle.getnames())
+            recorded = bundle.extractfile("COMMIT").read().decode().strip()
+            digest = bundle.extractfile("DATASET_SHA256").read().decode().strip()
+            data = bundle.extractfile("data/processed/training_set.csv").read()
+        self.assertEqual(
+            names,
+            {
+                "riskengine/ml/train.py",
+                "requirements.txt",
+                "data/processed/training_set.csv",
+                "data/processed/training_set.meta.json",
+                "COMMIT",
+                "DATASET_SHA256",
+            },
+        )
+        self.assertEqual(recorded, self.COMMIT)
+        self.assertEqual(data, self.training_set.read_bytes())
+        self.assertEqual(digest, hashlib.sha256(data).hexdigest())
+
+    def test_unpacked_bundle_reports_its_commit(self):
+        from riskengine.management.commands.build_colab_bundle import build_bundle
+
+        with self._git():
+            path, _ = build_bundle(self.root, self.training_set, self.root / "out")
+        unpacked = self.root / "unpacked"
+        with tarfile.open(path) as bundle:
+            bundle.extractall(unpacked, filter="data")
+        with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+            self.assertEqual(train.git_commit(unpacked), self.COMMIT)
+
+    def test_uncommitted_changes_stop_the_bundle(self):
+        from riskengine.management.commands.build_colab_bundle import BundleError, build_bundle
+
+        with self._git(status=b" M riskengine/ml/train.py\n"):
+            with self.assertRaisesRegex(BundleError, "uncommitted changes"):
+                build_bundle(self.root, self.training_set, self.root / "out")
+        self.assertFalse((self.root / "out").exists())
+
+    def test_a_missing_training_set_stops_the_bundle(self):
+        from riskengine.management.commands.build_colab_bundle import BundleError, build_bundle
+
+        self.training_set.unlink()
+        with self._git(), self.assertRaisesRegex(BundleError, "build_training_set"):
+            build_bundle(self.root, self.training_set, self.root / "out")
