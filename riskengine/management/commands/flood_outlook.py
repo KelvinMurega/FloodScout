@@ -22,22 +22,29 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from geodata.management.commands.seed_terrain import representative_point
 from geodata.models import Region
-from geodata.services.climate_indices import ClimateIndexError, fetch_oni, oni_for
+from geodata.services.climate_indices import ClimateIndexError, fetch_dmi, fetch_oni, oni_for
 from geodata.services.open_meteo import (
     OpenMeteoError,
     fetch_daily_rainfall,
     fetch_seasonal_rainfall,
 )
-from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, feature_row
-from riskengine.ml.infer import classify, flood_probabilities, load_model, model_thresholds
+from geodata.services.sampling import mean_series, rain_sample_points
+from riskengine.ml.features import HISTORY_DAYS
+from riskengine.ml.infer import (
+    classify,
+    flood_probabilities,
+    load_model,
+    model_features,
+    model_thresholds,
+    rain_points,
+    region_row,
+)
 from riskengine.models import RiskOutlook, RiskScore
 
 from .build_training_set import DATA_DIR, month_ends
 
 DEFAULT_MONTHS = 3
-RATIO_INDEX = FEATURE_NAMES.index("rain_30d_ratio")
 
 
 class Command(BaseCommand):
@@ -66,6 +73,7 @@ class Command(BaseCommand):
 
         regions = list(
             Region.objects.filter(level=options["level"])
+            .select_related("parent")
             .prefetch_related("geospatial_features")
             .order_by("county_name", "name")
         )
@@ -79,7 +87,9 @@ class Command(BaseCommand):
             1,
         )
         ends = month_ends(today.replace(day=1), last_month)
-        points = [representative_point(region) for region in regions]
+        # Measured the way the model was trained: one point or an average.
+        samples = [rain_sample_points(region, rain_points(model)) for region in regions]
+        points = [point for region_points in samples for point in region_points]
 
         self.stdout.write(
             f"Outlook for {len(regions)} regions, {ends[0]:%B %Y} to {ends[-1]:%B %Y} "
@@ -89,8 +99,13 @@ class Command(BaseCommand):
             observed = fetch_daily_rainfall(points, past_days=HISTORY_DAYS + 1)
             forecast = fetch_seasonal_rainfall(points, (ends[-1] - today).days + 1)
             oni = fetch_oni()
+            dmi = fetch_dmi()
         except (OpenMeteoError, ClimateIndexError) as exc:
             raise CommandError(str(exc)) from exc
+        # Today's indices are carried forward into the forecast months.
+        model = {**model, "oni": oni, "dmi": dmi}
+        observed, forecast = _per_region(samples, observed, forecast)
+        ratio_index = model_features(model).index("rain_30d_ratio")
 
         # One row per region, month and ensemble member, scored in one call.
         keys = []
@@ -100,20 +115,12 @@ class Command(BaseCommand):
             for end in ends:
                 for member in members:
                     keys.append((region, end))
-                    rows.append(
-                        feature_row(
-                            # Forecast days win where the two overlap (today).
-                            {**past, **member},
-                            end,
-                            normal_30d=model["normals"].get(region.county_name, {}).get(end.month),
-                            oni=oni_for(end, oni),
-                            terrain=terrain,
-                        )
-                    )
+                    # Forecast days win where the two overlap (today).
+                    rows.append(region_row(model, region, {**past, **member}, end, terrain))
 
         by_key: dict = {}
         for key, row, probability in zip(keys, rows, flood_probabilities(model, rows)):
-            by_key.setdefault(key, []).append((probability, row[RATIO_INDEX]))
+            by_key.setdefault(key, []).append((probability, row[ratio_index]))
 
         thresholds = model_thresholds(model)
         results = []
@@ -188,3 +195,21 @@ class Command(BaseCommand):
                 )
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(f"Wrote {len(results)} rows to {path}"))
+
+
+def _per_region(samples, observed, forecast):
+    """Average the per-point series back to one per region.
+
+    Observed rainfall is one series per point; the forecast is one list of
+    ensemble members per point, and member k at every point is the same
+    forecast run, so members are averaged index by index.
+    """
+    region_observed, region_forecast, start = [], [], 0
+    for region_points in samples:
+        stop = start + len(region_points)
+        region_observed.append(mean_series(observed[start:stop]))
+        members = forecast[start:stop]
+        count = min(len(m) for m in members)
+        region_forecast.append([mean_series([m[k] for m in members]) for k in range(count)])
+        start = stop
+    return region_observed, region_forecast

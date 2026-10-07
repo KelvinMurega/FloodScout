@@ -18,7 +18,9 @@ class User(AbstractUser):
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.END_USER)
 
     def is_administrator(self) -> bool:
-        return self.role == self.Role.ADMINISTRATOR
+        # A Django superuser (`createsuperuser`) counts as well, so the first
+        # account on a new install can administer without a role edit.
+        return self.is_superuser or self.role == self.Role.ADMINISTRATOR
 
     def __str__(self) -> str:
         return self.username

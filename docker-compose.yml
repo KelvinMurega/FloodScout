@@ -22,8 +22,28 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - .:/app
+      # Earth Engine credential from `earthengine authenticate`, kept out of git.
+      - ./.secrets/earthengine:/root/.config/earthengine
     ports:
-      - "8000:8000"
+      # Host port is configurable: 8000 is often already taken (on Windows a
+      # vendor service frequently squats on it), and a bind clash leaves the
+      # container stuck in "created" with no obvious error. Set WEB_PORT in
+      # .env to move it; the container always listens on 8000 internally.
+      - "${WEB_PORT:-8000}:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Keeps the dashboard current: fetches the latest rainfall and rescores
+  # every region when it starts and once a day after that.
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: python manage.py refresh_scores --every-hours 24
+    volumes:
+      - .:/app
     env_file:
       - .env
     depends_on:

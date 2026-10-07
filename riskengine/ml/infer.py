@@ -35,14 +35,15 @@ result, in the database or in the API.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import joblib
 import numpy as np
 from django.db.models import Sum
 
-from geodata.services.climate_indices import oni_for
-from riskengine.ml.features import HISTORY_DAYS, feature_row
+from geodata.services.climate_indices import dmi_for, oni_for
+from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, feature_row
 from riskengine.models import RiskScore
 
 HEURISTIC_VERSION = "heuristic-stub-v0"
@@ -63,6 +64,36 @@ _MODEL = load_model()
 
 # Stored on every RiskScore row.
 MODEL_VERSION = _MODEL["version"] if _MODEL else HEURISTIC_VERSION
+
+# Written next to the model by the same training run.
+METRICS_PATH = ARTIFACT_PATH.with_name("metrics.json")
+
+
+def usual_chance(path: Path = METRICS_PATH) -> float | None:
+    """The share of training county-months with a recorded flood, about 0.10.
+
+    None when there is no trained model: the heuristic's value is not a
+    probability, so there is nothing to compare it with.
+    """
+    if _MODEL is None or not path.exists():
+        return None
+    return json.loads(path.read_text()).get("base_rate")
+
+
+USUAL_CHANCE = usual_chance()
+
+
+def times_usual(probability: float | None, usual: float | None = USUAL_CHANCE) -> float | None:
+    """A flood probability as a multiple of the usual chance.
+
+    This is what the dashboard shows. On the 2017 to 2021 final test the
+    model ordered regions correctly but its probabilities ran about twice
+    too high, so "three times the usual chance" is a claim the evidence
+    supports and "31%" is not.
+    """
+    if probability is None or not usual:
+        return None
+    return round(probability / usual, 1)
 
 # --- The rule of thumb, in full ------------------------------------------
 
@@ -129,6 +160,39 @@ def model_thresholds(model: dict) -> tuple[tuple[float, str], ...]:
     return tuple(zip(model["probability_bands"], categories))
 
 
+def model_features(model: dict) -> list[str]:
+    """The inputs `model` was trained on, in its column order."""
+    return list(model.get("features", FEATURE_NAMES))
+
+
+def rain_points(model: dict | None = None) -> int:
+    """How many points per region rainfall is averaged over for `model`.
+
+    One for a model trained on point rainfall (and when there is no model),
+    more for one trained on county-mean rainfall. See
+    geodata/services/sampling.py.
+    """
+    model = _MODEL if model is None else model
+    return int(model.get("rain_points", 1)) if model else 1
+
+
+def region_row(model: dict, region, rain, date: dt.date, terrain=None) -> list[float]:
+    """The model input row for `region` over the 30 days ending on `date`."""
+    county = region.parent if region.parent_id else region
+    return feature_row(
+        rain,
+        date,
+        # A sub-county is measured against its county's normal rainfall,
+        # and its county's area, the scale the model was trained on.
+        normal_30d=model["normals"].get(region.county_name, {}).get(date.month),
+        oni=oni_for(date, model["oni"]),
+        dmi=dmi_for(date, model.get("dmi", {})),
+        area_km2=county.area_size,
+        terrain=terrain,
+        names=model_features(model),
+    )
+
+
 def flood_probabilities(model: dict, rows: list[list[float]]) -> list[float]:
     """Flood probability for each feature row (see riskengine/ml/features.py)."""
     return [float(p) for p in model["pipeline"].predict_proba(np.array(rows, dtype=float))[:, 1]]
@@ -142,14 +206,7 @@ def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
         ).values_list("record_date", "rainfall_intensity")
     )
     terrain = region.geospatial_features.order_by("-pk").first()
-    row = feature_row(
-        rain,
-        date,
-        # A sub-county is measured against its county's normal rainfall.
-        normal_30d=model["normals"].get(region.county_name, {}).get(date.month),
-        oni=oni_for(date, model["oni"]),
-        terrain=terrain,
-    )
+    row = region_row(model, region, rain, date, terrain)
     predicted_value = round(flood_probabilities(model, [row])[0], 4)
     return predicted_value, classify(predicted_value, model_thresholds(model))
 

@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from accounts.views import ObtainTokenView, RevokeTokenView
 from geodata.views import (
     EnvironmentalDataViewSet,
     FocusRegionViewSet,
@@ -21,5 +22,7 @@ router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),
+    path("auth/token/", ObtainTokenView.as_view(), name="auth-token"),
+    path("auth/logout/", RevokeTokenView.as_view(), name="auth-logout"),
     path("", include(router.urls)),
 ]

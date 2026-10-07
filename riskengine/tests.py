@@ -3,20 +3,22 @@ command, and the per-region latest-score endpoint.
 """
 
 import datetime as dt
+import json
 from io import StringIO
 from unittest import mock
 
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.test import TestCase
 
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
-from riskengine.management.commands.score_regions import start_of_day
 from geodata.services.climate_indices import oni_for, parse_oni
+from riskengine.management.commands.score_regions import start_of_day
 from riskengine.ml import train
 from riskengine.ml.features import (
     FEATURE_NAMES,
@@ -25,11 +27,14 @@ from riskengine.ml.features import (
     rainfall_features,
 )
 from riskengine.ml.infer import (
+    METRICS_PATH,
     MODEL_VERSION,
     NEUTRAL_COMPONENT,
     RAINFALL_SATURATION_MM,
     infer,
     model_infer,
+    times_usual,
+    usual_chance,
 )
 
 from .models import RiskOutlook, RiskScore
@@ -523,3 +528,58 @@ class RiskOutlookAPITests(APITestCase):
         response = self.client.get(reverse("risk-outlook-list"), {"month": "November"})
 
         self.assertEqual(response.status_code, 400)
+
+
+class RefreshScoresCommandTests(TestCase):
+    COMMANDS = "riskengine.management.commands.refresh_scores"
+
+    def test_fetches_rainfall_then_scores(self):
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual([call.args[0] for call in run.call_args_list], ["seed_rainfall", "score_regions"])
+
+    def test_a_failed_fetch_stops_a_single_run(self):
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):
+            with self.assertRaises(CommandError):
+                call_command("refresh_scores", stdout=StringIO())
+
+    def test_on_a_schedule_a_failed_run_is_reported_and_the_next_one_still_happens(self):
+        class Stop(Exception):
+            pass
+
+        stderr = StringIO()
+        with mock.patch(
+            f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")
+        ) as run, mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, Stop]) as sleep:
+            with self.assertRaises(Stop):
+                call_command("refresh_scores", "--every-hours", "24", stdout=StringIO(), stderr=stderr)
+        self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
+        sleep.assert_called_with(24 * 3600)
+        self.assertIn("no network", stderr.getvalue())
+
+    def test_the_interval_must_be_positive(self):
+        with self.assertRaises(CommandError):
+            call_command("refresh_scores", "--every-hours", "0", stdout=StringIO())
+
+
+class TimesUsualTests(APITestCase):
+    def test_a_probability_is_a_multiple_of_the_usual_chance(self):
+        self.assertEqual(times_usual(0.30, usual=0.10), 3.0)
+        self.assertEqual(times_usual(0.02, usual=0.0968), 0.2)
+
+    def test_nothing_to_compare_with_gives_none(self):
+        self.assertIsNone(times_usual(0.30, usual=None))
+        self.assertIsNone(times_usual(None, usual=0.10))
+
+    def test_the_usual_chance_is_the_trained_base_rate(self):
+        # The shipped model and its metrics.json are in the repository.
+        self.assertEqual(usual_chance(), json.loads(METRICS_PATH.read_text())["base_rate"])
+
+    def test_scores_carry_the_multiple_in_the_api(self):
+        region = make_region("Alpha")
+        RiskScore.objects.create(
+            region=region, predicted_value=0.29, risk_category=RiskScore.RiskCategory.VERY_HIGH
+        )
+        response = self.client.get(f"/api/risk-scores/latest/?region={region.id}")
+        self.assertEqual(response.data["times_usual"], times_usual(0.29))
+        self.assertGreater(response.data["times_usual"], 2.5)

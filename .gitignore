@@ -44,7 +44,9 @@ data/external/*
 # Google Drive sync staging (this repo lives in a synced folder)
 .tmp.driveupload/
 
-# Local git worktrees used for the branch-per-feature workflow
 # Local git worktrees used for the branch-per-feature workflow (each is a
 # full checkout of another branch inside this repo folder) — never committed.
 .worktrees/
+
+# Local credentials (Earth Engine token, mounted into the web container).
+.secrets/

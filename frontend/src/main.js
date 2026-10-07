@@ -30,6 +30,7 @@ import {
   fetchOutlookMonths,
   fetchRegions,
 } from "./api.js";
+import { initAuth } from "./auth.js";
 import {
   CATEGORY_ORDER,
   advisoryFor,
@@ -55,6 +56,10 @@ const LABEL_CHAR_PX = 6.2;
 // Outline for sub-counties where relocation is advised: a second, non-colour
 // cue alongside the fill, so the areas stand out to colour-blind readers too.
 const RELOCATE_DASH = "5 4";
+
+// Scores older than this are flagged on screen. The scheduler refreshes
+// them daily, so two days means a refresh was missed.
+const STALE_AFTER_DAYS = 2;
 
 const els = {
   status: document.getElementById("status"),
@@ -147,8 +152,15 @@ function swatch(category) {
   return span;
 }
 
-function formatPercent(value) {
-  return typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "—";
+/**
+ * A score as a multiple of the usual chance of a large flood. The model
+ * ranks regions reliably but its probabilities run high, so the multiple is
+ * shown and the percentage is not.
+ */
+function formatTimesUsual(times) {
+  if (typeof times !== "number") return "—";
+  if (times >= 0.9 && times <= 1.1) return "About the usual chance";
+  return `About ${times.toFixed(1)} times the usual chance`;
 }
 
 function formatMonth(isoDate) {
@@ -247,16 +259,21 @@ function updateLabelVisibility() {
 
 let refit = null;
 
-/** Fit `bounds` to the panel and stop the view wandering away from it. */
+/** How far the map can be dragged past the fitted view, as a share of it. */
+const PAN_MARGIN = 0.5;
+
+/** Fit `bounds` to the panel and stop the view wandering far away from it. */
 function lockTo(bounds) {
-  map.setMaxBounds(null);
   map.setMinZoom(0);
   refit = () => {
+    map.setMaxBounds(null);
     map.setMinZoom(map.getBoundsZoom(bounds, false, L.point(16, 16)));
     map.fitBounds(bounds, { padding: [16, 16], animate: false });
+    // The limit is measured from the fitted view, not from `bounds`: a limit
+    // smaller than the view pins the map in place and it cannot be dragged.
+    map.setMaxBounds(map.getBounds().pad(PAN_MARGIN));
   };
   refit();
-  map.setMaxBounds(bounds.pad(0.12));
   map.options.maxBoundsViscosity = 1;
 }
 
@@ -385,6 +402,8 @@ function renderProvenance(scores) {
   }
 
   const looksLikePlaceholder = versions.every((v) => /stub|heuristic|placeholder/i.test(v));
+  // The newest date any score on screen is for: what "current" means here.
+  const latest = scores.map((s) => s.prediction_date).filter(Boolean).sort().at(-1);
   els.provenance.hidden = false;
   els.provenance.replaceChildren();
 
@@ -404,8 +423,19 @@ function renderProvenance(scores) {
       " — a documented placeholder, not a trained model. Not for operational use.",
     );
   } else {
-    els.provenance.append("Scores produced by ", label, ".");
+    els.provenance.append(`Scores for ${formatDate(latest)}, produced by `, label, ".");
+    const age = daysSince(latest);
+    if (age > STALE_AFTER_DAYS) {
+      els.provenance.append(` These are ${age} days old: the daily refresh has not run.`);
+    }
   }
+}
+
+/** Whole days from an ISO date to now; 0 when the date is missing or ahead. */
+function daysSince(isoString) {
+  const then = new Date(isoString).valueOf();
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / 86_400_000));
 }
 
 function renderRegionBar() {
@@ -620,10 +650,12 @@ function renderDetail(regionId) {
   } else if (isOutlook()) {
     entries = [
       ...(isRegionView() ? [["County", score.county_name]] : []),
-      ["Chance of a large flood", formatPercent(score.predicted_value)],
+      ["Chance of a large flood", formatTimesUsual(score.times_usual)],
       [
         "Range across forecasts",
-        `${formatPercent(score.probability_low)} to ${formatPercent(score.probability_high)}`,
+        typeof score.times_usual_low === "number" && typeof score.times_usual_high === "number"
+          ? `${score.times_usual_low.toFixed(1)} to ${score.times_usual_high.toFixed(1)} times usual`
+          : "—",
       ],
       [
         "Forecast rain",
@@ -638,7 +670,11 @@ function renderDetail(regionId) {
     entries = [
         ...(isRegionView() ? [["County", score.county_name]] : []),
         ...(isRegionView() ? [["Advisory", advisoryFor(score.relocation_advisory)]] : []),
-        ["Predicted value", formatValue(score.predicted_value)],
+        // A placeholder score has no usual chance to compare with.
+        ...(typeof score.times_usual === "number"
+          ? [["Chance of a large flood", formatTimesUsual(score.times_usual)]]
+          : []),
+        ["Model output", formatValue(score.predicted_value)],
         ["Prediction date", formatDate(score.prediction_date)],
         ["Model version", score.model_version ?? "—"],
     ];
@@ -915,6 +951,17 @@ async function route() {
 }
 
 async function load() {
+  // Before the data, so an administrator can still sign in and rescore when
+  // there are no scores to show yet.
+  initAuth(document.getElementById("auth"), {
+    // Scores are cached per view; drop them so the redraw fetches the new ones.
+    onRescored: () => {
+      state.countyCache.clear();
+      state.regionCache.clear();
+      return route();
+    },
+  });
+
   try {
     setStatus("Loading counties and risk scores…");
 

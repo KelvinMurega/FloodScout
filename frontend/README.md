@@ -1,7 +1,15 @@
 # FloodScout dashboard (Client Tier)
 
-A read-only Leaflet map of current flood risk across Kenya's 47 counties and,
-in five flood-prone regions, their sub-counties. No login, no writes — it renders what the API returns and nothing else.
+A Leaflet map of current flood risk across Kenya's 47 counties and, in five
+flood-prone regions, their sub-counties. It needs no account: it renders what
+the API returns and nothing else.
+
+The header has one extra for the System Administrator: **Administrator sign
+in**, then **Rescore now**, which scores every region again from the rainfall
+already stored (about a minute). The token is kept in memory only
+(`src/api.js`), so closing the tab signs out. The buttons are a convenience;
+the API checks the role on every request. An End User can sign in too, and
+sees no Rescore button.
 
 ## Why Vite and not a Django template
 
@@ -56,6 +64,12 @@ gitignored).
 
 > If you change the dev server's port, change `CORS_ALLOWED_ORIGINS` in
 > `floodscout/settings.py` to match, or the browser will block every request.
+
+> `VITE_API_BASE_URL` must also match `WEB_PORT` in the project's root `.env`,
+> which is the host port docker-compose publishes the API on. These drift apart
+> easily. The symptom is the banner *"Could not reach
+> http://localhost:PORT/api/regions/. Is the API running?"* — it names the port
+> it tried, so compare that against `docker compose ps`.
 
 ## What it draws
 
