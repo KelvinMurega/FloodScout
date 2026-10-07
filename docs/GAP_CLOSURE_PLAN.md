@@ -12,16 +12,18 @@ This supersedes the "Immediate next actions" list in
 
 ## Summary
 
-| Phase | Closes | Effort | Needs from Kelvin |
+Status as of 7 October 2026.
+
+| Phase | Closes | Status | Still needs from Kelvin |
 |---|---|---|---|
-| 0. Repository clean-up | Stale PRs, `develop` behind `main`, uncommitted model, stale READMEs | half a day | Decision on PR #9 |
-| 1. Evaluation evidence in code | Per-fold and error figures have no committed source; outlook from old model | 1 day | — |
-| 2. Independent test | No held-out test set | 1 to 2 days | Download the UNOSAT products |
-| 3. Chapter 3 promises | No hyperparameter search, no explainability, no error breakdown | 1 to 2 days | Supervisor's view on SHAP |
-| 4. Access control | No login, no administrator function | 2 days | — |
-| 5. CI and repository evidence | No CI, licence, tags or task record | half a day | Licence choice |
-| 6. Deployment and user testing | Local only; no performance, security or user evidence | 3 days plus testers | Hosting choice, 3 to 5 testers |
-| 7. Report | Chapter 4 diagrams, Chapter 5 placeholders, AI example | 1 to 2 days | Mostly Kelvin's own work |
+| 0. Repository clean-up | Stale PRs, `develop` behind `main`, uncommitted model, stale READMEs | Done, except PR #9 | Decision on PR #9 |
+| 1. Evaluation evidence in code | Per-fold and error figures have no committed source; outlook from old model | Done (#13) | — |
+| 2. Independent test | No held-out test set | Done (#14, #15, #18) | — |
+| 3. Chapter 3 promises | No hyperparameter search, no explainability, no error breakdown | Code done (#17); the report text is open | Supervisor's view on SHAP; the deviation text in Chapters 3 and 5 |
+| 4. Access control | No login, no administrator function | Done (#22) | — |
+| 5. CI and repository evidence | No CI, licence, tags or task record | CI done (#21); licence, issues, tag and supervisor access open | Licence choice |
+| 6. Deployment and user testing | Local only; no performance, security or user evidence | Not started | Hosting choice, 3 to 5 testers |
+| 7. Report | Chapter 4 diagrams, Chapter 5 placeholders, AI example | Open | Mostly Kelvin's own work |
 
 Phases 0 to 2 matter most for the Sprint II review. Phase 6 is Sprint III.
 
@@ -42,7 +44,9 @@ State on 5 October: `develop` is 10 commits behind `main` and has nothing
    Nothing uses the module today. Merge it if the Sentinel-1 label work is
    still planned; otherwise close it with that reason.
 4. Set `develop` as the default branch on GitHub so new PRs target it.
-5. On `feat/model-accuracy-improvements`:
+   *Done.*
+5. On `feat/model-accuracy-improvements` (*done 5 October*, pull request
+   #12):
    - commit the retrained `flood_model.joblib` and `metrics.json`;
    - review and commit, or discard, the three uncommitted frontend files;
    - update the results table in `riskengine/ml/README.md` and the
@@ -50,7 +54,7 @@ State on 5 October: `develop` is 10 commits behind `main` and has nothing
      still describe the 1 October logistic regression;
    - open the PR into `develop`.
 6. Delete `docs/REPO_STATE.md`, which describes 20 September, and point
-   `IMPLEMENTATION_PLAN.md` at this file.
+   `IMPLEMENTATION_PLAN.md` at this file. *Done 5 October.*
 
 **Done when:** no open PR is older than the work in progress, `develop`
 contains everything in `main`, `git status` is clean, and both READMEs name
@@ -78,6 +82,9 @@ brief asks for each result to be traceable to its code and data version.
 4. Rerun `score_regions`, then `flood_outlook` for both levels, so the stored
    outlook comes from the same model as the scores.
 5. Add the per-fold table to `notebooks/train_flood_model.ipynb`.
+
+*Done 5 October* (pull request #13). The per-fold table reached the notebook
+with the Colab run (#16).
 
 **Done when:** every number in Chapter 5 Section 5.7 can be read from
 `metrics.json`, and `RiskOutlook.model_version` equals
@@ -155,6 +162,13 @@ Branch: `feat/model-tuning-and-explanation`. Depends on Phase 2a.
 4. **Deviation from the proposal.** No code. Chapters 3 and 5 must state that
    ERA5, Copernicus DEM and the flood archive replaced CHIRPS, SRTM and
    Sentinel-1 labels, and why.
+
+*Items 1 to 3 done 6 October* (pull request #17). The search confirmed the
+fixed settings for the Random Forest and the Logistic Regression and changed
+Gradient Boosting's, which did not change the selected model. Permutation
+importance was used and SHAP was not; whether that is accepted is still a
+question for the supervisor. The cloud follow-up from Phase 2b was not done.
+Item 4 is open and is Kelvin's own writing.
 
 **Done when:** each method named in Chapter 3 Section 3.2 was either carried
 out or has a stated, defensible reason for its replacement.
@@ -250,7 +264,8 @@ No branch; this is Kelvin's own writing, done alongside the phases above.
 2. **Chapter 5 draft.** Fill every item in square brackets: objectives,
    requirement identifiers, screenshots (Figures 5.1 to 5.5), sample rows,
    browser version. Replace Section 5.7 figures after Phases 1 to 3.
-3. **AI use.** Bring `AI_USE_LOG.md` up to date and choose one example of an
+3. **AI use.** `AI_USE_LOG.md` is kept with the proposal, not in this
+   repository. Bring it up to date and choose one example of an
    AI suggestion that was checked, with what was accepted or rejected and
    why. The drainage inputs are a candidate.
 4. **Sprint task list.** Keep the summary table at the top of this file
