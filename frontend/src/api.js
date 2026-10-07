@@ -34,6 +34,52 @@ async function getJson(url) {
   return response.json();
 }
 
+// The administrator's token. Held in memory only, never in localStorage or a
+// cookie, so it is gone when the tab closes and a script injected into the
+// page later cannot read it from storage.
+let authToken = null;
+
+async function postJson(path, body = {}) {
+  const url = `${API_BASE_URL}/${path}`;
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers.Authorization = `Token ${authToken}`;
+
+  let response;
+  try {
+    response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  } catch (cause) {
+    throw new Error(`Could not reach ${url}. Is the API running?`, { cause });
+  }
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(data?.detail || `${url} returned ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+/** Sign in. Resolves to { username, role, is_administrator }; keeps the token here. */
+export async function signIn(username, password) {
+  const { token, ...user } = await postJson("auth/token/", { username, password });
+  authToken = token;
+  return user;
+}
+
+/** Sign out: forget the token, and ask the API to delete it. */
+export async function signOut() {
+  try {
+    if (authToken) await postJson("auth/logout/");
+  } finally {
+    authToken = null;
+  }
+}
+
+/** Administrator only: score every region again for today. */
+export function rescore() {
+  return postJson("risk-scores/rescore/");
+}
+
 function withParams(path, params = {}) {
   const query = new URLSearchParams(
     Object.entries(params).filter(([, value]) => value !== undefined && value !== null),

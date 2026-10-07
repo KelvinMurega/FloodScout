@@ -145,6 +145,78 @@ body {
 
 /* --- Region bar -------------------------------------------------------- */
 
+/* Administrator sign-in. Quiet by default: most visitors never use it. */
+.auth,
+.auth__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.auth__button,
+.auth__input {
+  padding: 5px 12px;
+  border: 1px solid var(--border-ring);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.auth__button {
+  cursor: pointer;
+}
+
+.auth__button:hover {
+  color: var(--text-primary);
+  background: var(--surface-page);
+}
+
+.auth__button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface-1);
+  font-weight: 600;
+}
+
+.auth__button--primary:hover {
+  background: var(--accent);
+  color: var(--surface-1);
+  opacity: 0.85;
+}
+
+.auth__button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.auth__input {
+  width: 15ch;
+  color: var(--text-primary);
+  background: var(--surface-page);
+}
+
+.auth__button:focus-visible,
+.auth__input:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
+}
+
+.auth__message {
+  margin: 0;
+}
+
+.auth__message:empty {
+  display: none;
+}
+
 .region-bar {
   display: flex;
   gap: 6px;

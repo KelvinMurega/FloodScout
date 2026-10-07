@@ -1,7 +1,15 @@
 # FloodScout dashboard (Client Tier)
 
-A read-only Leaflet map of current flood risk across Kenya's 47 counties and,
-in five flood-prone regions, their sub-counties. No login, no writes — it renders what the API returns and nothing else.
+A Leaflet map of current flood risk across Kenya's 47 counties and, in five
+flood-prone regions, their sub-counties. It needs no account: it renders what
+the API returns and nothing else.
+
+The header has one extra for the System Administrator: **Administrator sign
+in**, then **Rescore now**, which scores every region again from the rainfall
+already stored (about a minute). The token is kept in memory only
+(`src/api.js`), so closing the tab signs out. The buttons are a convenience;
+the API checks the role on every request. An End User can sign in too, and
+sees no Rescore button.
 
 ## Why Vite and not a Django template
 

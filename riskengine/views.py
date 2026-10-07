@@ -2,16 +2,18 @@ import datetime as dt
 
 from django.db.models import Max
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from accounts.permissions import IsAdministrator
 from geodata.filters import filter_by_region_params
 from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
 from .models import RiskOutlook, RiskScore
+from .scoring import NoRegionsError, score_regions
 from .serializers import RiskOutlookSerializer, RiskScoreSerializer
 
 # How close two regions' boundaries must come to count as neighbours, in
@@ -31,7 +33,8 @@ def latest_per_region(queryset):
 
 
 class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only RiskScore endpoint (FR-03/FR-04, IR-01).
+    """RiskScore endpoint (FR-03/FR-04, IR-01). Read-only, except `rescore/`,
+    which only a System Administrator may call.
 
     Supports `?region=<id>` filtering on the list endpoint, and a
     `latest/?region=<id>` action for "what's the current risk here"
@@ -111,6 +114,36 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         ]
         candidates.sort(key=lambda score: (score.predicted_value, score.region.name))
         return Response(self.get_serializer(candidates, many=True).data)
+
+    @action(detail=False, methods=["post"], permission_classes=[IsAdministrator])
+    def rescore(self, request):
+        """Score every region again, as `manage.py score_regions` does.
+
+        Administrator only. `{"date": "YYYY-MM-DD"}` in the body picks the
+        date; the default is today. It scores from the rainfall already
+        stored and does not fetch new rainfall (`refresh_scores` does both).
+        """
+        raw_date = request.data.get("date")
+        target_date = None
+        if raw_date:
+            try:
+                target_date = dt.date.fromisoformat(str(raw_date))
+            except ValueError as exc:
+                raise ValidationError({"date": "Expected YYYY-MM-DD."}) from exc
+        try:
+            result = score_regions(target_date)
+        except NoRegionsError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            {
+                "date": result.date.isoformat(),
+                "model_version": result.model_version,
+                "regions": result.regions,
+                "created": result.created,
+                "updated": result.updated,
+                "categories": dict(result.categories),
+            }
+        )
 
 
 class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):

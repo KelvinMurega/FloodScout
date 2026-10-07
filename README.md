@@ -57,6 +57,11 @@ docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
 ```
 
+The superuser is also a System Administrator on the dashboard, where it can
+sign in and rescore. To make an ordinary account an administrator, set its
+**Role** in the Django admin (Users). Anyone can read the map without an
+account; `api/tests.py` tests that boundary.
+
 Then check:
 - http://localhost:8000/api/health/ → `{"status": "ok", ...}`
 - http://localhost:8000/admin/ → Django admin, log in with the superuser above

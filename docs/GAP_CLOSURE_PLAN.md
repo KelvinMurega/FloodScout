@@ -178,12 +178,21 @@ boundary is enough to demonstrate the design.
    valid and invalid credentials, anonymous request refused (401), end user
    refused (403), administrator accepted, read endpoints still open.
 
+*Done 6 October.* Also built: `POST /api/auth/logout/`, which deletes the
+token, and a limit of ten sign-in attempts a minute. A Django superuser
+counts as an administrator. Rescoring all 337 regions takes about a minute
+in one request, which is longer than a production server's default request
+timeout; settle that in Phase 6 (a longer timeout for that route, or scoring
+in batches).
+
 **Done when:** the five test cases pass and the Chapter 5 test table can
 include an authentication row.
 
 ## Phase 5 — CI and repository evidence
 
 Branch: `chore/ci-and-repo-evidence`
+
+Items 1 and 2 *done 6 October* (pull request #21). Items 3 to 6 are open.
 
 1. A GitHub Actions workflow that runs `python manage.py test` on every pull
    request into `develop` and `main`, with a `postgis/postgis:16-3.4` service
