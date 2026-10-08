@@ -13,7 +13,9 @@ lands; this file is the single source of truth for "what's next."
 > the swap from the placeholder scorer. The sprint checklists further down
 > and the "Immediate next actions" list describe the repository as it was on
 > 20 September and are kept as a record. What remains is in
-> `docs/GAP_CLOSURE_PLAN.md`, which is the current task list.
+> `docs/IMPLEMENTATION_GUIDE.md`, which has been the current task list since
+> 7 October; its "Progress" section says what is completed and what remains.
+> `docs/GAP_CLOSURE_PLAN.md` is the plan it took over from.
 
 ## Current status (as of 20 September 2026)
 

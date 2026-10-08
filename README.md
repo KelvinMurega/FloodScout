@@ -189,15 +189,19 @@ separate app rather than a Django template.
 ```bash
 docker compose run --rm web python manage.py test
 ruff check .          # pip install ruff; rules are in ruff.toml
+cd frontend && npm test    # dashboard unit tests, Node's built-in runner
 ```
 
-GitHub Actions runs both on every pull request into `develop` and `main`
+GitHub Actions runs all three, and builds the dashboard, on every pull request into `develop` and `main`
 (`.github/workflows/ci.yml`), using the same `docker-compose.yml`, so the
 check tests what runs locally.
 
 ## Status
 
-As of 7 October 2026, on `develop`:
+As of 8 October 2026. The dashboard features in the third point are built
+and tested but are in pull requests #64 to #68, not yet merged into
+`develop`; `docs/IMPLEMENTATION_GUIDE.md` lists what is merged and what is
+waiting.
 
 - **Data.** 47 counties and 290 sub-counties, with real terrain, daily
   rainfall and drainage measurements.
@@ -208,10 +212,17 @@ As of 7 October 2026, on `develop`:
 - **API and dashboard.** Risk scores for today, refreshed daily, and a
   seasonal outlook, for counties and sub-counties. Reading needs no account.
   An administrator can sign in and rescore.
-- **Checks.** Tests and lint run on every pull request.
+- **Dashboard features from Chapter 4.** Search for a place by name; the
+  scores stored for an earlier day and a 30-day history chart; a printable
+  report and a CSV export; the model inputs behind each score; rescoring
+  from the Django administration site.
+- **Checks.** Lint, the Django tests and the dashboard tests and build run
+  on every pull request.
 
-Not done yet: deployment (the system runs locally only), a performance test
-and user testing. `docs/GAP_CLOSURE_PLAN.md` is the current task list.
+Not done yet: deployment (the system runs locally only), a performance test,
+user testing, and most of the report outside Chapter 5.
+`docs/IMPLEMENTATION_GUIDE.md` is the current task list; its "Progress"
+section says what is completed and what remains.
 
 ## Licence and access
 
