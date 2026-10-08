@@ -3,6 +3,7 @@ import datetime as dt
 from django.db.models import Max
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -13,6 +14,8 @@ from geodata.filters import filter_by_region_params
 from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
+from .inputs import score_inputs
+from .ml import infer as scorer
 from .models import RiskOutlook, RiskScore
 from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskOutlookSerializer, RiskScoreSerializer
@@ -126,6 +129,32 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
             key=lambda score: (score.region.county_name, score.region.level, score.region.name),
         )
         return Response(self.get_serializer(scores, many=True).data)
+
+    @action(detail=True, methods=["get"])
+    def inputs(self, request, pk=None):
+        """The model inputs behind one stored score (wireframe 4.8).
+
+        Each input comes with what is usual for it where there is a usual,
+        and whether the value is above, below or near that. They are worked
+        out again from the stored rainfall with the model loaded now, so
+        `same_model` says whether that is the model that wrote the score.
+        A placeholder score has no model inputs and gets an empty list.
+        """
+        score = self.get_object()
+        model = scorer._MODEL
+        date = timezone.localtime(score.prediction_date).date()
+        body = {
+            "score": score.id,
+            "region": score.region_id,
+            "region_name": score.region.name,
+            "county_name": score.region.county_name,
+            "date": date.isoformat(),
+            "model_version": score.model_version,
+            "computed_with": model["version"] if model else None,
+            "same_model": bool(model) and model["version"] == score.model_version,
+            "inputs": score_inputs(model, score.region, date) if model else [],
+        }
+        return Response(body)
 
     @action(detail=False, methods=["get"], url_path="lower-risk-neighbours")
     def lower_risk_neighbours(self, request):

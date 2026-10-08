@@ -32,6 +32,7 @@ import {
   fetchRegions,
   fetchScoreDates,
   fetchScoreHistory,
+  fetchScoreInputs,
 } from "./api.js";
 import { initAuth } from "./auth.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
@@ -815,6 +816,77 @@ async function renderHistory(regionId, score, container) {
   body.replaceWith(figure);
 }
 
+const COMPARISON_LABELS = { above: "Above", below: "Below", near: "Near" };
+
+function formatInput(value, unit) {
+  if (typeof value !== "number") return "Not known";
+  const digits = unit === "km²" || unit === "m" ? 0 : unit === "mm" ? 1 : 2;
+  const number = value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  return unit ? `${number} ${unit}` : number;
+}
+
+/**
+ * What the model was given for this score (wireframe 4.8): each input, and
+ * where there is a usual value, whether this one is above or below it.
+ * Headed "inputs", never "causes", and with no confidence figure: the
+ * evaluation found the probabilities are not calibrated on later years.
+ */
+async function renderInputs(regionId, score, container) {
+  const heading = el("p", "detail__subheading", "Inputs behind this score");
+  const body = el("p", "detail__empty", "Loading the inputs…");
+  container.append(heading, body);
+
+  let result;
+  try {
+    result = await fetchScoreInputs(score.id);
+  } catch (error) {
+    console.error(error);
+    body.textContent = "Could not load the inputs.";
+    return;
+  }
+  // The user may have moved on while this was loading.
+  if (state.selectedRegionId !== regionId) return;
+
+  if (result.inputs.length === 0) {
+    body.textContent = "This score came from the placeholder rule, which has no model inputs.";
+    return;
+  }
+
+  const list = el("dl", "inputs");
+  for (const input of result.inputs) {
+    const term = el("dt", null, input.label);
+    const value = el("dd");
+    if (input.value !== null || input.unit) {
+      value.append(el("span", "inputs__value", formatInput(input.value, input.unit)));
+    }
+    const comparison = COMPARISON_LABELS[input.comparison];
+    const against = comparison
+      ? `${comparison} the usual ${formatInput(input.usual, input.unit)}`
+      : input.note;
+    if (against) value.append(el("span", "inputs__against", against));
+    // The longer explanation, where the line above is the comparison.
+    if (comparison && input.note) value.title = input.note;
+    list.append(term, value);
+  }
+
+  const note = el(
+    "p",
+    "relocation__note",
+    "What the model was given for this area and date, worked out again from the rainfall " +
+      "stored now. These are inputs, not causes: no single one explains the category." +
+      (result.same_model
+        ? ""
+        : ` This score was written by ${result.model_version}; the inputs are shown as ` +
+          `${result.computed_with} reads them.`),
+  );
+  const wrap = el("div");
+  wrap.append(list, note);
+  body.replaceWith(wrap);
+}
+
 function renderDetail(regionId) {
   const score = state.scoresByRegion.get(regionId);
   const layer = state.layersByRegion.get(regionId);
@@ -877,6 +949,8 @@ function renderDetail(regionId) {
   if (score && !isOutlook() && typeof score.times_usual === "number") {
     renderHistory(regionId, score, els.detail);
   }
+  // An outlook row is not a stored score and is driven by a forecast.
+  if (score && !isOutlook()) renderInputs(regionId, score, els.detail);
 
   if (!isRegionView()) {
     const focus = state.focusByCountyId.get(regionId);
