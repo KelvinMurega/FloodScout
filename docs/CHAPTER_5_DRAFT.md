@@ -512,6 +512,18 @@ scores for nine days between 21 September and 8 October; a score is added
 each day by the scheduler, so the chart fills as the system runs.
 [Figure 5.4b: detail panel with the 30-day history.]
 
+The view on screen can be taken away in two forms (wireframe 4.10). **Print
+report** prints the map with a table of every area in the view, highest risk
+first, under a heading that states the date of the scores and the model
+version, and ends with a note on how the categories should and should not be
+read. The controls are left out, the map is redrawn at the size of the page
+before printing, and the page is white whatever theme the screen uses.
+**Download CSV** saves the same rows as a file built in the browser, with
+the region, county, level, category, multiple of the usual chance, model
+output, date and model version. Both work for the latest scores, an earlier
+day and an outlook month.
+[Figure 5.4c: the printed report for the Lake Basin region.]
+
 [Add one screenshot of an error state, for example the dashboard when the API
 is not running.]
 
@@ -589,6 +601,8 @@ Chapter 4.]
 | TC-34 | FR-05, history | `latest-by-region` with one day as both bounds | One row per region, all for that day | Pass |
 | TC-35 | FR-05, history | `risk-scores/dates/` | Each stored day once, newest first | Pass |
 | TC-36 | FR-05, history | Chart positions for days with a gap between them | The gap is kept; the usual chance is always in range | Pass |
+| TC-37 | FR-05, export | Scores written as CSV | A header and one line per area, highest risk first | Pass |
+| TC-38 | FR-05, export | A name holding a comma or a quotation mark | Field quoted, quotation marks doubled | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 `riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and
@@ -596,7 +610,7 @@ The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 
 The dashboard's own logic that needs no browser is tested separately with
 the test runner built into Node.js (`npm test` in `frontend/`; the tests are
-the `*.test.js` files in `frontend/src/`). On 8 October 2026 all 17 of these
+the `*.test.js` files in `frontend/src/`). On 8 October 2026 all 24 of these
 tests passed. They are run on every pull request with the Django suite, and
 the same job checks that the dashboard builds.
 

@@ -217,6 +217,12 @@ body {
   display: none;
 }
 
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .region-bar {
   display: flex;
   gap: 6px;
@@ -801,6 +807,154 @@ body {
 
 .leaflet-control-attribution a {
   color: var(--text-secondary) !important;
+}
+
+/* --- Printed report ---------------------------------------------------- */
+
+/* The report section exists only on paper. */
+.report {
+  display: none;
+}
+
+/* main.js sets this class just before printing, so Leaflet can redraw the
+   map at the size it will have on the page (A4 less the margins). */
+.printing .map-wrap {
+  width: 180mm;
+  height: 150mm;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  /* Paper is white whatever theme the screen uses. */
+  :root {
+    color-scheme: light;
+    --surface-1: #ffffff;
+    --surface-page: #ffffff;
+    --text-primary: #0b0b0b;
+    --text-secondary: #333333;
+    --text-muted: #555555;
+    --hairline: #cccccc;
+    --border-ring: #999999;
+  }
+
+  html,
+  body {
+    height: auto;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .app {
+    display: block;
+    height: auto;
+  }
+
+  /* Controls have no use on paper. */
+  .region-bar,
+  .auth,
+  .report-actions,
+  .panel,
+  .status,
+  .leaflet-control-zoom {
+    display: none !important;
+  }
+
+  .app__header {
+    display: block;
+    padding: 0 0 8px;
+    border: 0;
+  }
+
+  .provenance {
+    max-height: none;
+    max-width: none;
+    margin-top: 6px;
+    overflow: visible;
+  }
+
+  .app__main {
+    display: block;
+  }
+
+  .map-wrap {
+    width: 180mm;
+    height: 150mm;
+    border: 1px solid var(--hairline);
+    break-inside: avoid;
+  }
+
+  /* The rest of Kenya around a region. Its fill was set from the screen
+     theme when it was drawn; on paper it is always the light grey. */
+  .context-shape {
+    fill: #ecebe6;
+    stroke: #ffffff;
+  }
+
+  .report {
+    display: block;
+    padding-top: 10px;
+  }
+
+  .report__title {
+    margin: 0 0 4px;
+    font-size: 15pt;
+  }
+
+  .report__meta,
+  .report__legend {
+    margin: 0 0 8px;
+    font-size: 10pt;
+    color: var(--text-secondary);
+  }
+
+  .report__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+
+  .report__count {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .report__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  /* Repeat the column headings on every page. */
+  .report__table thead {
+    display: table-header-group;
+  }
+
+  .report__table th,
+  .report__table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--hairline);
+    text-align: left;
+  }
+
+  .report__table tr {
+    break-inside: avoid;
+  }
+
+  .report__note {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-ring);
+    font-size: 9.5pt;
+    line-height: 1.45;
+    break-inside: avoid;
+  }
 }
 
 @media (max-width: 860px) {

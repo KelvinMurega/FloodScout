@@ -35,6 +35,7 @@ import {
 } from "./api.js";
 import { initAuth } from "./auth.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
+import { reportFileName, scoresToCsv, sortByRisk } from "./report.js";
 import {
   CATEGORY_ORDER,
   advisoryFor,
@@ -87,6 +88,9 @@ const els = {
   searchInput: document.getElementById("search-input"),
   searchResults: document.getElementById("search-results"),
   searchEmpty: document.getElementById("search-empty"),
+  printReport: document.getElementById("print-report"),
+  downloadCsv: document.getElementById("download-csv"),
+  report: document.getElementById("report"),
 };
 
 const state = {
@@ -119,6 +123,9 @@ const state = {
   pendingSelect: null,
   // The current view.
   focus: null,
+  // The score rows on screen, as the API returned them: what the printed
+  // report and the CSV export hold.
+  viewScores: [],
   scoresByRegion: new Map(),
   layersByRegion: new Map(),
   labelsByRegion: new Map(),
@@ -315,11 +322,16 @@ const PAN_MARGIN = 0.5;
 
 /** Fit `bounds` to the panel and stop the view wandering far away from it. */
 function lockTo(bounds) {
-  map.setMinZoom(0);
   refit = () => {
     map.setMaxBounds(null);
-    map.setMinZoom(map.getBoundsZoom(bounds, false, L.point(16, 16)));
+    // Fit first, then make the fitted zoom the furthest out the map can go.
+    // Setting the floor first is wrong twice over: Leaflet starts an animated
+    // zoom when the view is further out than a new floor, which the fit then
+    // cuts off half-way, and a floor worked out separately can land one step
+    // closer than the fit and crop the shape.
+    map.setMinZoom(0);
     map.fitBounds(bounds, { padding: [16, 16], animate: false });
+    map.setMinZoom(map.getZoom());
     // The limit is measured from the fitted view, not from `bounds`: a limit
     // smaller than the view pins the map in place and it cannot be dragged.
     map.setMaxBounds(map.getBounds().pad(PAN_MARGIN));
@@ -329,6 +341,10 @@ function lockTo(bounds) {
 }
 
 map.on("resize", () => refit?.());
+// Leaflet only notices the window resizing. The bars above the map appear
+// once the data is in and take height from it, which would leave the fitted
+// view off-centre, so watch the map's own box as well.
+new ResizeObserver(() => map.invalidateSize({ animate: false })).observe(map.getContainer());
 map.on("zoomend", updateLabelVisibility);
 
 function clearView() {
@@ -968,6 +984,134 @@ function select(regionId, { pan = false } = {}) {
   }
 }
 
+/* --------------------------------------------------------------- report */
+
+// Printed under every report. A shorter form of the limits in Chapter 5,
+// Section 5.10.3, for a reader who has only the page.
+const RESPONSIBLE_USE_NOTE =
+  "How to read this report. The categories rank areas by the chance that a large flood is " +
+  "recorded; they are not a forecast that a flood will happen, and a Low category is not an " +
+  "all-clear. The model was trained on county records of past large floods. It misses many " +
+  "floods outside the two rainy seasons, its probabilities run high, and it does not tell " +
+  "the sub-counties of one county apart reliably. This is a student research project and " +
+  "not official guidance. In an emergency, follow the National Disaster Operations Centre " +
+  "and the county authorities.";
+
+function viewName() {
+  return isRegionView() ? `${state.focus.name} region` : "Kenya";
+}
+
+/** The day or month the scores on screen are for, as the API wrote it. */
+function viewDate() {
+  if (isOutlook()) return state.period.slice(0, 7);
+  const latest = state.viewScores.map((s) => s.prediction_date).filter(Boolean).sort().at(-1);
+  return latest ? latest.slice(0, 10) : "";
+}
+
+/**
+ * Fill the print-only section from the scores on screen: what they are for,
+ * what produced them, every area sorted by risk, and how to read it.
+ */
+function renderReport(scores) {
+  state.viewScores = scores;
+  els.printReport.disabled = scores.length === 0;
+  els.downloadCsv.disabled = scores.length === 0;
+
+  const versions = [...new Set(scores.map((s) => s.model_version).filter(Boolean))];
+  const what = isOutlook()
+    ? `Seasonal outlook for ${formatMonth(state.period)}`
+    : `Scores for ${formatDate(viewDate() && `${viewDate()}T00:00:00`)}`;
+
+  const counts = CATEGORY_ORDER.map((category) => {
+    const item = el("span", "report__count");
+    item.append(
+      swatch(category),
+      `${labelFor(category)}: ${scores.filter((s) => s.risk_category === category).length}`,
+    );
+    return item;
+  });
+  const legend = el("p", "report__legend");
+  legend.append(...counts);
+
+  const region = isRegionView();
+  const table = el("table", "report__table");
+  const head = el("tr");
+  const headings = ["", region ? "Sub-county" : "County", "Risk category", "Chance of a large flood"];
+  if (region) headings.splice(2, 0, "County");
+  for (const heading of headings) {
+    const th = el("th", null, heading);
+    th.scope = "col";
+    head.append(th);
+  }
+  const thead = el("thead");
+  thead.append(head);
+  const tbody = el("tbody");
+  sortByRisk(scores).forEach((score, index) => {
+    const row = el("tr");
+    const category = el("td");
+    const wrap = el("span", "table__county");
+    wrap.append(swatch(score.risk_category), labelFor(score.risk_category));
+    category.append(wrap);
+    row.append(el("td", "table__num", `${index + 1}`), el("td", null, score.region_name));
+    if (region) row.append(el("td", null, score.county_name));
+    row.append(category, el("td", null, formatTimesUsual(score.times_usual)));
+    tbody.append(row);
+  });
+  table.append(thead, tbody);
+
+  els.report.replaceChildren(
+    el("h2", "report__title", `${viewName()}: flood risk report`),
+    el(
+      "p",
+      "report__meta",
+      `${what}. Model version ${versions.join(", ") || "not recorded"}. ` +
+        `${scores.length} ${region ? "sub-counties" : "counties"}, highest risk first. ` +
+        `Printed ${formatDate(new Date().toISOString())}.`,
+    ),
+    legend,
+    table,
+    el("p", "report__note", RESPONSIBLE_USE_NOTE),
+  );
+}
+
+/** Save the scores on screen as a CSV file, built in the browser. */
+function downloadCsv() {
+  // The byte-order mark makes Excel read the file as UTF-8.
+  const blob = new Blob(["\uFEFF", scoresToCsv(state.viewScores)], {
+    type: "text/csv;charset=utf-8",
+  });
+  const link = el("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = reportFileName(
+    `${isRegionView() ? state.focus.name : "kenya"}${isOutlook() ? " outlook" : ""}`,
+    viewDate(),
+  );
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+/**
+ * The map is drawn for the size it has on screen. For printing it is given
+ * the size it will have on paper first and redrawn to fit, then put back.
+ * Both events also fire when the browser's own Print command is used.
+ */
+function initReport() {
+  window.addEventListener("beforeprint", () => {
+    document.documentElement.classList.add("printing");
+    map.invalidateSize({ animate: false });
+    refit?.();
+  });
+  window.addEventListener("afterprint", () => {
+    document.documentElement.classList.remove("printing");
+    map.invalidateSize({ animate: false });
+    refit?.();
+  });
+  els.printReport.addEventListener("click", () => window.print());
+  els.downloadCsv.addEventListener("click", downloadCsv);
+}
+
 /** Select the region the search box asked for, if this view holds it. */
 function selectPending() {
   const regionId = state.pendingSelect;
@@ -1146,6 +1290,7 @@ async function showOverview() {
   renderEmptyDetail();
   renderLegend(scores);
   renderTable(features);
+  renderReport(scores);
   setStatus(null);
   selectPending();
 }
@@ -1204,6 +1349,8 @@ async function showRegion(focus) {
       {
         pane: "context",
         interactive: false,
+        // Named so the print stylesheet can lighten it (style.css).
+        className: "context-shape",
         style: {
           fillColor: cssVar("--context-fill"),
           fillOpacity: 1,
@@ -1248,6 +1395,7 @@ async function showRegion(focus) {
   renderEmptyDetail();
   renderLegend(scores);
   renderTable(subCounties.features);
+  renderReport(scores);
   setStatus(null);
 
   if (subCounties.features.length === 0) {
@@ -1317,6 +1465,7 @@ async function load() {
     );
 
     initSearch();
+    initReport();
     window.addEventListener("hashchange", route);
     await route();
   } catch (error) {
