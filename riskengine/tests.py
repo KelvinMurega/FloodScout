@@ -7,6 +7,8 @@ import json
 from io import StringIO
 from unittest import mock
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -847,3 +849,81 @@ class TimesUsualTests(APITestCase):
         response = self.client.get(f"/api/risk-scores/latest/?region={region.id}")
         self.assertEqual(response.data["times_usual"], times_usual(0.29))
         self.assertGreater(response.data["times_usual"], 2.5)
+
+
+class AdminRescoreActionTests(TestCase):
+    """The "Rescore all regions" action on the administration site (FR-06)."""
+
+    URL = "/admin/riskengine/riskscore/"
+
+    def setUp(self):
+        self.regions = [make_region("Alpha", offset=0.0), make_region("Beta", offset=2.0)]
+        self.superuser = get_user_model().objects.create_superuser("root", password="pw")
+
+    def _run(self, **extra):
+        return self.client.post(self.URL, {"action": "rescore_all_regions", **extra}, follow=True)
+
+    def test_scores_every_region_with_nothing_ticked(self):
+        self.client.force_login(self.superuser)
+
+        response = self._run()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(RiskScore.objects.count(), len(self.regions))
+        self.assertEqual(
+            set(RiskScore.objects.values_list("model_version", flat=True)), {MODEL_VERSION}
+        )
+        self.assertContains(response, "Scored 2 regions")
+
+    def test_ticked_rows_do_not_narrow_it(self):
+        old = RiskScore.objects.create(
+            region=self.regions[0],
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+        )
+        self.client.force_login(self.superuser)
+
+        self._run(_selected_action=[old.pk])
+
+        today = start_of_day(timezone.localdate())
+        self.assertEqual(
+            RiskScore.objects.filter(prediction_date=today).count(), len(self.regions)
+        )
+
+    def test_running_it_twice_updates_the_same_rows(self):
+        self.client.force_login(self.superuser)
+
+        self._run()
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), len(self.regions))
+        self.assertContains(response, "0 new, 2 updated")
+
+    def test_reports_when_there_is_nothing_to_score(self):
+        Region.objects.all().delete()
+        self.client.force_login(self.superuser)
+
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), 0)
+        self.assertContains(response, "No regions in the database")
+
+    def test_staff_who_are_not_administrators_are_refused(self):
+        clerk = get_user_model().objects.create_user("clerk", password="pw", is_staff=True)
+        clerk.user_permissions.add(
+            *Permission.objects.filter(codename__in=["view_riskscore", "change_riskscore"])
+        )
+        self.client.force_login(clerk)
+
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), 0)
+        self.assertContains(response, "Only a System Administrator can rescore.")
+
+    def test_anonymous_users_are_sent_to_sign_in(self):
+        response = self.client.post(self.URL, {"action": "rescore_all_regions"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
+        self.assertEqual(RiskScore.objects.count(), 0)
