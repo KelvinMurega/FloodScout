@@ -100,12 +100,19 @@ The figures below are the 7 October 2026 run on Google Colab, through
 `notebooks/train_flood_model.ipynb`: 14,523 county-months from 1996 to 2021,
 of which 1,406 (9.7%) have a recorded flood. The saved model and
 `metrics.json` are the files that run wrote to Google Drive. The run id is
-`20261007T1204Z_e3be7cb` and it was built from commit `e3be7cb`.
+`20261007T1353Z_07abff3` and it was built from commit `07abff3`.
 
-The 7 October run repeats the second 6 October run with the same code path,
-data and seed, to record the commit and keep the outputs in Drive. Every
-figure in `metrics.json` is identical between the two; only the model
-version and the `provenance` block changed. The 6 October run was the first
+Two runs were made on 7 October. The first (`20261007T1204Z_e3be7cb`)
+repeated the second 6 October run with the same data and seed, to record the
+commit and keep the outputs in Drive. The second, reported here, added the
+repeated seeds, the learning curve and the computing budget below. Every
+figure the 6 October run reported is identical in both; only the model
+version, the `provenance` block and the new entries differ. The browser lost
+its connection to Colab near the end of the second run, so the committed
+notebook has no output under its last three cells (the partial dependence
+chart, the coefficient table and the save message). The run itself finished:
+its Drive folder holds the model, the metrics and all eleven charts,
+including `10_partial_dependence.png`. The 6 October run was the first
 with the settings search. The search kept the Random Forest and Logistic
 Regression at their fixed settings, so their scores are the same as in the
 2 and 5 October runs on a laptop and the first Colab run, and the saved
@@ -151,14 +158,72 @@ much wider spread: it wins three folds and loses three.
 
 Treating a probability above a band edge as a warning, on held-out years:
 
-| Warn above | Floods caught | Floods missed | False alarms | Recall | Precision |
-|---|---|---|---|---|---|
-| 5% (Moderate and up) | 1,243 | 163 | 6,232 | 88.4% | 16.6% |
-| 10% (High and up) | 1,008 | 398 | 3,689 | 71.7% | 21.5% |
-| 20% (Very High) | 585 | 821 | 1,628 | 41.6% | 26.4% |
+| Warn above | Floods caught | Floods missed | False alarms | Recall | Precision | F1 | Accuracy | Balanced accuracy |
+|---|---|---|---|---|---|---|---|---|
+| 5% (Moderate and up) | 1,243 | 163 | 6,232 | 88.4% | 16.6% | 0.280 | 56.0% | 70.4% |
+| 10% (High and up) | 1,008 | 398 | 3,689 | 71.7% | 21.5% | 0.330 | 71.9% | 71.8% |
+| 20% (Very High) | 585 | 821 | 1,628 | 41.6% | 26.4% | 0.323 | 83.1% | 64.6% |
 
 Some false alarms are floods nobody recorded, and some "floods" are
 counties a circle touched that stayed dry, so the precision is a floor.
+Accuracy rises with the threshold only because nine rows in ten have no
+flood; balanced accuracy, the mean of recall and specificity, does not
+reward that.
+
+### Repeated runs
+
+The Random Forest and Gradient Boosting draw random numbers, so each was
+cross-validated again under seeds 0 to 4, on the same folds and at the
+settings kept (`seed_variation` in `metrics.json`). Logistic Regression has
+nothing random at its settings. Pooled over all held-out rows:
+
+| Model | Average precision, mean (sd) over 5 seeds | Lowest to highest | ROC AUC, mean (sd) |
+|---|---|---|---|
+| Random Forest | 0.2516 (0.0027) | 0.2486 to 0.2542 | 0.7834 (0.0024) |
+| Gradient Boosting | 0.2339 (0.0013) | 0.2321 to 0.2355 | 0.7613 (0.0027) |
+| Logistic Regression | 0.2385 (deterministic) | | 0.7655 |
+
+The seed moves the Random Forest's average precision by about 0.003. Its
+lowest seed (0.2486) is still above Logistic Regression (0.2385) and above
+every Gradient Boosting seed, so the pooled ranking does not depend on the
+seed. Which years are held out matters far more: the standard deviation
+across folds is 0.098. The saved model is seed 0, which scores 0.2535, a
+little above the five-seed mean of 0.2516.
+
+### Learning curve
+
+In each fold the Random Forest was fitted on a quarter, a half, three
+quarters and all of the training years, sampled as whole years with a fixed
+seed, and scored on the same held-out years (`learning_curve` in
+`metrics.json`, `docs/figures/11_learning_curve.png`):
+
+| Share of training years | Years (mean) | Rows (mean) | Average precision, mean (sd) over 6 folds |
+|---|---|---|---|
+| 25% | 6.0 | 3,314 | 0.217 (0.141) |
+| 50% | 11.0 | 6,134 | 0.255 (0.094) |
+| 75% | 16.7 | 9,306 | 0.309 (0.119) |
+| 100% | 21.7 | 12,102 | 0.297 (0.098) |
+
+Average precision rises from 6 to about 17 training years and is flat after
+that: the step from 75% to 100% (0.309 to 0.297) is a tenth of the spread
+across folds. A few more years of the same kind of record would probably not
+help much. The limit is more likely the inputs and the labels. This is one
+draw of which years are sampled, so the shape is indicative only.
+
+### Computing budget
+
+The 7 October run took 1,236 seconds on the free Colab runtime: 2 cores of
+an Intel Xeon at 2.20 GHz, Python 3.13.16 (`compute` in `metrics.json`,
+`run.json` in the run folder).
+
+| Stage | Seconds |
+|---|---|
+| Cross-validation of the three models, settings search included | 444 |
+| Final test (the same on 1996 to 2016) | 390 |
+| Repeated seeds | 251 |
+| Permutation importance | 75 |
+| Learning curve | 71 |
+| Fitting the saved model | 4 |
 
 ### The settings search
 
@@ -193,9 +258,10 @@ the result was seen and must not be moved to get a better number.
 This table was first produced on 5 October without the settings search. It
 was produced again on 6 October with it, which is a second look at the test
 years. The boundary and the procedure for choosing did not change between
-the two; the earlier figures are in the git history. The 7 October run
-scored the test years a third time, with nothing changed, and returned the
-6 October figures exactly. No choice was made from it.
+the two; the earlier figures are in the git history. The two 7 October runs
+scored the test years again, with the procedure for choosing unchanged, and
+returned the 6 October figures exactly. No choice was made from them, and
+the repeated seeds and the learning curve use cross-validation only.
 
 | Model | ROC AUC | Average precision | Brier |
 |---|---|---|---|
@@ -305,8 +371,8 @@ sections above, and
 the seed and the scikit-learn version the run used. A Colab run is not a git
 checkout, so `build_colab_bundle` writes the commit into the bundle as a
 `COMMIT` file and `train.git_commit()` reads it there. The current model is
-run `20261007T1204Z_e3be7cb`, from commit `e3be7cb`. The 6 October run it
-replaces recorded no commit; its bundle was built from commit `51e4de2`.
+run `20261007T1353Z_07abff3`, from commit `07abff3`. The 6 October run
+recorded no commit; its bundle was built from commit `51e4de2`.
 
 ## Checking against satellite floods
 
