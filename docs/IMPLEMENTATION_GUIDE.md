@@ -725,4 +725,4 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 | Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
 | Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
 | Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |
-| Repository | 66 commits on `develop`, 34 PRs opened, 26 merged, 7 open, tag `v0.2-sprint2` (8 October 2026) |
+| Repository | 66 commits on `develop`, 35 PRs opened, 26 merged, 8 open, tag `v0.2-sprint2` (8 October 2026) |
