@@ -1,6 +1,7 @@
 import datetime as dt
 
 from django.db.models import Max
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -13,13 +14,24 @@ from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
 from .models import RiskOutlook, RiskScore
-from .scoring import NoRegionsError, score_regions
+from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskOutlookSerializer, RiskScoreSerializer
 
 # How close two regions' boundaries must come to count as neighbours, in
 # degrees (~220 m). Not zero: the ADM2 boundaries do not always share
 # vertices exactly, so strict touching would miss real neighbours.
 NEIGHBOUR_TOLERANCE_DEG = 0.002
+
+
+def date_param(params, name: str) -> dt.date | None:
+    """`?<name>=YYYY-MM-DD` as a date, None when absent, HTTP 400 when malformed."""
+    raw = params.get(name)
+    if not raw:
+        return None
+    try:
+        return dt.date.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValidationError({name: "Expected YYYY-MM-DD."}) from exc
 
 
 def latest_per_region(queryset):
@@ -41,6 +53,11 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
     lookups — the case the Sprint 5 dashboard actually needs most often.
     `?level=`, `?parent=` and `?focus_region=` filter by the scored region
     (see geodata/filters.py).
+
+    `?date_after=` and `?date_before=` (YYYY-MM-DD, both inclusive) keep the
+    scores for those days (FR-05). With `region` they give one region's
+    history, newest first; on `latest-by-region/` the same day in both gives
+    the map as it stood on that day. `dates/` lists the days scores exist for.
     """
 
     queryset = RiskScore.objects.select_related("region").all()
@@ -48,10 +65,39 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        region_id = self.request.query_params.get("region")
+        params = self.request.query_params
+        region_id = params.get("region")
         if region_id:
-            qs = qs.filter(region_id=region_id)
-        return filter_by_region_params(qs, self.request.query_params, prefix="region__")
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            qs = qs.filter(region_id=int(region_id))
+
+        after = date_param(params, "date_after")
+        before = date_param(params, "date_before")
+        if after and before and after > before:
+            raise ValidationError({"date_after": "Must not be later than date_before."})
+        # prediction_date is midnight local time on the day a score is for.
+        if after:
+            qs = qs.filter(prediction_date__gte=start_of_day(after))
+        if before:
+            qs = qs.filter(prediction_date__lt=start_of_day(before + dt.timedelta(days=1)))
+        return filter_by_region_params(qs, params, prefix="region__")
+
+    @action(detail=False, methods=["get"])
+    def dates(self, request):
+        """The days scores exist for, newest first, as YYYY-MM-DD strings.
+
+        The dashboard's date picker offers these. Honours the same filters
+        as the rest of the viewset.
+        """
+        days = (
+            self.get_queryset()
+            .annotate(day=TruncDate("prediction_date"))
+            .order_by("-day")
+            .values_list("day", flat=True)
+            .distinct()
+        )
+        return Response([day.isoformat() for day in days])
 
     @action(detail=False, methods=["get"])
     def latest(self, request):

@@ -53,7 +53,7 @@ for 47 counties and 290 sub-counties; a trained Random Forest compared
 against two baselines with year-grouped cross-validation; a final test on
 2017 to 2021; validation against UNOSAT satellite flood extents; a REST API
 with token sign-in and one administrator action; a Leaflet dashboard;
-a daily scheduled refresh; 173 passing tests; CI; tag `v0.2-sprint2`.
+a daily scheduled refresh; 183 passing tests; CI; tag `v0.2-sprint2`.
 
 **Honest rating (7 October):** engineering 8/10, ML evaluation rigour 8/10,
 actual predictive skill 5/10, alignment with the proposal 5/10, overall about
@@ -653,7 +653,7 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 | Final test 2017 to 2021 | selected Gradient Boosting (on 1996 to 2016): ROC AUC 0.801, AP 0.191; season-only AP 0.177; Logistic Regression AP 0.270 |
 | UNOSAT, counties | Nov 2023 ROC AUC 0.744; Apr 2024 0.430; both 0.616 |
 | UNOSAT, sub-counties within county | 0.461 (no better than chance) |
-| Tests | 173 passing, 8 October 2026, 382 seconds |
+| Tests | 183 passing, 8 October 2026 (382 seconds for the first 173 on an idle laptop; 1,238 seconds for 183 under load), plus 17 dashboard tests (`npm test`) |
 | Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
 | Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
 | Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |

@@ -9,8 +9,9 @@
  *               score, with the sub-counties where relocation is advised
  *               listed and outlined.
  *
- * Either view can show today's scores or the seasonal outlook for a month
- * ahead; the period bar switches between them.
+ * Either view can show today's scores, the scores stored for an earlier
+ * day, or the seasonal outlook for a month ahead; the period bar switches
+ * between them.
  *
  * The view lives in the URL hash (#/coast), so it survives a reload and the
  * browser's back button leaves a region. Nothing here knows how a score was
@@ -29,8 +30,11 @@ import {
   fetchOutlook,
   fetchOutlookMonths,
   fetchRegions,
+  fetchScoreDates,
+  fetchScoreHistory,
 } from "./api.js";
 import { initAuth } from "./auth.js";
+import { daysBefore, historySeries, sparkline } from "./history.js";
 import {
   CATEGORY_ORDER,
   advisoryFor,
@@ -62,6 +66,11 @@ const RELOCATE_DASH = "5 4";
 // them daily, so two days means a refresh was missed.
 const STALE_AFTER_DAYS = 2;
 
+// How far back the detail panel's history chart looks, ending on the day of
+// the score on screen.
+const HISTORY_DAYS = 30;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
 const els = {
   status: document.getElementById("status"),
   provenance: document.getElementById("provenance"),
@@ -88,7 +97,12 @@ const state = {
   outlookMonths: [],
   // null is today's scores; otherwise the outlook month, as the API names it.
   period: null,
-  // County scores per period, fetched on first use.
+  // Days scores are stored for, newest first, as YYYY-MM-DD.
+  scoreDates: [],
+  // null is the latest scores; otherwise one of scoreDates. Never set
+  // together with an outlook period.
+  scoreDate: null,
+  // County scores per period and date, fetched on first use.
   countyCache: new Map(),
   focusByCountyId: new Map(),
   // Per region, fetched on first open.
@@ -191,11 +205,34 @@ function isOutlook() {
   return state.period !== null;
 }
 
-/** Scores for the current period: today's, or the outlook for its month. */
+function isPastDate() {
+  return state.scoreDate !== null;
+}
+
+/**
+ * Whether the scores on screen may carry relocation advice. Only the latest
+ * ones do: an outlook is a chance months ahead, and an earlier day is over.
+ */
+function givesAdvice() {
+  return !isOutlook() && !isPastDate();
+}
+
+/** Names what is on screen, for caches and for spotting a view that changed. */
+function viewKey() {
+  return `${state.period ?? "today"}|${state.scoreDate ?? "latest"}`;
+}
+
+/** Scores for the current period: the latest, one earlier day's, or an outlook month's. */
 function fetchScores(params) {
-  return isOutlook()
-    ? fetchOutlook({ ...params, month: state.period })
-    : fetchLatestScores(params);
+  if (isOutlook()) return fetchOutlook({ ...params, month: state.period });
+  if (isPastDate()) {
+    return fetchLatestScores({
+      ...params,
+      date_after: state.scoreDate,
+      date_before: state.scoreDate,
+    });
+  }
+  return fetchLatestScores(params);
 }
 
 /* ------------------------------------------------------------------ map */
@@ -331,7 +368,7 @@ function restingStroke(regionId) {
   if (regionId === state.selectedRegionId) {
     return { weight: 3, color: cssVar("--polygon-stroke-focus"), dashArray: null };
   }
-  if (isRegionView() && advisoryOf(regionId) === "relocate") {
+  if (isRegionView() && givesAdvice() && advisoryOf(regionId) === "relocate") {
     return { weight: 2, color: cssVar("--polygon-stroke-focus"), dashArray: RELOCATE_DASH };
   }
   return { weight: 1, color: cssVar("--polygon-stroke"), dashArray: null };
@@ -436,6 +473,12 @@ function renderProvenance(scores) {
       label,
       " — a documented placeholder, not a trained model. Not for operational use.",
     );
+  } else if (isPastDate()) {
+    els.provenance.append(
+      `Scores for ${formatDate(latest)}, produced by `,
+      label,
+      ". An earlier day, shown for comparison: relocation advice is given from the latest scores only.",
+    );
   } else {
     els.provenance.append(`Scores for ${formatDate(latest)}, produced by `, label, ".");
     const age = daysSince(latest);
@@ -468,8 +511,38 @@ function renderRegionBar() {
   }
 }
 
+/** Show the scores stored for `isoDate`, or the latest when it is empty. */
+function chooseScoreDate(isoDate, note) {
+  if (isoDate && !state.scoreDates.includes(isoDate)) {
+    note.textContent = `No scores are stored for ${formatDate(`${isoDate}T00:00:00`)}.`;
+    return;
+  }
+  state.period = null;
+  // The newest day is what "Today" already shows.
+  state.scoreDate = isoDate && isoDate !== state.scoreDates[0] ? isoDate : null;
+  route();
+}
+
+/** A date input for the days scores are stored for (FR-05). */
+function scoreDatePicker() {
+  const wrap = el("label", "period-bar__date", "Earlier day ");
+  const input = el("input", "period-bar__input");
+  const note = el("span", "period-bar__note");
+  note.setAttribute("role", "status");
+  input.type = "date";
+  input.min = state.scoreDates.at(-1);
+  input.max = state.scoreDates[0];
+  input.value = state.scoreDate ?? "";
+  input.addEventListener("change", () => chooseScoreDate(input.value, note));
+  wrap.append(input);
+  return [wrap, note];
+}
+
 function renderPeriodBar() {
-  els.periodBar.hidden = state.outlookMonths.length === 0;
+  // A single stored day leaves nothing to pick, so the bar needs an outlook
+  // or a second day of scores to be worth showing.
+  const hasEarlierDays = state.scoreDates.length > 1;
+  els.periodBar.hidden = state.outlookMonths.length === 0 && !hasEarlierDays;
   els.periodBar.replaceChildren();
 
   const options = [
@@ -482,13 +555,18 @@ function renderPeriodBar() {
   for (const option of options) {
     const button = el("button", "region-bar__button", option.name);
     button.type = "button";
-    button.setAttribute("aria-pressed", String(option.period === state.period));
+    button.setAttribute(
+      "aria-pressed",
+      String(option.period === state.period && !isPastDate()),
+    );
     button.addEventListener("click", () => {
       state.period = option.period;
+      state.scoreDate = null;
       route();
     });
     els.periodBar.append(button);
   }
+  if (hasEarlierDays) els.periodBar.append(...scoreDatePicker());
 }
 
 function renderLegend(scores) {
@@ -508,7 +586,7 @@ function renderLegend(scores) {
     els.legend.append(item);
   }
 
-  if (isRegionView() && !isOutlook()) {
+  if (isRegionView() && givesAdvice()) {
     const item = el("li", "legend__item");
     item.append(
       el("span", "legend__swatch legend__swatch--dashed"),
@@ -554,8 +632,8 @@ function regionButton(score) {
 }
 
 function renderRelocation(scores) {
-  // No relocation advice from an outlook: it is a chance, months ahead.
-  if (!isRegionView() || isOutlook()) {
+  // No relocation advice from an outlook or from an earlier day's scores.
+  if (!isRegionView() || !givesAdvice()) {
     els.relocation.hidden = true;
     return;
   }
@@ -643,6 +721,84 @@ async function renderNeighbours(regionId, container) {
   body.replaceWith(list);
 }
 
+function svg(tag, attributes = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+  return node;
+}
+
+/**
+ * The region's scores over the HISTORY_DAYS ending on the day of `score`,
+ * as a line of "times the usual chance" with the usual chance marked.
+ */
+async function renderHistory(regionId, score, container) {
+  const heading = el("p", "detail__subheading", `Last ${HISTORY_DAYS} days`);
+  const body = el("p", "detail__empty", "Loading earlier scores…");
+  container.append(heading, body);
+
+  const end = score.prediction_date.slice(0, 10);
+  const start = daysBefore(end, HISTORY_DAYS - 1);
+  let series;
+  try {
+    series = historySeries(await fetchScoreHistory(regionId, start, end));
+  } catch (error) {
+    console.error(error);
+    body.textContent = "Could not load earlier scores.";
+    return;
+  }
+  // The user may have moved on while this was loading.
+  if (state.selectedRegionId !== regionId) return;
+
+  if (series.length < 2) {
+    body.textContent =
+      series.length === 1
+        ? "Only one day of scores is stored for this area so far."
+        : "No earlier scores to compare with.";
+    return;
+  }
+
+  const width = 280;
+  const height = 64;
+  const chart = sparkline(series, start, end, { width, height });
+  const figure = el("figure", "history");
+  const drawing = svg("svg", {
+    class: "history__chart",
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label":
+      `Chance of a large flood on ${series.length} days from ${formatDate(series[0].date)} ` +
+      `to ${formatDate(series.at(-1).date)}: between ${chart.low.toFixed(1)} and ` +
+      `${chart.high.toFixed(1)} times the usual chance.`,
+  });
+  drawing.append(
+    svg("line", { class: "history__usual", x1: 0, x2: width, y1: chart.usualY, y2: chart.usualY }),
+    svg("polyline", {
+      class: "history__line",
+      points: chart.points.map((point) => `${point.x},${point.y}`).join(" "),
+    }),
+  );
+  for (const point of chart.points) {
+    const dot = svg("circle", { class: "history__dot", cx: point.x, cy: point.y, r: 2.2 });
+    const title = svg("title");
+    title.textContent = `${formatDate(point.date)}: ${point.value.toFixed(1)} times the usual chance`;
+    dot.append(title);
+    drawing.append(dot);
+  }
+
+  const first = series[0];
+  const last = series.at(-1);
+  const caption = el(
+    "figcaption",
+    "history__caption",
+    `${formatDate(first.date)}: ${first.value.toFixed(1)} times usual. ` +
+      `${formatDate(last.date)}: ${last.value.toFixed(1)} times usual. ` +
+      `Lowest ${chart.low.toFixed(1)}, highest ${chart.high.toFixed(1)}, ` +
+      `over ${series.length} days with a score. The dashed line is the usual chance.`,
+  );
+  figure.append(drawing, caption);
+  body.replaceWith(figure);
+}
+
 function renderDetail(regionId) {
   const score = state.scoresByRegion.get(regionId);
   const layer = state.layersByRegion.get(regionId);
@@ -683,7 +839,9 @@ function renderDetail(regionId) {
   } else {
     entries = [
         ...(isRegionView() ? [["County", score.county_name]] : []),
-        ...(isRegionView() ? [["Advisory", advisoryFor(score.relocation_advisory)]] : []),
+        ...(isRegionView() && givesAdvice()
+          ? [["Advisory", advisoryFor(score.relocation_advisory)]]
+          : []),
         // A placeholder score has no usual chance to compare with.
         ...(typeof score.times_usual === "number"
           ? [["Chance of a large flood", formatTimesUsual(score.times_usual)]]
@@ -699,6 +857,11 @@ function renderDetail(regionId) {
   }
   els.detail.append(rows);
 
+  // A placeholder score has no multiple of the usual chance to plot.
+  if (score && !isOutlook() && typeof score.times_usual === "number") {
+    renderHistory(regionId, score, els.detail);
+  }
+
   if (!isRegionView()) {
     const focus = state.focusByCountyId.get(regionId);
     if (focus) {
@@ -709,7 +872,7 @@ function renderDetail(regionId) {
       });
       els.detail.append(open);
     }
-  } else if (score && !isOutlook() && score.relocation_advisory !== "none") {
+  } else if (score && givesAdvice() && score.relocation_advisory !== "none") {
     renderNeighbours(regionId, els.detail);
   }
 }
@@ -944,25 +1107,25 @@ function initSearch() {
 /* ---------------------------------------------------------------- views */
 
 function loadCountyScores() {
-  const period = state.period;
-  if (!state.countyCache.has(period)) {
+  const key = viewKey();
+  if (!state.countyCache.has(key)) {
     state.countyCache.set(
-      period,
+      key,
       fetchScores({ level: "county" }).catch((error) => {
-        state.countyCache.delete(period); // let a retry refetch
+        state.countyCache.delete(key); // let a retry refetch
         throw error;
       }),
     );
   }
-  return state.countyCache.get(period);
+  return state.countyCache.get(key);
 }
 
 async function showOverview() {
   const slug = currentSlug();
-  const period = state.period;
+  const view = viewKey();
   const scores = await loadCountyScores();
   // Another view may have been chosen while this one loaded.
-  if (currentSlug() !== slug || state.period !== period) return;
+  if (currentSlug() !== slug || viewKey() !== view) return;
 
   state.focus = null;
   clearView();
@@ -1001,7 +1164,7 @@ function loadRegionShapes(focus) {
 }
 
 async function loadRegion(focus) {
-  const key = `${focus.slug}|${state.period}`;
+  const key = `${focus.slug}|${viewKey()}`;
   if (!state.regionCache.has(key)) {
     const params = { level: "sub_county", focus_region: focus.slug };
     state.regionCache.set(
@@ -1017,10 +1180,10 @@ async function loadRegion(focus) {
 
 async function showRegion(focus) {
   setStatus(`Loading ${focus.name} sub-counties…`);
-  const period = state.period;
+  const view = viewKey();
   const [subCounties, scores] = await loadRegion(focus);
   // Another view may have been chosen while this one loaded.
-  if (currentSlug() !== focus.slug || state.period !== period) return;
+  if (currentSlug() !== focus.slug || viewKey() !== view) return;
 
   state.focus = focus;
   clearView();
@@ -1120,9 +1283,11 @@ async function load() {
   // there are no scores to show yet.
   initAuth(document.getElementById("auth"), {
     // Scores are cached per view; drop them so the redraw fetches the new ones.
-    onRescored: () => {
+    onRescored: async () => {
       state.countyCache.clear();
       state.regionCache.clear();
+      // A rescore may have added today to the days on offer.
+      state.scoreDates = await fetchScoreDates().catch(() => state.scoreDates);
       return route();
     },
   });
@@ -1130,16 +1295,19 @@ async function load() {
   try {
     setStatus("Loading counties and risk scores…");
 
-    const [counties, focusRegions, outlookMonths] = await Promise.all([
+    const [counties, focusRegions, outlookMonths, scoreDates] = await Promise.all([
       fetchRegions(),
       fetchFocusRegions(),
-      // The outlook is an extra: without it the dashboard still shows today.
+      // The outlook and the earlier days are extras: without them the
+      // dashboard still shows today.
       fetchOutlookMonths().catch(() => []),
+      fetchScoreDates().catch(() => []),
     ]);
 
     state.counties = counties;
     state.focusRegions = focusRegions;
     state.outlookMonths = outlookMonths;
+    state.scoreDates = scoreDates;
     for (const focus of focusRegions) {
       for (const county of focus.counties) state.focusByCountyId.set(county.id, focus);
     }
