@@ -492,16 +492,16 @@ flags them when they are more than two days old.
    the model and stores a `RiskScore` with the model version.
 3. The dashboard loads and requests the county boundaries, the latest scores
    and the focus regions in parallel.
-4. Counties are coloured by risk category. [Figure 5.1: national view.]
+4. Counties are coloured by risk category. [Figure 5.1: national view. `docs/figures/screen_01_national.png`]
 5. The user selects a focus region, for example Lake Basin, and the dashboard
-   requests and draws its sub-counties. [Figure 5.2: focus-region view.]
+   requests and draws its sub-counties. [Figure 5.2: focus-region view, Lake Basin. `docs/figures/screen_02_focus_region.png`]
 6. The user selects a region to see its category, its chance of a large flood
    as a multiple of the usual chance, the model version and, for High or
    Very High, lower-risk neighbouring regions.
-   [Figure 5.3: region detail panel.]
+   [Figure 5.3: detail panel for Nyando sub-county. `docs/figures/screen_03_region_detail.png`]
 7. The user picks a future month on the period bar to see the seasonal
    outlook, which is labelled as an outlook and gives no relocation guidance.
-   [Figure 5.4: outlook view.]
+   [Figure 5.4: outlook view, October 2026. `docs/figures/screen_04_outlook.png`]
 
 A user who knows the name of a place does not have to find it on the map
 (FR-01). The search box above the detail panel lists the counties and the
@@ -511,7 +511,7 @@ Choosing a result opens the view that holds it, selects it and moves the map
 to it. The sub-county names are requested the first time the box is used and
 reuse the requests the region views make. Sub-counties outside the focus
 regions are not drawn by the dashboard and cannot be found.
-[Figure 5.4a: search results for "kisu".]
+[Figure 5.4a: search results for "kisu". `docs/figures/screen_05_search.png`]
 
 Earlier scores can be read in two ways (FR-05). The detail panel draws the
 selected region's chance of a large flood, as a multiple of the usual
@@ -524,7 +524,8 @@ outlines and the lower-risk neighbours are not shown for it, because advice
 is given from the latest scores only. On 8 October 2026 the database held
 scores for nine days between 21 September and 8 October; a score is added
 each day by the scheduler, so the chart fills as the system runs.
-[Figure 5.4b: detail panel with the 30-day history.]
+[Figure 5.4b: detail panel for Garissa with the 30-day history and the inputs. `docs/figures/screen_06_history_and_inputs.png`]
+[Figure 5.4e: the map as it stood on 2 October 2026, chosen with the date field. `docs/figures/screen_07_earlier_day.png`]
 
 The view on screen can be taken away in two forms (wireframe 4.10). **Print
 report** prints the map with a table of every area in the view, highest risk
@@ -536,7 +537,7 @@ before printing, and the page is white whatever theme the screen uses.
 the region, county, level, category, multiple of the usual chance, model
 output, date and model version. Both work for the latest scores, an earlier
 day and an outlook month.
-[Figure 5.4c: the printed report for the Lake Basin region.]
+[Figure 5.4c: the printed report for the Lake Basin region. `docs/figures/screen_08_printed_report.png`]
 
 Under the history, the detail panel lists the inputs behind the selected
 score (wireframe 4.8): the rainfall of the 30 days up to the date and of the
@@ -552,10 +553,17 @@ evaluation found the probabilities too high on later years (Section 5.7.5),
 and a percentage would claim a precision the model does not have. For the
 Garissa score of 8 October 2026 the panel showed 100.6 mm of rain in 30
 days against a usual 24.2 mm.
-[Figure 5.4d: inputs behind the Garissa score.]
+The inputs for Garissa are shown in Figure 5.4b and those for Nyando in Figure 5.3.
 
-[Add one screenshot of an error state, for example the dashboard when the API
-is not running.]
+When the API cannot be reached the dashboard says so, names the address it
+tried, and leaves the map empty and the report buttons disabled.
+[Figure 5.4f: the dashboard when the API cannot be reached. `docs/figures/screen_09_api_unreachable.png`]
+
+The screenshots were taken on 8 October 2026 from the running system with
+that day's scores, in Google Chrome in headless mode at 1,400 pixels wide
+with the light theme. Figure 5.4c is the page as laid out for printing at A4
+width. For Figure 5.4f the dashboard was pointed at an address where no API
+was listening.
 
 ## 5.6 Testing
 
