@@ -38,6 +38,7 @@ import {
   labelFor,
   prefersDark,
 } from "./risk.js";
+import { searchRegions } from "./search.js";
 
 const KENYA_CENTRE = [0.25, 37.9];
 const KENYA_ZOOM = 6;
@@ -74,6 +75,9 @@ const els = {
   tableHeading: document.getElementById("table-heading"),
   tableHead: document.getElementById("table-head"),
   tableBody: document.getElementById("table-body"),
+  searchInput: document.getElementById("search-input"),
+  searchResults: document.getElementById("search-results"),
+  searchEmpty: document.getElementById("search-empty"),
 };
 
 const state = {
@@ -89,6 +93,16 @@ const state = {
   focusByCountyId: new Map(),
   // Per region, fetched on first open.
   regionCache: new Map(),
+  // Sub-county shapes per region. They do not change with the period, so
+  // they are kept apart from the scores and shared with the search box.
+  shapeCache: new Map(),
+  // Sub-counties the search box can offer, loaded when it is first used.
+  searchIndex: null,
+  subCountyEntries: [],
+  searchMatches: [],
+  searchActive: -1,
+  // A region chosen in the search box that the next view should select.
+  pendingSelect: null,
   // The current view.
   focus: null,
   scoresByRegion: new Map(),
@@ -791,6 +805,142 @@ function select(regionId, { pan = false } = {}) {
   }
 }
 
+/** Select the region the search box asked for, if this view holds it. */
+function selectPending() {
+  const regionId = state.pendingSelect;
+  state.pendingSelect = null;
+  if (regionId !== null && state.layersByRegion.has(regionId)) {
+    select(regionId, { pan: true });
+  }
+}
+
+/* --------------------------------------------------------------- search */
+
+/** Every county, from the layer already loaded. */
+function countyEntries() {
+  return (state.counties?.features ?? []).map((feature) => ({
+    id: regionIdOf(feature),
+    name: nameOf(feature),
+    level: "county",
+    slug: "",
+    hint: "County",
+  }));
+}
+
+/**
+ * The sub-counties of every focus region, fetched the first time the search
+ * box is used. These are the same requests the region views make, so opening
+ * a region afterwards costs nothing extra. A region that fails to load is
+ * left out, and the counties stay searchable.
+ */
+function loadSearchIndex() {
+  if (!state.searchIndex) {
+    state.searchIndex = Promise.allSettled(
+      state.focusRegions.map(async (focus) => {
+        const shapes = await loadRegionShapes(focus);
+        return shapes.features.map((feature) => ({
+          id: regionIdOf(feature),
+          name: nameOf(feature),
+          level: "sub_county",
+          slug: focus.slug,
+          hint: `${feature.properties?.county_name ?? "Sub-county"} · ${focus.name}`,
+        }));
+      }),
+    ).then((results) => {
+      const seen = new Set();
+      state.subCountyEntries = results
+        .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
+        .filter((entry) => !seen.has(entry.id) && seen.add(entry.id));
+      renderSearch();
+    });
+  }
+  return state.searchIndex;
+}
+
+function setActiveMatch(index) {
+  state.searchActive = index;
+  const options = els.searchResults.children;
+  for (let i = 0; i < options.length; i += 1) {
+    options[i].setAttribute("aria-selected", String(i === index));
+  }
+  if (index >= 0 && options[index]) {
+    els.searchInput.setAttribute("aria-activedescendant", options[index].id);
+    options[index].scrollIntoView({ block: "nearest" });
+  } else {
+    els.searchInput.removeAttribute("aria-activedescendant");
+  }
+}
+
+function renderSearch() {
+  const query = els.searchInput.value.trim();
+  state.searchMatches = searchRegions([...countyEntries(), ...state.subCountyEntries], query);
+
+  els.searchResults.replaceChildren();
+  state.searchMatches.forEach((entry, index) => {
+    const option = el("li", "search__option");
+    option.id = `search-option-${index}`;
+    option.setAttribute("role", "option");
+    option.append(el("span", "search__name", entry.name), el("span", "search__hint", entry.hint));
+    // mousedown, not click: it fires before the input loses focus.
+    option.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      goTo(entry);
+    });
+    els.searchResults.append(option);
+  });
+
+  const open = state.searchMatches.length > 0;
+  els.searchResults.hidden = !open;
+  els.searchInput.setAttribute("aria-expanded", String(open));
+  setActiveMatch(open ? 0 : -1);
+
+  const nothing = query !== "" && !open;
+  els.searchEmpty.hidden = !nothing;
+  els.searchEmpty.textContent = nothing
+    ? `No county or sub-county matches “${query}”. Sub-counties are listed for the focus regions only.`
+    : "";
+}
+
+function clearSearch() {
+  els.searchInput.value = "";
+  renderSearch();
+}
+
+/** Show the view that holds `entry`, then select it and pan to it. */
+function goTo(entry) {
+  clearSearch();
+  if (currentSlug() === entry.slug && state.layersByRegion.has(entry.id)) {
+    select(entry.id, { pan: true });
+    return;
+  }
+  state.pendingSelect = entry.id;
+  if (currentSlug() === entry.slug) {
+    route();
+  } else {
+    location.hash = entry.slug ? `#/${entry.slug}` : "";
+  }
+}
+
+function initSearch() {
+  els.searchInput.addEventListener("focus", loadSearchIndex, { once: true });
+  els.searchInput.addEventListener("input", renderSearch);
+  els.searchInput.addEventListener("keydown", (event) => {
+    const count = state.searchMatches.length;
+    if (event.key === "ArrowDown" && count > 0) {
+      event.preventDefault();
+      setActiveMatch((state.searchActive + 1) % count);
+    } else if (event.key === "ArrowUp" && count > 0) {
+      event.preventDefault();
+      setActiveMatch((state.searchActive - 1 + count) % count);
+    } else if (event.key === "Enter" && count > 0) {
+      event.preventDefault();
+      goTo(state.searchMatches[Math.max(state.searchActive, 0)]);
+    } else if (event.key === "Escape") {
+      clearSearch();
+    }
+  });
+}
+
 /* ---------------------------------------------------------------- views */
 
 function loadCountyScores() {
@@ -834,6 +984,20 @@ async function showOverview() {
   renderLegend(scores);
   renderTable(features);
   setStatus(null);
+  selectPending();
+}
+
+function loadRegionShapes(focus) {
+  if (!state.shapeCache.has(focus.slug)) {
+    state.shapeCache.set(
+      focus.slug,
+      fetchRegions({ level: "sub_county", focus_region: focus.slug }).catch((error) => {
+        state.shapeCache.delete(focus.slug); // let a retry refetch
+        throw error;
+      }),
+    );
+  }
+  return state.shapeCache.get(focus.slug);
 }
 
 async function loadRegion(focus) {
@@ -842,7 +1006,7 @@ async function loadRegion(focus) {
     const params = { level: "sub_county", focus_region: focus.slug };
     state.regionCache.set(
       key,
-      Promise.all([fetchRegions(params), fetchScores(params)]).catch((error) => {
+      Promise.all([loadRegionShapes(focus), fetchScores(params)]).catch((error) => {
         state.regionCache.delete(key); // let a retry refetch
         throw error;
       }),
@@ -929,6 +1093,7 @@ async function showRegion(focus) {
       true,
     );
   }
+  selectPending();
 }
 
 function currentSlug() {
@@ -983,6 +1148,7 @@ async function load() {
       `FloodScout: ${counties.features.length} counties, ${focusRegions.length} focus regions, from ${API_BASE_URL}`,
     );
 
+    initSearch();
     window.addEventListener("hashchange", route);
     await route();
   } catch (error) {

@@ -350,6 +350,76 @@ body {
   letter-spacing: 0;
 }
 
+/* --- Search ------------------------------------------------------------ */
+
+.search__input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-ring);
+  border-radius: 6px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search__input:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
+}
+
+.search__results {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+
+.search__results[hidden] {
+  display: none;
+}
+
+.search__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.search__option:hover,
+.search__option[aria-selected="true"] {
+  background: var(--surface-page);
+}
+
+.search__option[aria-selected="true"] {
+  box-shadow: inset 0 0 0 1px var(--border-ring);
+}
+
+.search__name {
+  font-weight: 550;
+  color: var(--text-primary);
+}
+
+.search__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.search__empty {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 /* --- Region intro and relocation --------------------------------------- */
 
 .link-button {

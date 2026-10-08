@@ -487,6 +487,16 @@ flags them when they are more than two days old.
    outlook, which is labelled as an outlook and gives no relocation guidance.
    [Figure 5.4: outlook view.]
 
+A user who knows the name of a place does not have to find it on the map
+(FR-01). The search box above the detail panel lists the counties and the
+sub-counties of the five focus regions whose names match what is typed,
+ignoring case, accents and apostrophes, so that "muranga" finds Murang'a.
+Choosing a result opens the view that holds it, selects it and moves the map
+to it. The sub-county names are requested the first time the box is used and
+reuse the requests the region views make. Sub-counties outside the focus
+regions are not drawn by the dashboard and cannot be found.
+[Figure 5.4a: search results for "kisu".]
+
 [Add one screenshot of an error state, for example the dashboard when the API
 is not running.]
 
@@ -554,10 +564,18 @@ Chapter 4.]
 | TC-27 | Access control | Anonymous `GET` on every read endpoint | HTTP 200 | Pass |
 | TC-28 | Access control | Eleventh sign-in attempt within a minute | HTTP 429 | Pass |
 | TC-29 | Access control | Request with a token after signing out | HTTP 401 | Pass |
+| TC-30 | FR-01, search | Type "kisu" in the search box | Kisumu county offered first, then Kisumu sub-counties | Pass |
+| TC-31 | FR-01, search | Type "muranga" or "KISII" | Accents, apostrophes and case ignored | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 `riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and
 `api/tests.py`.
+
+The dashboard's own logic that needs no browser is tested separately with
+the test runner built into Node.js (`npm test` in `frontend/`; the tests are
+the `*.test.js` files in `frontend/src/`). On 8 October 2026 all 10 of these
+tests passed. They are run on every pull request with the Django suite, and
+the same job checks that the dashboard builds.
 
 ### 5.6.3 Defects and Corrective Action
 
