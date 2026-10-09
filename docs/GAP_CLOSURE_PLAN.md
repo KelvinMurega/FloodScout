@@ -12,7 +12,9 @@ This supersedes the "Immediate next actions" list in
 
 ## Summary
 
-Status as of 7 October 2026.
+Status as of 8 October 2026. `docs/IMPLEMENTATION_GUIDE.md` is the working
+plan from 7 October onwards and has the detailed progress; this table is
+kept in step with it.
 
 | Phase | Closes | Status | Still needs from Kelvin |
 |---|---|---|---|
@@ -23,7 +25,11 @@ Status as of 7 October 2026.
 | 4. Access control | No login, no administrator function | Done (#22) | — |
 | 5. CI and repository evidence | No CI, licence, tags or task record | Done, except supervisor access (issue #27) | Confirm the supervisor can open the repository |
 | 6. Deployment and user testing | Local only; no performance, security or user evidence | Not started | Hosting choice, 3 to 5 testers |
-| 7. Report | Chapter 4 diagrams, Chapter 5 placeholders, AI example | Open | Mostly Kelvin's own work |
+| 7. Report | Chapter 4 diagrams, Chapter 5 placeholders, AI example | Open. Chapter 5 has the dashboard screenshots (#69, not yet merged) and the AI example; the diagrams, the remaining square-bracket items and `AI_USE_LOG.md` are open | Mostly Kelvin's own work |
+
+Work added after this plan was written, tracked in the implementation guide:
+the extra ML evidence (#63) and the five dashboard and administration
+features from Chapter 4 (#64 to #68) are built and wait to be merged.
 
 Phases 0 to 2 matter most for the Sprint II review. Phase 6 is Sprint III.
 

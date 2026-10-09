@@ -46,14 +46,78 @@ and what counts as done.
 
 ---
 
+## Progress at 8 October 2026
+
+"Built" means the work is finished, tested and in an open pull request that
+passes CI but is not yet merged into `develop`. The seven open pull requests
+are stacked, so they are merged in number order: #63, #64, #65, #66, #67,
+#68, #69.
+
+### Completed
+
+| Phase | What was done | State |
+|---|---|---|
+| 1. Repository hygiene | Line endings pinned, stale folder removed, PR #9 and the licence settled | Merged (#43) |
+| 2. Sprint task list | Labels, one issue per phase, project board linked to objectives iv and v | Done on GitHub |
+| 3. Colab provenance and Drive | Commit and run id recorded in every run; runs saved to Google Drive | Merged (#62) |
+| 4. Extra ML evidence | Seed variation, learning curve, computing budget, threshold metrics in `metrics.json`; retrained as run `20261007T1353Z_07abff3` | Built (#63) |
+| 6.1 Location search (FR-01) | Search box over counties and focus-region sub-counties | Built (#64) |
+| 6.2 Score history (FR-05) | `date_after`, `date_before` and `dates/` on the API; date field and 30-day chart on the dashboard | Built (#65) |
+| 6.3 Report and export | Print report and Download CSV; the map-fit fix | Built (#66) |
+| 6.4 Inputs behind a score | `risk-scores/<id>/inputs/` and the detail panel list | Built (#67) |
+| 6.5 Administrator tasks (FR-06) | "Rescore all regions" in the administration site; the command-line choice stated in Chapter 5 | Built (#68) |
+| 9.1 Chapter 5 screenshots, in part | Nine dashboard screenshots in `docs/figures/` and referenced in Section 5.5.5 | Built (#69) |
+
+Tests at this point: 202 Django tests and 24 dashboard tests pass, and CI
+runs lint, the Django suite and the dashboard tests and build.
+
+### Remaining
+
+In the order they should be done.
+
+1. **Merge #63 to #69** in number order, then move issues #46 and #48 to #52
+   to Done on the project board.
+2. **Sprint II items still open** (the review is in the week of 12 October):
+   - Figure 5.5, the pull request list, to finish the screenshots (#54)
+   - Chapter 4 diagrams updated to the design as built (#38), and the
+     "command line by design" sentence beside the use case diagram
+   - The square-bracket items left in `docs/CHAPTER_5_DRAFT.md` (#40)
+   - `AI_USE_LOG.md` (#41)
+   - The Word thesis brought into step with `docs/CHAPTER_5_DRAFT.md`,
+     including the new Section 5.5.5 text, TC-30 to TC-44 and the figures
+   - The live demo rehearsed
+3. **Phase 7, deployment** (#28 to #31, #33, #53). Not started. Needs a host
+   and a domain.
+4. **Phase 8, performance and user testing** (#32, #34). Not started. Needs
+   the deployed system and three to five participants.
+5. **Phase 9, the rest of the report**: Chapters 1 to 3 in past tense with
+   the data sources as used (#39, #55), Chapter 6 (#56), the appendices
+   (#57), and D-01 to D-10 in the Word thesis.
+6. **Phase 5, optional experiments** (#47). Only after the supervisor agrees.
+7. Smaller open items: counties under cloud in `validate_unosat` (#35).
+
+### Waiting on Kelvin or the supervisor
+
+- Random Forest or Logistic Regression to deploy (#36)
+- Permutation importance accepted in place of SHAP (#37)
+- Supervisor access to the repository (#27)
+- Whether to run the Phase 5 experiments (#47)
+- Whether to run Colab again for a notebook with complete outputs (the last
+  three cells of the committed notebook have none)
+- Host, domain and user-testing participants
+
+---
+
 ## 1. Where the project stands
 
 **Working:** ingestion of rainfall, terrain, climate indices and boundaries
 for 47 counties and 290 sub-counties; a trained Random Forest compared
 against two baselines with year-grouped cross-validation; a final test on
 2017 to 2021; validation against UNOSAT satellite flood extents; a REST API
-with token sign-in and one administrator action; a Leaflet dashboard;
-a daily scheduled refresh; 202 passing tests; CI; tag `v0.2-sprint2`.
+with token sign-in and one administrator action; a Leaflet dashboard with
+search, score history, a printable report, a CSV export and the inputs
+behind each score; a daily scheduled refresh; 202 passing tests and 24
+dashboard tests; CI; tag `v0.2-sprint2`.
 
 **Honest rating (7 October):** engineering 8/10, ML evaluation rigour 8/10,
 actual predictive skill 5/10, alignment with the proposal 5/10, overall about
@@ -71,7 +135,7 @@ weakens the report, **L** = polish.
 | ID | Shortcoming | Sev | Fixed in |
 |---|---|---|---|
 | S-01 | No sprint task list linked to objectives (no GitHub issues or project board) | H | Phase 2 |
-| S-02 | Chapter 5 has no screenshots of the working system | H | Phase 9 |
+| S-02 | Chapter 5 has no screenshots of the working system | H | Nine dashboard screenshots built in Phase 9.1 (#69); the pull request list is still to be taken |
 | S-03 | Chapter 4 diagrams (ERD, class, schema, use case) do not show the as-built design | H | Phase 9 |
 | S-04 | Deployment requirements not written down | M | Done in Chapter 5 Section 5.11.5; build in Phase 7 |
 | S-05 | The "AI suggestion I checked" example existed but was not written up | M | Done in Chapter 5 Section 5.10; mirror in `AI_USE_LOG.md` (Phase 9) |
@@ -618,11 +682,14 @@ resolution matrix (Semester I comment, change made, where); Turnitin report.
 
 ### Sprint II review (next week)
 
-- [ ] Phase 1 merged; `git status` clean
-- [ ] Phase 2 board shown, issues linked to objectives iv and v
-- [ ] Phase 3 merged and one Colab run saved to Drive with a real commit
-- [ ] Phase 4 seed variation and learning curve in `metrics.json`
-- [ ] Chapter 5 screenshots inserted; Chapter 4 diagrams updated
+- [x] Phase 1 merged; `git status` clean
+- [x] Phase 2 board shown, issues linked to objectives iv and v
+- [x] Phase 3 merged and one Colab run saved to Drive with a real commit
+- [ ] Phase 4 seed variation and learning curve in `metrics.json` (built;
+      waiting for #63 to be merged)
+- [ ] Chapter 5 screenshots inserted; Chapter 4 diagrams updated (nine
+      screenshots built in #69; the pull request list, the Word copy and the
+      diagrams are open)
 - [ ] Live demo rehearsed: `docker compose up`, dashboard, select a region,
       outlook, sign in as administrator and rescore, show tests passing in CI
 - [ ] Ready to explain: why grouped-by-year validation, why average precision,
@@ -630,7 +697,8 @@ resolution matrix (Semester I comment, change made, where); Turnitin report.
 
 ### Sprint III / final submission
 
-- [ ] Phase 6 features merged with tests
+- [ ] Phase 6 features merged with tests (all five built with tests;
+      waiting for #64 to #68 to be merged)
 - [ ] Phase 7 deployed over HTTPS on the domain, uptime monitored
 - [ ] Phase 8 performance and UAT evidence written up
 - [ ] Phase 9 Chapters 1 to 6, abstract, appendices, `AI_USE_LOG.md`
@@ -657,4 +725,4 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 | Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
 | Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
 | Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |
-| Repository | 58 commits on `develop`, 22 PRs opened, 21 merged, tag `v0.2-sprint2` (7 October 2026) |
+| Repository | 66 commits on `develop`, 35 PRs opened, 26 merged, 8 open, tag `v0.2-sprint2` (8 October 2026) |
