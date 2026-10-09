@@ -49,6 +49,10 @@ npm run dev        # http://localhost:5173
 
 `npm run build` emits static files to `dist/`.
 
+`npm test` runs the unit tests (`src/*.test.js`) with Node's built-in test
+runner. They cover the logic that needs no browser, such as matching a typed
+name to a region (`src/search.js`), and need no extra packages.
+
 ## Configuring the API URL
 
 Never hardcoded. Resolved in this order, first match wins:

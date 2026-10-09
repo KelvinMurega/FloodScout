@@ -33,6 +33,26 @@
         </div>
 
         <aside class="panel" aria-label="Area details">
+          <section class="panel__section search">
+            <label class="panel__heading" for="search-input">
+              Find a place <span class="panel__hint">county or sub-county</span>
+            </label>
+            <input
+              class="search__input"
+              id="search-input"
+              type="search"
+              role="combobox"
+              aria-expanded="false"
+              aria-controls="search-results"
+              aria-autocomplete="list"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Type a name, for example Kisumu"
+            />
+            <ul class="search__results" id="search-results" role="listbox" aria-label="Matching places" hidden></ul>
+            <p class="search__empty" id="search-empty" role="status" hidden></p>
+          </section>
+
           <section class="panel__section region-intro" id="region-intro" hidden></section>
 
           <section class="panel__section" id="relocation" hidden></section>
