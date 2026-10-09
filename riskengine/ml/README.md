@@ -303,7 +303,12 @@ false alarms by calendar month and by county.
   warning. The model has learned the long rains as March to May and treats
   June as dry season, so a flood that runs on into June is not seen. April
   and May miss 15% each; August and September miss about half of a small
-  number.
+  number. Most of the June figure comes from how a flood is assigned to a
+  month, not from the model: 76 of the 88 are there only because of two
+  long-rains floods, of 2003 and 2005, whose recorded end is 4 June and
+  3 June. Each touches the 30 days ending 30 June by three or four days,
+  so every county under it is labelled as flooded in June (see the
+  experiments log).
 - **A third of false alarms are in April and May** (1,272 of 3,689). In the
   long rains most counties are above 10% whether or not a flood is recorded.
 - **By county, misses are highest in Kakamega, Nairobi, Kilifi, Lamu and
@@ -550,15 +555,65 @@ A warning is High or Very High (above 10%).
 The two final-test rows are here to show where the model stands. They are
 not used to decide whether a change is kept.
 
+### How a change is judged
+
+`manage.py compare_inputs` (`riskengine/ml/experiments.py`) scores the
+Random Forest with and without the inputs under trial, on the same folds of
+held-out years, and saves nothing. Every figure is the mean over seeds 0 to
+4. A change is kept when pooled average precision rises by more than 0.005,
+about twice the standard deviation between seeds, or when the measure it
+targets improves and average precision does not fall by more than that.
+
+```bash
+docker compose run --rm web python manage.py compare_inputs rain_60d rain_90d
+```
+
+With no inputs added the command gives average precision 0.2516 (0.0027),
+the figure in "Repeated runs" above, so it measures the same thing as the
+training run. The counts below are means over five seeds, so they differ a
+little from the baseline table, which is seed 0 alone (June floods missed:
+86.2 against 86).
+
 ### Log
 
-"Before" and "after" are pooled held-out average precision unless the
-change targets another measure in the table above, in which case that
-measure is given as well.
+"Before" and "after" are pooled held-out average precision, with the
+measure the change targets beside it.
 
 | Date | What changed | Before | After | Kept or dropped |
 |---|---|---|---|---|
-| | No experiments yet | | | |
+| 9 Oct 2026 | Added `rain_60d` and `rain_90d`, rainfall over 60 and 90 days, so that June still sees the long rains | 0.2516; 86.2 of 88 June floods missed | 0.2499; 85.8 of 88 | Dropped |
+| 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
+
+What the two results show:
+
+- **Neither change moved average precision beyond the noise** (-0.0017 and
+  -0.0034, against a threshold of 0.005). Both caught about 17 more floods
+  of 1,406 and raised about 40 to 80 more false alarms of 3,686, which is
+  the same model warning slightly more often, not ranking better.
+- **June cannot be fixed with rainfall inputs, because most of it is not a
+  rainfall error.** The 88 June floods fall in four years: 39 in 2003, 42
+  in 2005, 3 in 2007 and 4 in 2008. All 39 of 2003 come from one flood
+  recorded from 21 April to 4 June. In 2005, 41 of the 42 lie under a
+  flood recorded from 3 May to 3 June, and for 37 of them it is the only
+  flood. A county-month is labelled as flooded when a flood overlaps its
+  30 days at all, so three or four days at the start of June label the
+  whole of June: 76 of the 88 rows. Across the 88, June itself was drier
+  than usual (median 33 mm against 41 mm in June months with no flood)
+  while the month before was much wetter (152 mm against 80 mm). The
+  model's low June probability is a fair reading of such a month. The remedy is in how a flood is assigned to a month, for
+  example by requiring a minimum number of days of overlap. That changes
+  the target for every month, so it belongs with the work on the labels
+  and is not done here.
+- **`heavy_days` has almost nothing to count.** ERA5 rainfall at about
+  25 km reaches 50 mm in a day on 0.1% of days, and 3% of county-months
+  have any such day. A city flood from an hour of rain is not in this
+  record at any threshold, which fits the result for Nairobi and the coast.
+- **This agrees with the learning curve:** the limit is the labels, not the
+  rainfall inputs or the number of years.
+
+The four inputs are still worked out by `rainfall_features` and listed as
+`CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
+better labels.
 
 ## Running it
 
