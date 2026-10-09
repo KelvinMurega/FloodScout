@@ -198,10 +198,7 @@ check tests what runs locally.
 
 ## Status
 
-As of 8 October 2026. The dashboard features in the third point are built
-and tested but are in pull requests #64 to #68, not yet merged into
-`develop`; `docs/IMPLEMENTATION_GUIDE.md` lists what is merged and what is
-waiting.
+As of 9 October 2026. Everything below is merged into `develop`.
 
 - **Data.** 47 counties and 290 sub-counties, with real terrain, daily
   rainfall and drainage measurements.
@@ -222,7 +219,8 @@ waiting.
 Not done yet: deployment (the system runs locally only), a performance test,
 user testing, and most of the report outside Chapter 5.
 `docs/IMPLEMENTATION_GUIDE.md` is the current task list; its "Progress"
-section says what is completed and what remains.
+section says what is completed and what remains. Changes to the model are
+recorded in the experiments log in `riskengine/ml/README.md`.
 
 ## Licence and access
 
