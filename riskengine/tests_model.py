@@ -88,7 +88,7 @@ class TrainingTests(SimpleTestCase):
         # The settings search has its own tests below; skipping it here keeps
         # this class quick.
         cls.artifact, cls.metrics = train.train(
-            cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5}, tune_models=False
+            cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5}, tune_models=False, seeds=(0, 7)
         )
 
     @classmethod
@@ -161,6 +161,74 @@ class TrainingTests(SimpleTestCase):
             self.assertEqual(total, self.metrics["rows"])
         recalls = [row["recall"] for row in rows]
         self.assertEqual(recalls, sorted(recalls, reverse=True))
+
+    def test_threshold_rows_carry_accuracy_f1_and_balanced_accuracy(self):
+        for row in self.metrics["threshold_errors"] + self.metrics["final_test"]["threshold_errors"]:
+            tp, fp = row["true_positives"], row["false_positives"]
+            fn, tn = row["false_negatives"], row["true_negatives"]
+            self.assertEqual(row["support_positive"], tp + fn)
+            self.assertEqual(row["support_negative"], tn + fp)
+            self.assertAlmostEqual(row["accuracy"], (tp + tn) / (tp + fp + fn + tn), places=4)
+            self.assertAlmostEqual(row["f1"], 2 * tp / (2 * tp + fp + fn), places=4)
+            self.assertAlmostEqual(
+                row["balanced_accuracy"], (row["recall"] + row["specificity"]) / 2, places=3
+            )
+
+    def test_seed_variation_reports_each_seed_and_seed_0_is_the_reported_score(self):
+        variation = self.metrics["seed_variation"]
+        self.assertEqual(variation["seeds"], [0, 7])
+        self.assertEqual(variation["logreg"], {"note": "deterministic"})
+        for name in ("random-forest", "gradient-boosting"):
+            for metric in ("average_precision", "roc_auc"):
+                record = variation[name][metric]
+                self.assertEqual(len(record["values"]), 2)
+                # Seed 0 is the seed of the comparison, so it must give the same score.
+                self.assertEqual(record["values"][0], self.metrics["comparison"][name][metric])
+                self.assertAlmostEqual(record["mean"], np.mean(record["values"]), places=3)
+                self.assertIsNotNone(record["sd"])
+
+    def test_seed_variation_is_skipped_without_seeds(self):
+        data = train.load_training_set(self.path)
+        chosen = train.select(data, tune_models=False)
+        _artifact, metrics = train.build(
+            data, chosen, self.path, {}, test_from=None, tune_models=False, seeds=()
+        )
+        self.assertIsNone(metrics["seed_variation"])
+        self.assertEqual(metrics["comparison"], self.metrics["comparison"])
+
+    def test_learning_curve_ends_at_the_cross_validated_score(self):
+        curve = self.metrics["learning_curve"]
+        self.assertEqual([point["fraction"] for point in curve], list(train.LEARNING_CURVE_FRACTIONS))
+        years = [point["training_years_mean"] for point in curve]
+        self.assertEqual(years, sorted(years))
+        # With every training year, it is the cross-validation already reported.
+        selected = self.metrics["selected"]
+        self.assertAlmostEqual(
+            curve[-1]["average_precision_mean"],
+            self.metrics["fold_summary"][selected]["average_precision_mean"],
+            places=3,
+        )
+        self.assertEqual(curve[-1]["folds"], train.CV_FOLDS)
+
+    def test_learning_curve_samples_whole_years_and_nests_them(self):
+        years = np.repeat(np.arange(2000, 2010), 12)
+        order = np.random.default_rng(0).permutation(np.unique(years))
+        quarter = train.sample_years(years, 0.25, order)
+        half = train.sample_years(years, 0.5, order)
+        self.assertEqual(len(set(years[quarter])), 3)  # a quarter of ten years, rounded up
+        self.assertEqual(len(set(years[half])), 5)
+        for year in np.unique(years):
+            self.assertIn(quarter[years == year].sum(), (0, 12))  # all of a year or none of it
+        self.assertTrue(set(years[quarter]) <= set(years[half]))
+        self.assertTrue(train.sample_years(years, 1.0, order).all())
+        self.assertEqual(len(set(years[train.sample_years(years, 0.01, order)])), 1)
+
+    def test_compute_records_the_time_and_the_machine(self):
+        compute = self.metrics["compute"]
+        for stage in ("cross_validation", "final_fit", "seed_variation", "learning_curve"):
+            self.assertGreaterEqual(compute[f"seconds_{stage}"], 0)
+        self.assertGreaterEqual(compute["cores"], 1)
+        self.assertTrue(compute["cpu"])
 
     def test_provenance_ties_the_result_to_its_data_and_seed(self):
         recorded = self.metrics["provenance"]

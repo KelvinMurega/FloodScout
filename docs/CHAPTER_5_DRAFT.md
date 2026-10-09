@@ -309,25 +309,28 @@ run identifier, the SHA-256 of the training set, the random seed and the
 scikit-learn version of the run.
 
 The saved model was trained on Google Colab on 7 October 2026, in run
-`20261007T1204Z_e3be7cb` from commit `e3be7cb`. The command
+`20261007T1353Z_07abff3` from commit `07abff3`. The command
 `build_colab_bundle` packed the committed code and the training set into one
 bundle, with the commit and the SHA-256 of the training set written inside
 it, and refused to run while there were uncommitted changes. The bundle was
 placed in Google Drive, and the notebook `notebooks/train_flood_model.ipynb`
 mounted the Drive, checked the training set against the recorded SHA-256 and
 ran the same `train.py` that the application uses. The run wrote its outputs
-to its own Drive folder, `FloodScout/runs/20261007T1204Z_e3be7cb/`: the
-model, `metrics.json`, the ten charts, the training log, the list of
-installed packages and `run.json`. Training took 1,040 seconds on the free
-Colab runtime (2 processor cores, Python 3.13.16; `run.json`). The notebook
-is kept in the repository with its outputs, and its charts are in
-`docs/figures/`.
+to its own Drive folder, `FloodScout/runs/20261007T1353Z_07abff3/`: the
+model, `metrics.json`, the eleven charts, the training log, the list of
+installed packages and `run.json`. Training took 1,236 seconds on the free
+Colab runtime (Section 5.7.2a). The notebook is kept in the repository with
+its outputs, and its charts are in `docs/figures/`. The browser lost its
+connection to Colab near the end of the run, so the saved notebook shows no
+output under its last three cells; the run folder holds the complete
+outputs, including the partial dependence chart.
 
-Two earlier Colab runs were made on 6 October, the second after the
-hyperparameter search was added. They were uploaded by hand and recorded no
-commit. The 7 October run repeated the second of them with the same data and
-seed to record the commit, and every figure in `metrics.json` came out
-identical. The search left the Random Forest unchanged, so the saved model
+Three earlier Colab runs were made. Two on 6 October, the second after the
+hyperparameter search was added, were uploaded by hand and recorded no
+commit. The first run of 7 October (`20261007T1204Z_e3be7cb`, commit
+`e3be7cb`) repeated the second of them with the same data and seed to record
+the commit. Every figure reported from the 6 October run came out identical
+in both 7 October runs. The search left the Random Forest unchanged, so the saved model
 gives the same probability for every training record as the models of the
 2 and 5 October runs made on the laptop with the same data and seed.
 
@@ -512,7 +515,7 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 167 tests. On 7 October 2026 all 167 passed in 686
+The suite contained 173 tests. On 8 October 2026 all 173 passed in 382
 seconds (`docker compose run --rm web python manage.py test`). Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
@@ -624,6 +627,73 @@ folds and losing three; the Random Forest leads when all records are pooled.
 With only six folds, the ranking of the three candidates is suggestive and
 not conclusive.
 
+### 5.7.2a Repeated Runs, Learning Curve and Computing Budget
+
+**Repeated runs.** The Random Forest and Gradient Boosting draw random
+numbers during fitting, so one run per configuration does not show how much
+of a score is chance. Each was cross-validated again under five seeds (0 to
+4) on the same six folds, at the settings selected. Logistic Regression is
+deterministic at its settings and was not repeated.
+
+**Table 5.16a: Pooled held-out scores over five random seeds**
+
+| Model | Average precision, mean (standard deviation) | Lowest to highest | ROC AUC, mean (standard deviation) |
+|---|---|---|---|
+| Random Forest | 0.2516 (0.0027) | 0.2486 to 0.2542 | 0.7834 (0.0024) |
+| Gradient Boosting | 0.2339 (0.0013) | 0.2321 to 0.2355 | 0.7613 (0.0027) |
+| Logistic Regression | 0.2385 (deterministic) | | 0.7655 |
+
+Source: `seed_variation` in `metrics.json`.
+
+The seed changed the Random Forest's average precision by about 0.003. Its
+lowest seed (0.2486) remained above Logistic Regression (0.2385) and above
+every Gradient Boosting seed, so the pooled ranking of the candidates did
+not depend on the seed. The variation between folds (standard deviation
+0.098, Table 5.16) is more than thirty times larger, so the choice of held-out
+years, not the seed, is the main source of uncertainty. The deployed model
+uses seed 0, which scored 0.2535, slightly above the five-seed mean.
+
+**Learning curve.** Within each fold the Random Forest was fitted on 25%,
+50%, 75% and 100% of the training years and scored on the same held-out
+years. Whole years were sampled, with a fixed seed, for the same reason the
+folds hold out whole years.
+
+**Table 5.16b: Held-out average precision by size of training set**
+
+| Share of training years | Training years (mean) | Training records (mean) | Average precision, mean (standard deviation) over six folds |
+|---|---|---|---|
+| 25% | 6.0 | 3,314 | 0.217 (0.141) |
+| 50% | 11.0 | 6,134 | 0.255 (0.094) |
+| 75% | 16.7 | 9,306 | 0.309 (0.119) |
+| 100% | 21.7 | 12,102 | 0.297 (0.098) |
+
+Source: `learning_curve` in `metrics.json`; Figure `docs/figures/11_learning_curve.png`.
+
+Average precision rose from 0.217 with six training years to 0.309 with
+about seventeen and did not rise further with all of them (0.297). The
+difference between the last two points is about a tenth of the spread across
+folds. The curve gives no sign that a few more years of the same records
+would improve the model; the inputs and the quality of the labels are the
+more likely limit. The curve comes from one sampling of the years and is
+indicative only.
+
+**Computing budget.** The run took 1,236 seconds on the free Google Colab
+runtime, with 2 cores of an Intel Xeon processor at 2.20 GHz and Python
+3.13.16. No GPU was used.
+
+**Table 5.16c: Time spent in each stage of the training run**
+
+| Stage | Seconds |
+|---|---|
+| Cross-validation of the three candidates, including the hyperparameter search | 444 |
+| Final test (the same procedure on 1996 to 2016) | 390 |
+| Repeated seeds | 251 |
+| Permutation importance | 75 |
+| Learning curve | 71 |
+| Fitting the saved model | 4 |
+
+Source: `compute` in `metrics.json` and `run.json` in the run folder.
+
 ### 5.7.3 Calibration
 
 Two calibration methods, Platt scaling and isotonic regression, were tested on
@@ -657,6 +727,17 @@ one, where it stated 31% on average and 26% occurred.
 Source: `threshold_errors` in `metrics.json`. At this threshold recall was
 71.7%, precision 21.5% and specificity 71.9% (F1 0.33). Restricting the warning to Very High (above 20%) raised precision
 to 26.4% and specificity to 87.6%, and lowered recall to 41.6%.
+
+**Table 5.18b: Classification metrics at the two warning thresholds, held-out years**
+
+| Warning above | Recall | Precision | Specificity | F1 | Accuracy | Balanced accuracy |
+|---|---|---|---|---|---|---|
+| 10% (High and Very High) | 0.717 | 0.215 | 0.719 | 0.330 | 0.719 | 0.718 |
+| 20% (Very High) | 0.416 | 0.264 | 0.876 | 0.323 | 0.831 | 0.646 |
+
+Source: `threshold_errors` in `metrics.json`, 1,406 records with a flood and
+13,117 without. Accuracy is higher at 20% only because nine records in ten
+have no flood; balanced accuracy, the mean of recall and specificity, falls.
 
 The two kinds of error have different consequences. A false negative is a
 flood in a region shown as Low or Moderate. This is the more serious error for
@@ -719,10 +800,11 @@ search and run again on 6 October with it. The second run is reported here.
 It is a second look at the test years, which weakens the test; the boundary
 and the selection procedure were not changed between the two runs. In the
 first run the selected model scored ROC AUC 0.767 and average precision 0.153.
-The 7 October retraining, made to record the commit of the run (Section
-5.4.4), scored the test years a third time with the code, data and seed
-unchanged and returned the 6 October figures exactly. No choice was made
-from it.
+The two retraining runs of 7 October (Section 5.4.4) scored the test years
+again with the data, the seed and the selection procedure unchanged and
+returned the 6 October figures exactly. No choice was made from them. The
+repeated seeds and the learning curve of Section 5.7.2a use cross-validation
+only.
 
 **Table 5.19: Final test on 2017 to 2021**
 

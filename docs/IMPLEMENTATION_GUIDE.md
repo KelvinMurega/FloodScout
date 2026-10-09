@@ -53,7 +53,7 @@ for 47 counties and 290 sub-counties; a trained Random Forest compared
 against two baselines with year-grouped cross-validation; a final test on
 2017 to 2021; validation against UNOSAT satellite flood extents; a REST API
 with token sign-in and one administrator action; a Leaflet dashboard;
-a daily scheduled refresh; 167 passing tests; CI; tag `v0.2-sprint2`.
+a daily scheduled refresh; 173 passing tests; CI; tag `v0.2-sprint2`.
 
 **Honest rating (7 October):** engineering 8/10, ML evaluation rigour 8/10,
 actual predictive skill 5/10, alignment with the proposal 5/10, overall about
@@ -89,10 +89,10 @@ weakens the report, **L** = polish.
 
 | ID | Shortcoming | Sev | Fixed in |
 |---|---|---|---|
-| ML-01 | One training run per configuration; no variation across random seeds | M | Phase 4 |
-| ML-02 | Computing budget (training time, hardware) not recorded | M | Phase 4 |
-| ML-03 | No learning curve by training-set size | M | Phase 4 |
-| ML-04 | Accuracy, F1 and balanced accuracy at the thresholds are computed only in the report, not stored in `metrics.json` | L | Phase 4 |
+| ML-01 | One training run per configuration; no variation across random seeds | M | Done in Phase 4: `seed_variation` |
+| ML-02 | Computing budget (training time, hardware) not recorded | M | Done in Phase 4: `compute` |
+| ML-03 | No learning curve by training-set size | M | Done in Phase 4: `learning_curve` |
+| ML-04 | Accuracy, F1 and balanced accuracy at the thresholds are computed only in the report, not stored in `metrics.json` | L | Done in Phase 4 |
 | ML-05 | Final test set has been looked at twice | M | Cannot be undone; disclosed in Chapter 5 Section 5.7.7. UNOSAT serves as the new independent check |
 
 ### 2.4 Against the proposal (Chapters 1 to 4)
@@ -646,12 +646,15 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 |---|---|
 | Training set | 14,523 county-months, Jan 1996 to Sep 2021, 1,406 floods (9.68%), 13 inputs |
 | Validation | 6-fold cross-validation grouped by year, normals refitted per fold |
-| Selected model | Random Forest, model version `flood-random-forest-20261007`, run `20261007T1204Z_e3be7cb`, commit `e3be7cb`, seed 0, scikit-learn 1.9.1 |
+| Selected model | Random Forest, model version `flood-random-forest-20261007`, run `20261007T1353Z_07abff3`, commit `07abff3`, seed 0, scikit-learn 1.9.1 |
 | Cross-validation, pooled | ROC AUC 0.787, AP 0.254, Brier 0.0798; base rate AP 0.097; season-only AP 0.124 |
 | Lift | 2.62x base rate, 2.05x season-only (pooled); 1.47x season-only (fold mean) |
 | Warning above 10% (CV) | recall 71.7%, precision 21.5%, specificity 71.9%, F1 0.330, accuracy 71.9%, balanced accuracy 71.8% |
 | Final test 2017 to 2021 | selected Gradient Boosting (on 1996 to 2016): ROC AUC 0.801, AP 0.191; season-only AP 0.177; Logistic Regression AP 0.270 |
 | UNOSAT, counties | Nov 2023 ROC AUC 0.744; Apr 2024 0.430; both 0.616 |
 | UNOSAT, sub-counties within county | 0.461 (no better than chance) |
-| Tests | 167 passing, 7 October 2026, 686 seconds |
+| Tests | 173 passing, 8 October 2026, 382 seconds |
+| Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
+| Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
+| Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |
 | Repository | 58 commits on `develop`, 22 PRs opened, 21 merged, tag `v0.2-sprint2` (7 October 2026) |
