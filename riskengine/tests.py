@@ -33,10 +33,12 @@ from riskengine.ml.infer import (
     RAINFALL_SATURATION_MM,
     infer,
     model_infer,
+    region_row,
     times_usual,
     usual_chance,
 )
 
+from .inputs import compare
 from .models import RiskOutlook, RiskScore
 
 
@@ -488,6 +490,171 @@ class ScoreHistoryAPITests(APITestCase):
         response = self.client.get(f"/api/risk-scores/dates/?region={self.alpha.id}")
 
         self.assertEqual(response.data, ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+
+class ScoreInputsAPITests(APITestCase):
+    """`risk-scores/<id>/inputs/`: what the model was given for one score."""
+
+    @classmethod
+    def setUpTestData(cls):
+        rows = [[float(mm)] + [0.0] * (len(FEATURE_NAMES) - 1) for mm in range(0, 400, 10)]
+        cls.model = {
+            "version": "test-model",
+            "pipeline": train.candidates()["logreg"].fit(rows, [int(r[0] >= 200) for r in rows]),
+            "probability_bands": list(train.PROBABILITY_BANDS),
+            # April is the month of SCORE_DATE; the window before it ends in March.
+            "normals": {"Wet": {3: 100.0, 4: 300.0}},
+            "oni": {(2026, 1): 1.2},
+            "dmi": {(2026, 1): -0.1},
+        }
+        cls.county = make_region("Wet", offset=0.0)
+        GeospatialFeature.objects.create(region=cls.county, elevation=1200.0, slope=3.5)
+        for day_offset in range(60):
+            EnvironmentalData.objects.create(
+                region=cls.county,
+                record_date=SCORE_DATE - dt.timedelta(days=day_offset),
+                rainfall_intensity=12.0,
+            )
+        cls.score = RiskScore.objects.create(
+            region=cls.county,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.9,
+            risk_category=RiskScore.RiskCategory.VERY_HIGH,
+            model_version="test-model",
+        )
+
+    def _get(self, score=None, model="default"):
+        model = self.model if model == "default" else model
+        with mock.patch("riskengine.ml.infer._MODEL", model):
+            return self.client.get(f"/api/risk-scores/{(score or self.score).id}/inputs/")
+
+    def _inputs(self, response):
+        return {item["key"]: item for item in response.data["inputs"]}
+
+    def test_names_the_score_the_date_and_the_model(self):
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["score"], self.score.id)
+        self.assertEqual(response.data["region_name"], "Wet")
+        self.assertEqual(response.data["date"], SCORE_DATE.isoformat())
+        self.assertEqual(response.data["model_version"], "test-model")
+        self.assertTrue(response.data["same_model"])
+
+    def test_rainfall_is_set_against_the_countys_normal_for_the_month(self):
+        inputs = self._inputs(self._get())
+
+        # 12 mm a day: 360 mm in 30 days, 84 mm in the wettest 7.
+        self.assertEqual(inputs["rain_30d"]["value"], 360.0)
+        self.assertEqual(inputs["rain_30d"]["usual"], 300.0)
+        self.assertEqual(inputs["rain_30d"]["comparison"], "above")
+        self.assertEqual(inputs["rain_30d"]["unit"], "mm")
+        # The window before ends in March, so it is set against March's normal.
+        self.assertEqual(inputs["rain_prev_30d"]["value"], 360.0)
+        self.assertEqual(inputs["rain_prev_30d"]["usual"], 100.0)
+        self.assertEqual(inputs["rain_7d_max"]["value"], 84.0)
+        self.assertIsNone(inputs["rain_7d_max"]["comparison"])
+
+    def test_oceans_season_and_land_are_described(self):
+        inputs = self._inputs(self._get())
+
+        self.assertEqual(inputs["oni"]["value"], 1.2)
+        self.assertEqual(inputs["oni"]["note"], "El Niño conditions")
+        self.assertEqual(inputs["dmi"]["note"], "Neutral")
+        self.assertEqual(inputs["season"]["note"], "April: Long rains (March to May)")
+        self.assertEqual(inputs["elevation"]["value"], 1200.0)
+        self.assertEqual(inputs["slope"]["value"], 3.5)
+        self.assertEqual(inputs["area"]["value"], 12345.0)
+
+    def test_values_match_the_row_the_model_is_given(self):
+        inputs = self._inputs(self._get())
+        rain = dict(
+            self.county.environmental_records.values_list("record_date", "rainfall_intensity")
+        )
+        row = dict(
+            zip(FEATURE_NAMES, region_row(self.model, self.county, rain, SCORE_DATE), strict=True)
+        )
+
+        self.assertEqual(inputs["rain_30d"]["value"], row["rain_30d"])
+        self.assertEqual(inputs["rain_7d_max"]["value"], row["rain_7d_max"])
+        self.assertEqual(inputs["rain_prev_30d"]["value"], row["rain_prev_30d"])
+        self.assertEqual(inputs["oni"]["value"], row["oni"])
+        self.assertEqual(inputs["dmi"]["value"], row["dmi"])
+
+    def test_a_sub_county_is_measured_against_its_countys_normal_and_area(self):
+        sub_county = make_sub_county("Wet East", self.county, x=0.1)
+        sub_score = RiskScore.objects.create(
+            region=sub_county,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test-model",
+        )
+
+        inputs = self._inputs(self._get(sub_score))
+
+        self.assertEqual(inputs["rain_30d"]["usual"], 300.0)
+        self.assertEqual(inputs["area"]["value"], 12345.0)
+
+    def test_missing_data_is_unknown_not_zero(self):
+        empty = make_region("Empty", offset=4.0)
+        empty_score = RiskScore.objects.create(
+            region=empty,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test-model",
+        )
+
+        inputs = self._inputs(self._get(empty_score))
+
+        for key in ("rain_30d", "rain_prev_30d", "rain_7d_max", "elevation", "slope"):
+            with self.subTest(key=key):
+                self.assertIsNone(inputs[key]["value"])
+        self.assertIsNone(inputs["rain_30d"]["usual"])
+        self.assertIsNone(inputs["rain_30d"]["comparison"])
+
+    def test_inputs_the_model_was_not_trained_on_are_left_out(self):
+        narrow = {**self.model, "features": ["rain_30d", "month_sin", "month_cos"]}
+
+        inputs = self._inputs(self._get(model=narrow))
+
+        self.assertEqual(set(inputs), {"rain_30d", "season"})
+
+    def test_says_when_the_score_came_from_another_model(self):
+        response = self._get(model={**self.model, "version": "newer-model"})
+
+        self.assertFalse(response.data["same_model"])
+        self.assertEqual(response.data["computed_with"], "newer-model")
+        self.assertEqual(response.data["model_version"], "test-model")
+
+    def test_a_placeholder_scorer_has_no_inputs(self):
+        response = self._get(model=None)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["inputs"], [])
+        self.assertFalse(response.data["same_model"])
+
+    def test_unknown_score_is_not_found(self):
+        response = self.client.get("/api/risk-scores/999999/inputs/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class CompareTests(TestCase):
+    def test_within_a_tenth_of_usual_is_near(self):
+        self.assertEqual(compare(105.0, 100.0), "near")
+        self.assertEqual(compare(95.0, 100.0), "near")
+        self.assertEqual(compare(111.0, 100.0), "above")
+        self.assertEqual(compare(89.0, 100.0), "below")
+
+    def test_unknown_on_either_side_is_unknown(self):
+        self.assertIsNone(compare(None, 100.0))
+        self.assertIsNone(compare(50.0, None))
+
+    def test_a_usual_of_zero_does_not_divide(self):
+        self.assertEqual(compare(5.0, 0.0), "above")
+        self.assertEqual(compare(0.0, 0.0), "near")
 
 
 class RelocationAdvisoryTests(TestCase):

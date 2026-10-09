@@ -659,6 +659,35 @@ body {
   color: var(--text-muted);
 }
 
+/* The inputs behind a score: a name, its value, and how it sits against usual. */
+.inputs {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px 12px;
+  font-size: 12.5px;
+}
+
+.inputs dt {
+  color: var(--text-muted);
+}
+
+.inputs dd {
+  margin: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.inputs__value {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.inputs__against {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
 .open-region {
   margin-top: 12px;
   padding: 6px 12px;

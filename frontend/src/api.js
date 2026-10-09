@@ -120,6 +120,11 @@ export function fetchScoreHistory(regionId, after, before) {
   );
 }
 
+/** What the model was given for one stored score, each input against its usual value. */
+export function fetchScoreInputs(scoreId) {
+  return getJson(withParams(`risk-scores/${scoreId}/inputs/`));
+}
+
 /** The months a seasonal outlook exists for: [{ month, issued_on }], soonest first. */
 export function fetchOutlookMonths() {
   return getJson(withParams("risk-outlook/months/"));

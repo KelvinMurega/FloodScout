@@ -442,6 +442,7 @@ The REST API was implemented with Django REST Framework under `/api/`.
 | `GET /api/risk-scores/latest-by-region/` | The latest score for every region in one database query |
 | `GET /api/risk-scores/?region=<id>&date_after=<date>&date_before=<date>` | The stored scores of one region between two days, both included, newest first |
 | `GET /api/risk-scores/dates/` | The days for which scores are stored |
+| `GET /api/risk-scores/<id>/inputs/` | The model inputs behind one stored score, each with its usual value where one exists |
 | `GET /api/risk-scores/lower-risk-neighbours/?region=<id>` | Adjacent regions with a lower risk category |
 | `GET /api/risk-outlook/`, `GET /api/risk-outlook/months/` | The seasonal outlook |
 | `POST /api/auth/token/` | A token and the user's role, for a valid username and password |
@@ -524,6 +525,22 @@ output, date and model version. Both work for the latest scores, an earlier
 day and an outlook month.
 [Figure 5.4c: the printed report for the Lake Basin region.]
 
+Under the history, the detail panel lists the inputs behind the selected
+score (wireframe 4.8): the rainfall of the 30 days up to the date and of the
+30 days before, each against the county's usual rainfall for that month and
+marked as above, below or near it; the wettest seven days; the two ocean
+indices with the phase they indicate; the season; and the elevation, slope
+and county area. The values are read through the same functions that build
+the model's input row, so the panel cannot differ from what was scored, and
+a test checks that they match that row. The panel is headed "Inputs behind
+this score" and states that these are inputs and not causes. The wireframe
+also showed a model confidence percentage. It was left out, because the
+evaluation found the probabilities too high on later years (Section 5.7.5),
+and a percentage would claim a precision the model does not have. For the
+Garissa score of 8 October 2026 the panel showed 100.6 mm of rain in 30
+days against a usual 24.2 mm.
+[Figure 5.4d: inputs behind the Garissa score.]
+
 [Add one screenshot of an error state, for example the dashboard when the API
 is not running.]
 
@@ -552,10 +569,10 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 183 tests. On 8 October 2026 all 183 passed
+The suite contained 196 tests. On 8 October 2026 all 196 passed
 (`docker compose run --rm web python manage.py test`). The run took 382
-seconds with 173 tests on the laptop when it was otherwise idle, and 1,238
-seconds with 183 tests while a browser and the dashboard's development
+seconds with 173 tests on the laptop when it was otherwise idle, and 1,672
+seconds with 196 tests while a browser and the dashboard's development
 server were also running. Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
@@ -603,6 +620,10 @@ Chapter 4.]
 | TC-36 | FR-05, history | Chart positions for days with a gap between them | The gap is kept; the usual chance is always in range | Pass |
 | TC-37 | FR-05, export | Scores written as CSV | A header and one line per area, highest risk first | Pass |
 | TC-38 | FR-05, export | A name holding a comma or a quotation mark | Field quoted, quotation marks doubled | Pass |
+| TC-39 | FR-05, inputs | `risk-scores/<id>/inputs/` for a county with 12 mm of rain a day | 360 mm against the county's normal for the month, marked above | Pass |
+| TC-40 | FR-05, inputs | The same values against the row given to the model | Equal | Pass |
+| TC-41 | FR-05, inputs | A region with no rainfall or terrain on file | Values reported as unknown, not as zero | Pass |
+| TC-42 | FR-05, inputs | A score written by an earlier model version | Response says the inputs were worked out with a different model | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 `riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and

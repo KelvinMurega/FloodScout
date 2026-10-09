@@ -198,15 +198,19 @@ def flood_probabilities(model: dict, rows: list[list[float]]) -> list[float]:
     return [float(p) for p in model["pipeline"].predict_proba(np.array(rows, dtype=float))[:, 1]]
 
 
-def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
-    """Score one region from what the database holds for it."""
-    rain = dict(
+def region_rain(region, date: dt.date) -> dict[dt.date, float]:
+    """Stored daily rainfall for `region` over the HISTORY_DAYS ending on `date`."""
+    return dict(
         region.environmental_records.filter(
             record_date__gt=date - dt.timedelta(days=HISTORY_DAYS), record_date__lte=date
         ).values_list("record_date", "rainfall_intensity")
     )
+
+
+def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
+    """Score one region from what the database holds for it."""
     terrain = region.geospatial_features.order_by("-pk").first()
-    row = region_row(model, region, rain, date, terrain)
+    row = region_row(model, region, region_rain(region, date), date, terrain)
     predicted_value = round(flood_probabilities(model, [row])[0], 4)
     return predicted_value, classify(predicted_value, model_thresholds(model))
 
