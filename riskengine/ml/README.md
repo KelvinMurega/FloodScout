@@ -517,6 +517,49 @@ county's risk sits on the map, not which of its sub-counties is worse.
   only three Kenyan events are class 2. The model predicts whether a large
   flood is recorded, not how bad.
 
+## Experiments log
+
+Each attempt to improve the model is one controlled change, judged on the
+year-held-out cross-validation and never on the final test. It gets a row
+below whether it helped or not.
+
+### Baseline, 9 October 2026
+
+The figures every experiment is compared against. They are run
+`20261007T1353Z_07abff3` (`flood-random-forest-20261007`), read from
+`artifacts/metrics.json` and `artifacts/unosat_validation_sub_county.csv`.
+A warning is High or Very High (above 10%).
+
+| Measure | Baseline | Where it is stored |
+|---|---|---|
+| Average precision, pooled held-out rows | 0.254 | `comparison` |
+| Average precision, mean (sd) of six folds | 0.297 (0.098) | `fold_summary` |
+| ROC AUC, pooled | 0.787 | `comparison` |
+| Brier score, pooled | 0.0798 | `comparison` |
+| Lift over the season-only model, pooled | 2.05 times | `lift_over_season_only` |
+| Floods caught by a warning | 1,008 of 1,406 (71.7%) | `threshold_errors` |
+| Warnings followed by a recorded flood | 21.5% | `threshold_errors` |
+| June floods missed | 86 of 88 | `error_breakdown.by_month` |
+| Floods missed in Nairobi, Kilifi, Lamu and Kwale | 33 of 71 (46%) | `error_breakdown.by_county` |
+| Very High: probability given against floods recorded | 31.2% against 26.4% | `band_calibration` |
+| Final test, 2017 to 2021: lift over the season-only model | 1.08 times | `final_test` |
+| Final test: Very High given against recorded | 33.5% against 17.6% | `final_test.band_calibration` |
+| UNOSAT, counties, both events: ROC AUC | 0.616 | `unosat_validation.csv` |
+| UNOSAT, sub-counties ranked within their county: ROC AUC | 0.461 | `unosat_validation_sub_county.csv` |
+
+The two final-test rows are here to show where the model stands. They are
+not used to decide whether a change is kept.
+
+### Log
+
+"Before" and "after" are pooled held-out average precision unless the
+change targets another measure in the table above, in which case that
+measure is given as well.
+
+| Date | What changed | Before | After | Kept or dropped |
+|---|---|---|---|---|
+| | No experiments yet | | | |
+
 ## Running it
 
 ```bash

@@ -46,12 +46,11 @@ and what counts as done.
 
 ---
 
-## Progress at 8 October 2026
+## Progress at 9 October 2026
 
-"Built" means the work is finished, tested and in an open pull request that
-passes CI but is not yet merged into `develop`. The seven open pull requests
-are stacked, so they are merged in number order: #63, #64, #65, #66, #67,
-#68, #69.
+Pull requests #63 to #70 were merged into `develop` on 9 October, in number
+order, each with CI passing. Issues #46 and #48 to #52 closed with them.
+"Open" in the table means a pull request that is not yet merged.
 
 ### Completed
 
@@ -60,13 +59,14 @@ are stacked, so they are merged in number order: #63, #64, #65, #66, #67,
 | 1. Repository hygiene | Line endings pinned, stale folder removed, PR #9 and the licence settled | Merged (#43) |
 | 2. Sprint task list | Labels, one issue per phase, project board linked to objectives iv and v | Done on GitHub |
 | 3. Colab provenance and Drive | Commit and run id recorded in every run; runs saved to Google Drive | Merged (#62) |
-| 4. Extra ML evidence | Seed variation, learning curve, computing budget, threshold metrics in `metrics.json`; retrained as run `20261007T1353Z_07abff3` | Built (#63) |
-| 6.1 Location search (FR-01) | Search box over counties and focus-region sub-counties | Built (#64) |
-| 6.2 Score history (FR-05) | `date_after`, `date_before` and `dates/` on the API; date field and 30-day chart on the dashboard | Built (#65) |
-| 6.3 Report and export | Print report and Download CSV; the map-fit fix | Built (#66) |
-| 6.4 Inputs behind a score | `risk-scores/<id>/inputs/` and the detail panel list | Built (#67) |
-| 6.5 Administrator tasks (FR-06) | "Rescore all regions" in the administration site; the command-line choice stated in Chapter 5 | Built (#68) |
-| 9.1 Chapter 5 screenshots, in part | Nine dashboard screenshots in `docs/figures/` and referenced in Section 5.5.5 | Built (#69) |
+| 4. Extra ML evidence | Seed variation, learning curve, computing budget, threshold metrics in `metrics.json`; retrained as run `20261007T1353Z_07abff3` | Merged (#63) |
+| 6.1 Location search (FR-01) | Search box over counties and focus-region sub-counties | Merged (#64) |
+| 6.2 Score history (FR-05) | `date_after`, `date_before` and `dates/` on the API; date field and 30-day chart on the dashboard | Merged (#65) |
+| 6.3 Report and export | Print report and Download CSV; the map-fit fix | Merged (#66) |
+| 6.4 Inputs behind a score | `risk-scores/<id>/inputs/` and the detail panel list | Merged (#67) |
+| 6.5 Administrator tasks (FR-06) | "Rescore all regions" in the administration site; the command-line choice stated in Chapter 5 | Merged (#68) |
+| 9.1 Chapter 5 screenshots, in part | Nine dashboard screenshots in `docs/figures/` and referenced in Section 5.5.5 | Merged (#69) |
+| 5. Modelling experiments, preparation only | The baseline figures and an empty experiments log in `riskengine/ml/README.md` | Open (#71) |
 
 Tests at this point: 202 Django tests and 24 dashboard tests pass, and CI
 runs lint, the Django suite and the dashboard tests and build.
@@ -75,8 +75,8 @@ runs lint, the Django suite and the dashboard tests and build.
 
 In the order they should be done.
 
-1. **Merge #63 to #69** in number order, then move issues #46 and #48 to #52
-   to Done on the project board.
+1. **Merge #71**, then check that issues #46 and #48 to #52 show as Done on
+   the project board.
 2. **Sprint II items still open** (the review is in the week of 12 October):
    - Figure 5.5, the pull request list, to finish the screenshots (#54)
    - Chapter 4 diagrams updated to the design as built (#38), and the
@@ -685,8 +685,8 @@ resolution matrix (Semester I comment, change made, where); Turnitin report.
 - [x] Phase 1 merged; `git status` clean
 - [x] Phase 2 board shown, issues linked to objectives iv and v
 - [x] Phase 3 merged and one Colab run saved to Drive with a real commit
-- [ ] Phase 4 seed variation and learning curve in `metrics.json` (built;
-      waiting for #63 to be merged)
+- [x] Phase 4 seed variation and learning curve in `metrics.json` (merged
+      in #63)
 - [ ] Chapter 5 screenshots inserted; Chapter 4 diagrams updated (nine
       screenshots built in #69; the pull request list, the Word copy and the
       diagrams are open)
@@ -697,8 +697,7 @@ resolution matrix (Semester I comment, change made, where); Turnitin report.
 
 ### Sprint III / final submission
 
-- [ ] Phase 6 features merged with tests (all five built with tests;
-      waiting for #64 to #68 to be merged)
+- [x] Phase 6 features merged with tests (#64 to #68)
 - [ ] Phase 7 deployed over HTTPS on the domain, uptime monitored
 - [ ] Phase 8 performance and UAT evidence written up
 - [ ] Phase 9 Chapters 1 to 6, abstract, appendices, `AI_USE_LOG.md`
@@ -725,4 +724,4 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 | Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
 | Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
 | Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |
-| Repository | 66 commits on `develop`, 35 PRs opened, 26 merged, 8 open, tag `v0.2-sprint2` (8 October 2026) |
+| Repository | 84 commits on `develop`, 36 PRs opened, 34 merged, 1 closed without merging, 1 open, tag `v0.2-sprint2` (9 October 2026) |
