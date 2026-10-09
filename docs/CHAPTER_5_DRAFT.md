@@ -457,10 +457,23 @@ the same function as the `score_regions` command and is guarded by an
 model. An anonymous request to it is refused with HTTP 401 and a signed-in
 End User with HTTP 403. Sign-in attempts are limited to ten a minute per
 client address. The dashboard holds the token in memory only, so it is lost
-when the tab is closed. The other administrator tasks in the Use Case
-Diagram (uploading datasets, training the model, managing users) are done
-from the command line and the Django administration site, not through the
-API (Section 5.10.3).
+when the tab is closed.
+
+The other administrator tasks in the Use Case Diagram (FR-06) were left off
+the API on purpose. Uploading datasets and training the model are done from
+the command line: `seed_regions`, `seed_terrain`, `seed_rainfall` and
+`build_training_set` load and prepare the data, and the model is trained in
+the Colab notebook from a bundle that `build_colab_bundle` packs (Section
+5.4.4). Training takes about twenty minutes, must run from a recorded commit
+and produces files that are reviewed and committed, so a button that starts
+it from a browser would work against the course workflow and against the
+record of which code produced which model. Users are managed in the Django
+administration site. The same site offers rescoring: on the risk score list,
+the action "Rescore all regions for today" runs the function behind
+`score_regions` and the `rescore/` endpoint, needs no row to be ticked, and
+is refused for a staff account that is not a System Administrator. The use
+case "generate risk scores" can therefore be reached in three ways: the
+daily scheduler, the dashboard button and the administration site.
 
 ### 5.5.5 Client Tier and User Workflow
 
@@ -569,10 +582,10 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 196 tests. On 8 October 2026 all 196 passed
+The suite contained 202 tests. On 8 October 2026 all 202 passed
 (`docker compose run --rm web python manage.py test`). The run took 382
-seconds with 173 tests on the laptop when it was otherwise idle, and 1,672
-seconds with 196 tests while a browser and the dashboard's development
+seconds with 173 tests on the laptop when it was otherwise idle, and 1,355
+seconds with 202 tests while a browser and the dashboard's development
 server were also running. Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
@@ -624,6 +637,8 @@ Chapter 4.]
 | TC-40 | FR-05, inputs | The same values against the row given to the model | Equal | Pass |
 | TC-41 | FR-05, inputs | A region with no rainfall or terrain on file | Values reported as unknown, not as zero | Pass |
 | TC-42 | FR-05, inputs | A score written by an earlier model version | Response says the inputs were worked out with a different model | Pass |
+| TC-43 | FR-06, administration | "Rescore all regions" in the administration site with no row ticked | One score per region for today | Pass |
+| TC-44 | FR-06, administration | The same action by a staff account that is not a System Administrator | Refused, nothing scored | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 `riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and
@@ -1184,9 +1199,10 @@ separate from observation-based scores follows from this.
   task and the archive allowed a working system first.]
 - **Access control covers one administrator function.** Sign-in and the
   permission boundary are built and tested, but rescoring is the only
-  administrator task offered through the API and the dashboard. Uploading
-  datasets, training the model and managing users are done from the command
-  line and the Django administration site.
+  administrator task offered through the API, the dashboard and the
+  administration site. Uploading datasets and training the model are done
+  from the command line and in Colab by design (Section 5.5.4), and users
+  are managed in the Django administration site.
 - **Local deployment only.** The system ran on a development server with
   debugging enabled. No performance, load, security or usability testing was
   carried out, and no users other than the author used the system.

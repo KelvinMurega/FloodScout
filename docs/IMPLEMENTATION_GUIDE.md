@@ -53,7 +53,7 @@ for 47 counties and 290 sub-counties; a trained Random Forest compared
 against two baselines with year-grouped cross-validation; a final test on
 2017 to 2021; validation against UNOSAT satellite flood extents; a REST API
 with token sign-in and one administrator action; a Leaflet dashboard;
-a daily scheduled refresh; 196 passing tests; CI; tag `v0.2-sprint2`.
+a daily scheduled refresh; 202 passing tests; CI; tag `v0.2-sprint2`.
 
 **Honest rating (7 October):** engineering 8/10, ML evaluation rigour 8/10,
 actual predictive skill 5/10, alignment with the proposal 5/10, overall about
@@ -103,9 +103,9 @@ weakens the report, **L** = polish.
 | P-02 | Data sources differ from Chapter 3 (ERA5 not CHIRPS, Copernicus DEM not SRTM, Dartmouth archive not Sentinel-1/KMD/OCHA) | H | Phase 9 (Chapter 3 rewrite); justification is in Chapter 5 Table "Deviations" |
 | P-03 | SHAP proposed, permutation importance used | M | Supervisor sign-off; Phase 9 |
 | P-04 | Scope: "selected regions" proposed, whole country built; sub-county scores rank no better than chance within a county | M | Phase 9 (scope wording) |
-| P-05 | FR-01: no free-text location search | M | Phase 6 |
-| P-06 | FR-05 / wireframes: no date filter or score history, no trend chart, no printable report or export, no "contributing factors" panel | M | Phase 6 |
-| P-07 | FR-06 / use case: dataset upload and model training only from the command line | L | Phase 6 (document as a deliberate choice; optional admin action) |
+| P-05 | FR-01: no free-text location search | M | Done in Phase 6.1: search box over counties and focus-region sub-counties |
+| P-06 | FR-05 / wireframes: no date filter or score history, no trend chart, no printable report or export, no "contributing factors" panel | M | Done in Phase 6.2 to 6.4: date filter and 30-day chart, print and CSV, "Inputs behind this score" |
+| P-07 | FR-06 / use case: dataset upload and model training only from the command line | L | Done in Phase 6.5: stated as a deliberate choice in Chapter 5 Section 5.5.4, and "Rescore all regions" added to the administration site. The Word Chapter 4 still needs the same sentence |
 | P-08 | NFR-01 (3-second load) never measured | H | Phase 8 |
 | P-09 | NFR-03 usability never evaluated; no user acceptance testing | H | Phase 8 |
 | P-10 | NFR-04 availability never measured; system not deployed | M | Phase 7 |
@@ -653,7 +653,7 @@ All from `riskengine/ml/artifacts/metrics.json` unless stated.
 | Final test 2017 to 2021 | selected Gradient Boosting (on 1996 to 2016): ROC AUC 0.801, AP 0.191; season-only AP 0.177; Logistic Regression AP 0.270 |
 | UNOSAT, counties | Nov 2023 ROC AUC 0.744; Apr 2024 0.430; both 0.616 |
 | UNOSAT, sub-counties within county | 0.461 (no better than chance) |
-| Tests | 196 passing, 8 October 2026 (382 seconds for the first 173 on an idle laptop; 1,672 seconds for 196 under load), plus 24 dashboard tests (`npm test`) |
+| Tests | 202 passing, 8 October 2026 (382 seconds for the first 173 on an idle laptop; 1,355 seconds for 202 under load), plus 24 dashboard tests (`npm test`) |
 | Seed variation (CV, pooled AP, seeds 0 to 4) | Random Forest 0.2516 (sd 0.0027), Gradient Boosting 0.2339 (sd 0.0013), Logistic Regression 0.2385 (deterministic) |
 | Learning curve (CV, fold-mean AP) | 25% 0.217, 50% 0.255, 75% 0.309, 100% 0.297 |
 | Computing budget | 1,236 seconds, 2 cores, Intel Xeon 2.20 GHz (free Colab) |
