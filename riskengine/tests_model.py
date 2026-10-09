@@ -922,3 +922,72 @@ class ExperimentTests(SimpleTestCase):
             places=4,
         )
 
+    def test_rainfall_inputs_are_worked_out_again_from_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        changed = experiments.with_rainfall(self.data, doubled)
+
+        self.assertEqual(changed.features, self.data.features)
+        np.testing.assert_allclose(changed.X, 2 * self.data.X)
+        np.testing.assert_array_equal(changed.y, self.data.y)
+
+    def test_trial_inputs_follow_the_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        result = experiments.compare(
+            self.data, self.rainfall, ["rain_90d"], seeds=(0,), other_rainfall=doubled
+        )
+
+        # Doubling every day's rain keeps the order of every row, so a
+        # forest scores the same as on the original rainfall.
+        same = experiments.compare(self.data, self.rainfall, ["rain_90d"], seeds=(0,))
+        self.assertEqual(result["after"]["features"], same["after"]["features"])
+        self.assertAlmostEqual(
+            result["after"]["average_precision"]["mean"],
+            same["after"]["average_precision"]["mean"],
+            places=3,
+        )
+
+
+class LabelCheckTests(SimpleTestCase):
+    """The circle labels set against mapped flood water (geodata/services/gfd.py)."""
+
+    def test_counties_are_counted_under_the_circle_and_mapped_wet(self):
+        from geodata.services import gfd
+
+        circles = {7: {"A", "B", "C"}, 9: {"A"}}
+        mapped = {7: {"A": 12.0, "B": 4.9, "C": 0.0, "D": 5.0}}
+
+        rows = gfd.compare_with_circles(circles, mapped, min_km2=5.0)
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "event": 7,
+                    "circle": 3,
+                    "circle_and_wet": 1,
+                    "circle_only": 2,
+                    "wet_only": 1,
+                    "mapped_km2": 21.9,
+                }
+            ],
+        )
+
+    def test_cached_events_need_no_earth_engine(self):
+        from geodata.services import gfd
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "km2.json"
+            cache.write_text(json.dumps({"7": {"A": 12.0}, "8": {"A": 1.0}}))
+            with mock.patch.object(gfd.earth_engine_rain, "_ee", side_effect=AssertionError):
+                mapped = gfd.flooded_km2([], [7], cache)
+
+        self.assertEqual(mapped, {7: {"A": 12.0}})
+

@@ -513,11 +513,11 @@ county's risk sits on the map, not which of its sub-counties is worse.
   try the drainage inputs again and check their coefficients have the
   expected sign before keeping them. Using them properly needs labels that
   say where inside a county it flooded.
-- **The biggest remaining gain is better labels.** The Global Flood
-  Database (`GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` on Earth Engine) has the
-  mapped extent of each DFO flood from 2000 to 2018. Labelling a county
-  only where that extent actually touched it, instead of the whole circle,
-  would fix the coarseness above at the source.
+- **The biggest remaining gain is better labels.** Against the floods the
+  Global Flood Database mapped, a third of the counties a circle labels as
+  flooded held mapped flood water (see "The labels against mapped flood
+  water"). That database maps only 17 of the 62 floods placed on Kenya from
+  2000 to 2018, so it measures the problem and does not solve it.
 - **Severity classes are not modelled.** DFO grades floods 1, 1.5 and 2, but
   only three Kenyan events are class 2. The model predicts whether a large
   flood is recorded, not how bad.
@@ -566,6 +566,7 @@ targets improves and average precision does not fall by more than that.
 
 ```bash
 docker compose run --rm web python manage.py compare_inputs rain_60d rain_90d
+docker compose run --rm web python manage.py compare_inputs --county-mean-rain
 ```
 
 With no inputs added the command gives average precision 0.2516 (0.0027),
@@ -583,8 +584,47 @@ measure the change targets beside it.
 |---|---|---|---|---|
 | 9 Oct 2026 | Added `rain_60d` and `rain_90d`, rainfall over 60 and 90 days, so that June still sees the long rains | 0.2516; 86.2 of 88 June floods missed | 0.2499; 85.8 of 88 | Dropped |
 | 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
+| 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (ERA5, Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept. Not in the shipped model until it is retrained on Colab |
 
-What the two results show:
+#### County-mean rainfall (kept)
+
+| Measure | One point | County mean |
+|---|---|---|
+| Average precision, pooled | 0.2516 (0.0027) | 0.2713 (0.0018) |
+| Average precision, mean of six folds | 0.2940 (0.0043) | 0.3006 (0.0022) |
+| ROC AUC, pooled | 0.7834 (0.0024) | 0.7980 (0.0011) |
+| Brier score, pooled | 0.0801 (0.0003) | 0.0791 (0.0001) |
+| Floods missed, of 1,406 | 412.8 | 385.8 |
+| False alarms | 3,686 | 3,598 |
+| June floods missed, of 88 | 86.2 | 84.0 |
+| Floods missed in Nairobi, Kilifi, Lamu and Kwale, of 71 | 32.4 | 29.2 |
+
+Mean (standard deviation) over seeds 0 to 4. Average precision rises by
+0.0197, about four times the threshold, and it is the first change that
+both catches more floods and raises fewer false alarms. Against the
+season-only model's 0.1235 the lift goes from 2.04 to 2.20 times. The gain
+averaged by fold is smaller (0.007), which suggests most of it is better
+ranking across years, not within one.
+
+A county is tens of kilometres across and one point is one grid cell of it,
+so the mean is the better measure of how much rain the county received.
+`build_training_set --rain-source earth-engine` already builds a training
+set this way; this is the first measurement of it recorded here.
+
+What keeping it requires, none of it done yet:
+
+1. Rebuild the training set with `--rain-source earth-engine`, and retrain
+   on Colab. Until then the shipped model is still the 7 October one.
+2. Scoring then averages five Open-Meteo points per region, which
+   `rain_points` in the model already tells `seed_rainfall` and
+   `flood_outlook` to do. Those points are ERA5 at about 25 km and the
+   training rainfall is ERA5-Land at about 11 km, so the two are close but
+   not the same measurement. Run `validate_unosat` again after the retrain
+   to see whether the gain carries over to scoring.
+
+#### Rainfall inputs (dropped)
+
+What the first two results show:
 
 - **Neither change moved average precision beyond the noise** (-0.0017 and
   -0.0034, against a threshold of 0.005). Both caught about 17 more floods
@@ -614,6 +654,46 @@ What the two results show:
 The four inputs are still worked out by `rainfall_features` and listed as
 `CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
 better labels.
+
+### The labels against mapped flood water
+
+Not a change to the model: a measurement of the labels it learns from.
+`check_labels_gfd` takes the floods the Global Flood Database mapped from
+MODIS (`docs/DATA_DICTIONARY.md`, section 6) and compares, event by event,
+the counties under the circle with the counties that held at least 5 km² of
+mapped flood water. Run on 9 October 2026; the rows are in
+`artifacts/gfd_label_check.csv`.
+
+```bash
+docker compose run --rm web python manage.py check_labels_gfd
+```
+
+| | Count |
+|---|---|
+| Floods placed on Kenya, 2000 to 2018 | 62 |
+| Of those, mapped by the database | 17 |
+| County labels from the 62 floods | 615 |
+| County labels from the 17 mapped floods | 139 |
+| Of the 139, counties that held mapped flood water | 46 (33%) |
+| Of the 139, counties with none mapped | 93 |
+| Counties with mapped flood water outside the circle | 52 |
+
+- **Two thirds of the counties a circle labels as flooded held no mapped
+  flood water**, and more counties held it outside a circle (52) than
+  inside one (46). The flood of April 2002 is the clearest case: its circle
+  covers 41 counties and water was mapped in 5.
+- **This is an upper estimate of the error.** MODIS at 250 m does not see
+  water under cloud or trees, or in narrow and urban channels, so some of
+  the 93 did flood. It is still the first number put on the weakness that
+  "Known limits" describes.
+- **The database cannot replace the circles.** It maps 17 of the 62 floods
+  and 139 of the 615 labels (23%), and the largest floods are not among
+  them: those of 2003, 2005, 2006, 2010 and 2018. Relabelling a quarter of
+  the rows would leave a training set made two ways. The earlier note that
+  this database would fix the labels "at the source" was too hopeful.
+- **What it leaves.** Labels that say where the water was have to be made
+  for the events that matter, from satellite images, which is practical for
+  a few regions and not for the country.
 
 ## Running it
 

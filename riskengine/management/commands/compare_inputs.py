@@ -1,25 +1,34 @@
-"""Score the model with and without inputs that are under trial.
+"""Score the model with and without a change to its inputs.
 
     manage.py compare_inputs rain_60d rain_90d
+    manage.py compare_inputs --county-mean-rain
 
-Compares the current inputs with the current inputs plus the ones named, on
-held-out years, and prints both. Nothing is saved: the shipped model is not
-touched. See riskengine/ml/experiments.py for how, and record the result in
-the experiments log in riskengine/ml/README.md.
+The first compares the current inputs with the current inputs plus the ones
+named. The second works the rainfall inputs out from rainfall averaged over
+each county (ERA5-Land, through Earth Engine) in place of one point, with
+the labels and every other input unchanged. Both can be given together.
 
-Needs data/processed/training_set.csv and the rainfall `build_training_set`
-cached. Point rainfall only: a training set built with --rain-source
-earth-engine has no daily point series to work the trial inputs out from.
+Both sides are scored on held-out years and printed. Nothing is saved: the
+shipped model is not touched. See riskengine/ml/experiments.py for how, and
+record the result in the experiments log in riskengine/ml/README.md.
+
+Needs data/processed/training_set.csv built on point rainfall, and the
+rainfall `build_training_set` cached. --county-mean-rain needs Earth Engine
+the first time (see geodata/services/earth_engine_rain.py).
 """
 
 from __future__ import annotations
 
+import datetime as dt
+
 from django.core.management.base import BaseCommand, CommandError
 
+from geodata.models import Region
+from geodata.services import earth_engine_rain
 from riskengine.ml import experiments, train
-from riskengine.ml.features import CANDIDATE_FEATURES
+from riskengine.ml.features import CANDIDATE_FEATURES, HISTORY_DAYS
 
-from .build_training_set import RAINFALL_DIR, TRAINING_SET_PATH
+from .build_training_set import EE_RAINFALL_DIR, RAINFALL_DIR, TRAINING_SET_PATH
 
 MEASURES = (
     ("average_precision", "Average precision, pooled", None),
@@ -39,10 +48,15 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "inputs",
-            nargs="+",
+            nargs="*",
             choices=CANDIDATE_FEATURES,
             metavar="INPUT",
             help=f"Inputs to add, from: {', '.join(CANDIDATE_FEATURES)}.",
+        )
+        parser.add_argument(
+            "--county-mean-rain",
+            action="store_true",
+            help="Measure rainfall as the mean over each county instead of at one point.",
         )
         parser.add_argument(
             "--seeds",
@@ -54,6 +68,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not options["inputs"] and not options["county_mean_rain"]:
+            raise CommandError("Nothing to compare: name an input or give --county-mean-rain.")
         if not TRAINING_SET_PATH.exists():
             raise CommandError(
                 f"{TRAINING_SET_PATH} not found — run `manage.py build_training_set` first."
@@ -63,8 +79,11 @@ class Command(BaseCommand):
             raise CommandError("The training set was not built on point rainfall.")
         try:
             rainfall = experiments.cached_rainfall(RAINFALL_DIR, sorted(set(data.counties)))
-            result = experiments.compare(data, rainfall, options["inputs"], options["seeds"])
-        except (FileNotFoundError, ValueError) as exc:
+            county_mean = self._county_mean_rainfall(data) if options["county_mean_rain"] else None
+            result = experiments.compare(
+                data, rainfall, options["inputs"], options["seeds"], other_rainfall=county_mean
+            )
+        except (FileNotFoundError, ValueError, earth_engine_rain.EarthEngineError) as exc:
             raise CommandError(str(exc)) from exc
 
         before, after = result["before"], result["after"]
@@ -72,7 +91,10 @@ class Command(BaseCommand):
             f"{experiments.MODEL} on held-out years, mean (sd) over seeds {before['seeds']}; "
             f"a warning is above {100 * train.WARNING_THRESHOLD:.0f}%"
         )
-        self.stdout.write(f"Added: {', '.join(result['added'])}")
+        if options["county_mean_rain"]:
+            self.stdout.write("Rainfall: one point per county before, the county mean after")
+        if result["added"]:
+            self.stdout.write(f"Added: {', '.join(result['added'])}")
         self.stdout.write("")
         self.stdout.write(f"  {'':<44} {'before':>18} {'after':>18}")
         for key, label, total in MEASURES:
@@ -87,4 +109,12 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Pooled average precision changed by {result['average_precision_change']:+.4f}, "
             f"{verdict} the noise between seeds ({experiments.NOISE})."
+        )
+
+    def _county_mean_rainfall(self, data):
+        """Daily county-mean rainfall over the span the training set was built on."""
+        counties = list(Region.objects.filter(level=Region.Level.COUNTY).order_by("name"))
+        first, last = (dt.date.fromisoformat(date) for date in (min(data.dates), max(data.dates)))
+        return earth_engine_rain.fetch_county_rainfall(
+            counties, first - dt.timedelta(days=HISTORY_DAYS), last, EE_RAINFALL_DIR, log=self.stdout.write
         )

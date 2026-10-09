@@ -8,7 +8,10 @@ FEATURE_NAMES and the model is retrained on Colab.
 
 The inputs under trial (CANDIDATE_FEATURES) are worked out from the cached
 daily rainfall `build_training_set` downloaded, so the training set itself
-is not rebuilt for a trial.
+is not rebuilt for a trial. Another measurement of rainfall (the mean over
+the county in place of one point) is tried the same way, by working the
+rainfall inputs out again and leaving every other column and the labels as
+they are.
 
 The Random Forest is the model compared, because it is the one selected.
 It draws random numbers, so every figure is a mean over SEEDS: a difference
@@ -43,6 +46,10 @@ INTENSE_RAIN_COUNTIES = ("Nairobi", "Kilifi", "Lamu", "Kwale")
 # A change in pooled average precision smaller than this is treated as no
 # change: about twice the standard deviation across seeds (0.0027).
 NOISE = 0.005
+
+# The inputs `with_rainfall` works out again. `rain_30d_ratio` follows,
+# because training recomputes it from `rain_30d` in every fold.
+RAIN_INPUTS = ("rain_30d", "rain_7d_max", "rain_prev_30d")
 
 
 def cached_rainfall(cache_dir: Path, counties) -> dict[str, dict[dt.date, float]]:
@@ -96,6 +103,28 @@ def with_candidates(
     return train.TrainingSet(
         features=(*data.features, *names),
         X=np.hstack([data.X, extra]),
+        y=data.y,
+        years=data.years,
+        months=data.months,
+        counties=data.counties,
+        dates=data.dates,
+        meta=data.meta,
+    )
+
+
+def with_rainfall(
+    data: train.TrainingSet, rainfall: dict[str, dict[dt.date, float]]
+) -> train.TrainingSet:
+    """`data` with its rainfall inputs worked out again from `rainfall`."""
+    X = data.X.copy()
+    for index, (county, date) in enumerate(zip(data.counties, data.dates)):
+        rain = rainfall_features(rainfall[county], dt.date.fromisoformat(date))
+        for name in RAIN_INPUTS:
+            if name in data.features:
+                X[index, data.column(name)] = rain[name]
+    return train.TrainingSet(
+        features=data.features,
+        X=X,
         y=data.y,
         years=data.years,
         months=data.months,
@@ -160,10 +189,22 @@ def evaluate(data: train.TrainingSet, seeds=train.SEEDS) -> dict:
     return out
 
 
-def compare(data: train.TrainingSet, rainfall, names, seeds=train.SEEDS) -> dict:
-    """The current inputs against the current inputs plus `names`."""
+def compare(
+    data: train.TrainingSet, rainfall, names=(), seeds=train.SEEDS, other_rainfall=None
+) -> dict:
+    """The current model against one with `names` added, on `other_rainfall` if given.
+
+    `rainfall` is the rainfall `data` was built on. With `other_rainfall`,
+    the changed model's rainfall inputs, the trial inputs included, are
+    worked out from it instead.
+    """
     before = evaluate(data, seeds)
-    after = evaluate(with_candidates(data, rainfall, names), seeds)
+    changed = data
+    if other_rainfall is not None:
+        changed = with_rainfall(changed, other_rainfall)
+    if names:
+        changed = with_candidates(changed, other_rainfall or rainfall, names)
+    after = evaluate(changed, seeds)
     change = round(after["average_precision"]["mean"] - before["average_precision"]["mean"], 4)
     return {
         "added": list(names),
