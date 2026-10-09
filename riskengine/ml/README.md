@@ -571,7 +571,11 @@ docker compose run --rm web python manage.py compare_inputs --county-mean-rain
 
 With no inputs added the command gives average precision 0.2516 (0.0027),
 the figure in "Repeated runs" above, so it measures the same thing as the
-training run. The counts below are means over five seeds, so they differ a
+training run. The comparisons in the log were run on the training set
+built on point rainfall on 2 October (SHA-256 `367173d3...`, the one the
+7 October model was trained on). It is kept in `data/processed/` as
+`training_set_point_20261002.csv`, because `training_set.csv` was rebuilt
+on county-mean rainfall on 9 October for the retrain. The counts below are means over five seeds, so they differ a
 little from the baseline table, which is seed 0 alone (June floods missed:
 86.2 against 86).
 
@@ -585,6 +589,7 @@ measure the change targets beside it.
 | 9 Oct 2026 | Added `rain_60d` and `rain_90d`, rainfall over 60 and 90 days, so that June still sees the long rains | 0.2516; 86.2 of 88 June floods missed | 0.2499; 85.8 of 88 | Dropped |
 | 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
 | 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (ERA5, Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept. Not in the shipped model until it is retrained on Colab |
+| 9 Oct 2026 | Labels: a flood counts for the window it began in, and for a later one only with seven days in it (on county-mean rainfall) | 0.2713 on the current labels; lift over season only 2.20 | 0.2566 on the new labels; lift 2.36. Trained on the current labels and scored on the new: 0.2672 | Not adopted |
 
 #### County-mean rainfall (kept)
 
@@ -640,10 +645,10 @@ What the first two results show:
   whole of June: 76 of the 88 rows. Across the 88, June itself was drier
   than usual (median 33 mm against 41 mm in June months with no flood)
   while the month before was much wetter (152 mm against 80 mm). The
-  model's low June probability is a fair reading of such a month. The remedy is in how a flood is assigned to a month, for
-  example by requiring a minimum number of days of overlap. That changes
-  the target for every month, so it belongs with the work on the labels
-  and is not done here.
+  model's low June probability is a fair reading of such a month. The
+  remedy is in how a flood is assigned to a month, for example by
+  requiring a minimum number of days of overlap. That was tried next: see
+  "Assigning a flood to a month" below.
 - **`heavy_days` has almost nothing to count.** ERA5 rainfall at about
   25 km reaches 50 mm in a day on 0.1% of days, and 3% of county-months
   have any such day. A city flood from an hour of rain is not in this
@@ -654,6 +659,60 @@ What the first two results show:
 The four inputs are still worked out by `rainfall_features` and listed as
 `CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
 better labels.
+
+### Assigning a flood to a month (not adopted)
+
+The June result above suggested a change to the labels: a flood counts for
+the 30 days it began in, and for a later 30 days only when at least seven
+of its days fall in them. `compare_labels` works the labels out again under
+that rule and compares, on county-mean rainfall. Run on 9 October 2026.
+
+```bash
+docker compose run --rm web python manage.py compare_labels --min-overlap-days 7 --county-mean-rain
+```
+
+Changing the labels changes what is predicted, so there are three columns
+and no single before and after.
+
+| | Current labels | New labels | Trained on current, scored on new |
+|---|---|---|---|
+| County-months with a flood | 1,406 | 1,198 | 1,198 |
+| Base rate | 0.0968 | 0.0825 | 0.0825 |
+| Season-only average precision | 0.1235 | 0.1085 | 0.1117 |
+| Average precision, pooled | 0.2713 | 0.2566 | 0.2672 |
+| Average precision, mean of six folds | 0.3006 | 0.2926 | 0.2999 |
+| ROC AUC, pooled | 0.7980 | 0.8204 | 0.8201 |
+| Lift over the base rate | 2.80 | 3.11 | 3.24 |
+| Lift over the season-only model | 2.20 | 2.36 | 2.39 |
+| False alarms | 3,598 | 2,826 | 3,691 |
+| June floods, and how many are missed | 88, 84 missed | 12, 12 missed | 12, 8.4 missed |
+
+- **The rule removes 208 flood labels of 1,406 (15%)**, every one of them
+  the last one to six days of a flood that began in an earlier window.
+  June goes from 88 floods to 12.
+- **The model is better than its headline figures say.** Scored against
+  labels without those tails, the model as it is trained now reaches ROC
+  AUC 0.820 against 0.798, and 3.24 times the base rate against 2.80. Part
+  of what was counted as error was the labels.
+- **Training on the new labels does not help.** The model trained on the
+  current labels predicts the new ones at least as well as the model
+  trained on them (average precision 0.2672 against 0.2566). The tail of a
+  flood still tells the model that a place was wet, so removing it takes
+  away a little signal along with the noise.
+- **So the rule is not adopted.** `MIN_OVERLAP_DAYS` in `build_training_set`
+  stays at 1 and the labels are unchanged. Adopting it would change the
+  target, and with it every figure in this file, for no gain in what the
+  model learns. The finding is reported here instead.
+- **The 12 June floods that remain are still missed** by a model trained on
+  the new labels. With 12 of them in 26 years there is too little to learn
+  from, and too little to conclude from.
+
+A stricter first version of the rule (seven days in the window, or half of
+a shorter flood, with no exception for the window a flood began in) was
+tried first and did worse: it also removed the month in which a flood
+began late, which is the month whose rain caused it. Average precision on
+its own labels was 0.2231, and the model trained on the current labels
+again predicted them better (0.2473).
 
 ### The labels against mapped flood water
 

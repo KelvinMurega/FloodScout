@@ -12,9 +12,11 @@ Both sides are scored on held-out years and printed. Nothing is saved: the
 shipped model is not touched. See riskengine/ml/experiments.py for how, and
 record the result in the experiments log in riskengine/ml/README.md.
 
-Needs data/processed/training_set.csv built on point rainfall, and the
-rainfall `build_training_set` cached. --county-mean-rain needs Earth Engine
-the first time (see geodata/services/earth_engine_rain.py).
+Needs data/processed/training_set.csv and the rainfall `build_training_set`
+cached for it. The trial inputs are worked out from the rainfall the
+training set was built on, point or county mean. --county-mean-rain is for a
+training set built on point rainfall, and needs Earth Engine the first time
+(see geodata/services/earth_engine_rain.py).
 """
 
 from __future__ import annotations
@@ -75,10 +77,15 @@ class Command(BaseCommand):
                 f"{TRAINING_SET_PATH} not found — run `manage.py build_training_set` first."
             )
         data = train.load_training_set(TRAINING_SET_PATH)
-        if data.meta.get("rain_source", "open-meteo-point") != "open-meteo-point":
-            raise CommandError("The training set was not built on point rainfall.")
+        on_county_mean = data.meta.get("rain_source") == "earth-engine-county-mean"
+        if on_county_mean and options["county_mean_rain"]:
+            raise CommandError("The training set is already built on county-mean rainfall.")
         try:
-            rainfall = experiments.cached_rainfall(RAINFALL_DIR, sorted(set(data.counties)))
+            rainfall = (
+                self._county_mean_rainfall(data)
+                if on_county_mean
+                else experiments.cached_rainfall(RAINFALL_DIR, sorted(set(data.counties)))
+            )
             county_mean = self._county_mean_rainfall(data) if options["county_mean_rain"] else None
             result = experiments.compare(
                 data, rainfall, options["inputs"], options["seeds"], other_rainfall=county_mean
@@ -101,7 +108,10 @@ class Command(BaseCommand):
             if total:
                 label = f"{label} (of {before[total]})"
             cells = [
-                f"{scores[key]['mean']:g} ({scores[key]['sd']:g})" for scores in (before, after)
+                # One seed has no spread to report.
+                f"{scores[key]['mean']:g}"
+                + ("" if scores[key]["sd"] is None else f" ({scores[key]['sd']:g})")
+                for scores in (before, after)
             ]
             self.stdout.write(f"  {label:<44} {cells[0]:>18} {cells[1]:>18}")
         self.stdout.write("")
