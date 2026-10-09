@@ -98,13 +98,26 @@ export function fetchRegions(params) {
 
 /**
  * The latest score for every region, in a single request, narrowed by the
- * same params as fetchRegions.
+ * same params as fetchRegions. `date_after` and `date_before` set to one day
+ * give the scores for that day instead.
  *
  * The per-region endpoint (`risk-scores/latest/?region=<id>`) would cost one
  * request per region — 47 for one map render.
  */
 export function fetchLatestScores(params) {
   return getJson(withParams("risk-scores/latest-by-region/", params));
+}
+
+/** The days scores exist for, newest first, as YYYY-MM-DD strings. */
+export function fetchScoreDates() {
+  return getJson(withParams("risk-scores/dates/", { level: "county" }));
+}
+
+/** One region's scores from `after` to `before` (YYYY-MM-DD, inclusive), newest first. */
+export function fetchScoreHistory(regionId, after, before) {
+  return getJson(
+    withParams("risk-scores/", { region: regionId, date_after: after, date_before: before }),
+  );
 }
 
 /** The months a seasonal outlook exists for: [{ month, issued_on }], soonest first. */

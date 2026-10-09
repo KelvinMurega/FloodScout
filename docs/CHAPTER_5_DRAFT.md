@@ -440,6 +440,8 @@ The REST API was implemented with Django REST Framework under `/api/`.
 | `GET /api/focus-regions/` | Five flood-prone groupings of counties |
 | `GET /api/geospatial-features/`, `GET /api/environmental-data/` | Stored inputs, filtered by `region` |
 | `GET /api/risk-scores/latest-by-region/` | The latest score for every region in one database query |
+| `GET /api/risk-scores/?region=<id>&date_after=<date>&date_before=<date>` | The stored scores of one region between two days, both included, newest first |
+| `GET /api/risk-scores/dates/` | The days for which scores are stored |
 | `GET /api/risk-scores/lower-risk-neighbours/?region=<id>` | Adjacent regions with a lower risk category |
 | `GET /api/risk-outlook/`, `GET /api/risk-outlook/months/` | The seasonal outlook |
 | `POST /api/auth/token/` | A token and the user's role, for a valid username and password |
@@ -497,6 +499,19 @@ reuse the requests the region views make. Sub-counties outside the focus
 regions are not drawn by the dashboard and cannot be found.
 [Figure 5.4a: search results for "kisu".]
 
+Earlier scores can be read in two ways (FR-05). The detail panel draws the
+selected region's chance of a large flood, as a multiple of the usual
+chance, for each day with a stored score in the 30 days up to the score on
+screen, with the usual chance marked as a dashed line. A day without a score
+is left as a gap. The period bar also has a date field, limited to the days
+for which scores are stored, which redraws the map as it stood on that day.
+An earlier day is labelled as such, and the relocation list, the dashed
+outlines and the lower-risk neighbours are not shown for it, because advice
+is given from the latest scores only. On 8 October 2026 the database held
+scores for nine days between 21 September and 8 October; a score is added
+each day by the scheduler, so the chart fills as the system runs.
+[Figure 5.4b: detail panel with the 30-day history.]
+
 [Add one screenshot of an error state, for example the dashboard when the API
 is not running.]
 
@@ -525,8 +540,11 @@ acceptance testing and performance testing had not been carried out
 
 ### 5.6.2 Test Cases and Results
 
-The suite contained 173 tests. On 8 October 2026 all 173 passed in 382
-seconds (`docker compose run --rm web python manage.py test`). Most of that
+The suite contained 183 tests. On 8 October 2026 all 183 passed
+(`docker compose run --rm web python manage.py test`). The run took 382
+seconds with 173 tests on the laptop when it was otherwise idle, and 1,238
+seconds with 183 tests while a browser and the dashboard's development
+server were also running. Most of that
 time is the model tests, which train small models and run the settings search. Table 5.13
 lists representative cases. [Confirm each requirement identifier against
 Chapter 4.]
@@ -566,6 +584,11 @@ Chapter 4.]
 | TC-29 | Access control | Request with a token after signing out | HTTP 401 | Pass |
 | TC-30 | FR-01, search | Type "kisu" in the search box | Kisumu county offered first, then Kisumu sub-counties | Pass |
 | TC-31 | FR-01, search | Type "muranga" or "KISII" | Accents, apostrophes and case ignored | Pass |
+| TC-32 | FR-05, history | `risk-scores/` with `region`, `date_after` and `date_before` | That region's scores for those days only, both ends included, newest first | Pass |
+| TC-33 | FR-05, history | Malformed date, or a range that ends before it starts | HTTP 400 | Pass |
+| TC-34 | FR-05, history | `latest-by-region` with one day as both bounds | One row per region, all for that day | Pass |
+| TC-35 | FR-05, history | `risk-scores/dates/` | Each stored day once, newest first | Pass |
+| TC-36 | FR-05, history | Chart positions for days with a gap between them | The gap is kept; the usual chance is always in range | Pass |
 
 The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 `riskengine/tests.py`, `riskengine/tests_model.py`, `accounts/tests.py` and
@@ -573,7 +596,7 @@ The full list is in `geodata/tests.py`, `geodata/tests_sampling.py`,
 
 The dashboard's own logic that needs no browser is tested separately with
 the test runner built into Node.js (`npm test` in `frontend/`; the tests are
-the `*.test.js` files in `frontend/src/`). On 8 October 2026 all 10 of these
+the `*.test.js` files in `frontend/src/`). On 8 October 2026 all 17 of these
 tests passed. They are run on every pull request with the Django suite, and
 the same job checks that the dashboard builds.
 

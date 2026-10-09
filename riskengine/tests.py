@@ -393,6 +393,103 @@ def score(region: Region, value: float) -> RiskScore:
     )
 
 
+class ScoreHistoryAPITests(APITestCase):
+    """`date_after` and `date_before` on the risk-score endpoints (FR-05)."""
+
+    DAYS = [dt.date(2026, 4, 13), dt.date(2026, 4, 14), dt.date(2026, 4, 15)]
+
+    def setUp(self):
+        self.alpha = make_region("Alpha", offset=0.0)
+        self.beta = make_region("Beta", offset=2.0)
+        for region, base in ((self.alpha, 0.1), (self.beta, 0.5)):
+            for step, day in enumerate(self.DAYS):
+                RiskScore.objects.create(
+                    region=region,
+                    prediction_date=start_of_day(day),
+                    predicted_value=round(base + step / 10, 1),
+                    risk_category=RiskScore.RiskCategory.LOW,
+                )
+
+    def _days(self, response):
+        return [row["prediction_date"][:10] for row in response.data]
+
+    def test_one_regions_history_is_newest_first(self):
+        response = self.client.get(f"/api/risk-scores/?region={self.alpha.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({row["region"] for row in response.data}, {self.alpha.id})
+        self.assertEqual(self._days(response), ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+    def test_both_date_bounds_are_inclusive(self):
+        response = self.client.get(
+            f"/api/risk-scores/?region={self.alpha.id}&date_after=2026-04-14&date_before=2026-04-15"
+        )
+
+        self.assertEqual(self._days(response), ["2026-04-15", "2026-04-14"])
+
+    def test_either_bound_works_alone(self):
+        after = self.client.get(f"/api/risk-scores/?region={self.alpha.id}&date_after=2026-04-15")
+        before = self.client.get(f"/api/risk-scores/?region={self.alpha.id}&date_before=2026-04-13")
+
+        self.assertEqual(self._days(after), ["2026-04-15"])
+        self.assertEqual(self._days(before), ["2026-04-13"])
+
+    def test_a_range_with_no_scores_is_empty_not_an_error(self):
+        response = self.client.get("/api/risk-scores/?date_after=2026-05-01")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_rejects_a_malformed_date(self):
+        for query in ("date_after=14-04-2026", "date_before=yesterday", "date_after=2026-02-30"):
+            with self.subTest(query=query):
+                response = self.client.get(f"/api/risk-scores/?{query}")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_a_range_that_ends_before_it_starts(self):
+        response = self.client.get(
+            "/api/risk-scores/?date_after=2026-04-15&date_before=2026-04-13"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("date_after", response.data)
+
+    def test_rejects_a_region_that_is_not_an_id(self):
+        response = self.client.get("/api/risk-scores/?region=alpha")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_latest_by_region_for_one_day_gives_the_map_as_it_stood(self):
+        response = self.client.get(
+            "/api/risk-scores/latest-by-region/?date_after=2026-04-14&date_before=2026-04-14"
+        )
+
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(set(self._days(response)), {"2026-04-14"})
+        self.assertEqual(
+            {row["region_name"]: row["predicted_value"] for row in response.data},
+            {"Alpha": 0.2, "Beta": 0.6},
+        )
+
+    def test_dates_lists_each_day_once_newest_first(self):
+        response = self.client.get("/api/risk-scores/dates/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+    def test_dates_honours_the_region_filters(self):
+        RiskScore.objects.create(
+            region=self.beta,
+            prediction_date=start_of_day(dt.date(2026, 4, 16)),
+            predicted_value=0.9,
+            risk_category=RiskScore.RiskCategory.HIGH,
+        )
+
+        response = self.client.get(f"/api/risk-scores/dates/?region={self.alpha.id}")
+
+        self.assertEqual(response.data, ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+
 class RelocationAdvisoryTests(TestCase):
     def test_maps_each_category(self):
         from .advisory import NONE, PREPARE, RELOCATE, relocation_advisory
