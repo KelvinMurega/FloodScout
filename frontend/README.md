@@ -51,7 +51,16 @@ npm run dev        # http://localhost:5173
 
 `npm test` runs the unit tests (`src/*.test.js`) with Node's built-in test
 runner. They cover the logic that needs no browser, such as matching a typed
-name to a region (`src/search.js`), and need no extra packages.
+name to a region (`src/search.js`), placing the points of the history chart
+(`src/history.js`) and writing the CSV export (`src/report.js`), and need no
+extra packages.
+
+## Printing and exporting
+
+**Print report** and **Download CSV** in the header give the view on screen
+as a page or a file. The print layout is the `@media print` block at the end
+of `src/style.css`; the report table under the map is filled by
+`renderReport` in `src/main.js` and is hidden on screen.
 
 ## Configuring the API URL
 

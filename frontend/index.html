@@ -19,6 +19,11 @@
         <!-- Filled from the model_version actually present in the data, never
              hardcoded, so it cannot drift from what the API returned. -->
         <p class="provenance" id="provenance" role="status" tabindex="0" hidden></p>
+        <!-- The view on screen as a printed report or a CSV file (wireframe 4.10). -->
+        <div class="report-actions">
+          <button class="auth__button" id="print-report" type="button" disabled>Print report</button>
+          <button class="auth__button" id="download-csv" type="button" disabled>Download CSV</button>
+        </div>
         <!-- Sign-in for the System Administrator; the map itself needs no account. -->
         <div class="auth" id="auth"></div>
       </header>
@@ -81,6 +86,9 @@
           </section>
         </aside>
       </main>
+
+      <!-- Printed only: the scores on screen as a table, highest risk first. -->
+      <section class="report" id="report"></section>
     </div>
 
     <script type="module" src="/src/main.js"></script>
