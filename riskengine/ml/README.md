@@ -303,7 +303,12 @@ false alarms by calendar month and by county.
   warning. The model has learned the long rains as March to May and treats
   June as dry season, so a flood that runs on into June is not seen. April
   and May miss 15% each; August and September miss about half of a small
-  number.
+  number. Most of the June figure comes from how a flood is assigned to a
+  month, not from the model: 76 of the 88 are there only because of two
+  long-rains floods, of 2003 and 2005, whose recorded end is 4 June and
+  3 June. Each touches the 30 days ending 30 June by three or four days,
+  so every county under it is labelled as flooded in June (see the
+  experiments log).
 - **A third of false alarms are in April and May** (1,272 of 3,689). In the
   long rains most counties are above 10% whether or not a flood is recorded.
 - **By county, misses are highest in Kakamega, Nairobi, Kilifi, Lamu and
@@ -508,11 +513,11 @@ county's risk sits on the map, not which of its sub-counties is worse.
   try the drainage inputs again and check their coefficients have the
   expected sign before keeping them. Using them properly needs labels that
   say where inside a county it flooded.
-- **The biggest remaining gain is better labels.** The Global Flood
-  Database (`GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` on Earth Engine) has the
-  mapped extent of each DFO flood from 2000 to 2018. Labelling a county
-  only where that extent actually touched it, instead of the whole circle,
-  would fix the coarseness above at the source.
+- **The biggest remaining gain is better labels.** Against the floods the
+  Global Flood Database mapped, a third of the counties a circle labels as
+  flooded held mapped flood water (see "The labels against mapped flood
+  water"). That database maps only 17 of the 62 floods placed on Kenya from
+  2000 to 2018, so it measures the problem and does not solve it.
 - **Severity classes are not modelled.** DFO grades floods 1, 1.5 and 2, but
   only three Kenyan events are class 2. The model predicts whether a large
   flood is recorded, not how bad.
@@ -550,15 +555,145 @@ A warning is High or Very High (above 10%).
 The two final-test rows are here to show where the model stands. They are
 not used to decide whether a change is kept.
 
+### How a change is judged
+
+`manage.py compare_inputs` (`riskengine/ml/experiments.py`) scores the
+Random Forest with and without the inputs under trial, on the same folds of
+held-out years, and saves nothing. Every figure is the mean over seeds 0 to
+4. A change is kept when pooled average precision rises by more than 0.005,
+about twice the standard deviation between seeds, or when the measure it
+targets improves and average precision does not fall by more than that.
+
+```bash
+docker compose run --rm web python manage.py compare_inputs rain_60d rain_90d
+docker compose run --rm web python manage.py compare_inputs --county-mean-rain
+```
+
+With no inputs added the command gives average precision 0.2516 (0.0027),
+the figure in "Repeated runs" above, so it measures the same thing as the
+training run. The counts below are means over five seeds, so they differ a
+little from the baseline table, which is seed 0 alone (June floods missed:
+86.2 against 86).
+
 ### Log
 
-"Before" and "after" are pooled held-out average precision unless the
-change targets another measure in the table above, in which case that
-measure is given as well.
+"Before" and "after" are pooled held-out average precision, with the
+measure the change targets beside it.
 
 | Date | What changed | Before | After | Kept or dropped |
 |---|---|---|---|---|
-| | No experiments yet | | | |
+| 9 Oct 2026 | Added `rain_60d` and `rain_90d`, rainfall over 60 and 90 days, so that June still sees the long rains | 0.2516; 86.2 of 88 June floods missed | 0.2499; 85.8 of 88 | Dropped |
+| 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
+| 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (ERA5, Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept. Not in the shipped model until it is retrained on Colab |
+
+#### County-mean rainfall (kept)
+
+| Measure | One point | County mean |
+|---|---|---|
+| Average precision, pooled | 0.2516 (0.0027) | 0.2713 (0.0018) |
+| Average precision, mean of six folds | 0.2940 (0.0043) | 0.3006 (0.0022) |
+| ROC AUC, pooled | 0.7834 (0.0024) | 0.7980 (0.0011) |
+| Brier score, pooled | 0.0801 (0.0003) | 0.0791 (0.0001) |
+| Floods missed, of 1,406 | 412.8 | 385.8 |
+| False alarms | 3,686 | 3,598 |
+| June floods missed, of 88 | 86.2 | 84.0 |
+| Floods missed in Nairobi, Kilifi, Lamu and Kwale, of 71 | 32.4 | 29.2 |
+
+Mean (standard deviation) over seeds 0 to 4. Average precision rises by
+0.0197, about four times the threshold, and it is the first change that
+both catches more floods and raises fewer false alarms. Against the
+season-only model's 0.1235 the lift goes from 2.04 to 2.20 times. The gain
+averaged by fold is smaller (0.007), which suggests most of it is better
+ranking across years, not within one.
+
+A county is tens of kilometres across and one point is one grid cell of it,
+so the mean is the better measure of how much rain the county received.
+`build_training_set --rain-source earth-engine` already builds a training
+set this way; this is the first measurement of it recorded here.
+
+What keeping it requires, none of it done yet:
+
+1. Rebuild the training set with `--rain-source earth-engine`, and retrain
+   on Colab. Until then the shipped model is still the 7 October one.
+2. Scoring then averages five Open-Meteo points per region, which
+   `rain_points` in the model already tells `seed_rainfall` and
+   `flood_outlook` to do. Those points are ERA5 at about 25 km and the
+   training rainfall is ERA5-Land at about 11 km, so the two are close but
+   not the same measurement. Run `validate_unosat` again after the retrain
+   to see whether the gain carries over to scoring.
+
+#### Rainfall inputs (dropped)
+
+What the first two results show:
+
+- **Neither change moved average precision beyond the noise** (-0.0017 and
+  -0.0034, against a threshold of 0.005). Both caught about 17 more floods
+  of 1,406 and raised about 40 to 80 more false alarms of 3,686, which is
+  the same model warning slightly more often, not ranking better.
+- **June cannot be fixed with rainfall inputs, because most of it is not a
+  rainfall error.** The 88 June floods fall in four years: 39 in 2003, 42
+  in 2005, 3 in 2007 and 4 in 2008. All 39 of 2003 come from one flood
+  recorded from 21 April to 4 June. In 2005, 41 of the 42 lie under a
+  flood recorded from 3 May to 3 June, and for 37 of them it is the only
+  flood. A county-month is labelled as flooded when a flood overlaps its
+  30 days at all, so three or four days at the start of June label the
+  whole of June: 76 of the 88 rows. Across the 88, June itself was drier
+  than usual (median 33 mm against 41 mm in June months with no flood)
+  while the month before was much wetter (152 mm against 80 mm). The
+  model's low June probability is a fair reading of such a month. The remedy is in how a flood is assigned to a month, for
+  example by requiring a minimum number of days of overlap. That changes
+  the target for every month, so it belongs with the work on the labels
+  and is not done here.
+- **`heavy_days` has almost nothing to count.** ERA5 rainfall at about
+  25 km reaches 50 mm in a day on 0.1% of days, and 3% of county-months
+  have any such day. A city flood from an hour of rain is not in this
+  record at any threshold, which fits the result for Nairobi and the coast.
+- **This agrees with the learning curve:** the limit is the labels, not the
+  rainfall inputs or the number of years.
+
+The four inputs are still worked out by `rainfall_features` and listed as
+`CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
+better labels.
+
+### The labels against mapped flood water
+
+Not a change to the model: a measurement of the labels it learns from.
+`check_labels_gfd` takes the floods the Global Flood Database mapped from
+MODIS (`docs/DATA_DICTIONARY.md`, section 6) and compares, event by event,
+the counties under the circle with the counties that held at least 5 km² of
+mapped flood water. Run on 9 October 2026; the rows are in
+`artifacts/gfd_label_check.csv`.
+
+```bash
+docker compose run --rm web python manage.py check_labels_gfd
+```
+
+| | Count |
+|---|---|
+| Floods placed on Kenya, 2000 to 2018 | 62 |
+| Of those, mapped by the database | 17 |
+| County labels from the 62 floods | 615 |
+| County labels from the 17 mapped floods | 139 |
+| Of the 139, counties that held mapped flood water | 46 (33%) |
+| Of the 139, counties with none mapped | 93 |
+| Counties with mapped flood water outside the circle | 52 |
+
+- **Two thirds of the counties a circle labels as flooded held no mapped
+  flood water**, and more counties held it outside a circle (52) than
+  inside one (46). The flood of April 2002 is the clearest case: its circle
+  covers 41 counties and water was mapped in 5.
+- **This is an upper estimate of the error.** MODIS at 250 m does not see
+  water under cloud or trees, or in narrow and urban channels, so some of
+  the 93 did flood. It is still the first number put on the weakness that
+  "Known limits" describes.
+- **The database cannot replace the circles.** It maps 17 of the 62 floods
+  and 139 of the 615 labels (23%), and the largest floods are not among
+  them: those of 2003, 2005, 2006, 2010 and 2018. Relabelling a quarter of
+  the rows would leave a training set made two ways. The earlier note that
+  this database would fix the labels "at the source" was too hopeful.
+- **What it leaves.** Labels that say where the water was have to be made
+  for the events that matter, from satellite images, which is practical for
+  a few regions and not for the country.
 
 ## Running it
 

@@ -431,3 +431,37 @@ example `data/external/unosat/FL20231124KEN_3761/`.
   flooding. The high-resolution layers in the same files (Garissa, Dadaab,
   Nairobi and Kiambu, the Tana and Galana rivers) cover parts of counties
   only and are not used.
+
+---
+
+## 6. Global Flood Database (label check only)
+
+Used by `check_labels_gfd` to measure the circle labels of section 3 against
+flood water mapped from satellite. Never used in training or in scoring.
+Read through Google Earth Engine; the per-county areas are cached in
+`data/external/gfd/` (gitignored) and the result is kept in
+`riskengine/ml/artifacts/gfd_label_check.csv`.
+
+| | |
+|---|---|
+| **Dataset** | Global Flood Database v1, MODIS events |
+| **Earth Engine id** | `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` |
+| **Publisher** | Cloud to Street and the Dartmouth Flood Observatory |
+| **Coverage** | 913 floods worldwide, 2000 to 2018, each carrying its DFO event id |
+| **Sensor** | MODIS (Terra and Aqua), 250 m |
+| **Licence** | CC BY-NC 4.0 |
+| **Citation** | Tellman, B. et al. (2021). Satellite imaging reveals increased proportion of population exposed to floods. *Nature*, 596, 80 to 86 |
+
+Bands used: `flooded` (1 where water was mapped during the event) and
+`jrc_perm_water` (1 where the JRC Global Surface Water layer has permanent
+water). Flood water is `flooded` and not `jrc_perm_water`. A county's area
+of flood water is summed at the 250 m pixel.
+
+### Caveats
+
+- **A minority of events.** It maps 17 of the 62 floods the training set
+  places on Kenya from 2000 to 2018, and not the largest ones.
+- **What MODIS misses.** Water under cloud, under tree cover and in narrow
+  or urban channels. "No water mapped" does not mean "no flood".
+- **Non-commercial licence.** Fine for this project; it would matter if the
+  system were ever offered commercially.

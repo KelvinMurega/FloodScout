@@ -24,9 +24,9 @@ from django.test import SimpleTestCase, TestCase
 from geodata.models import Region
 from geodata.services import earth_engine_rain
 from geodata.services.climate_indices import dmi_for, parse_dmi
-from riskengine.ml import train
+from riskengine.ml import experiments, train
 from riskengine.ml.calibration import CalibratedModel, Calibrator
-from riskengine.ml.features import FEATURE_NAMES, feature_row
+from riskengine.ml.features import CANDIDATE_FEATURES, FEATURE_NAMES, feature_row, rainfall_features
 from riskengine.ml.infer import load_model, model_infer, region_row
 
 WINDOW_END = dt.date(2019, 11, 30)
@@ -795,3 +795,199 @@ class BuildColabBundleTests(SimpleTestCase):
         self.training_set.unlink()
         with self._git(), self.assertRaisesRegex(BundleError, "build_training_set"):
             build_bundle(self.root, self.training_set, self.root / "out")
+
+
+class CandidateInputTests(SimpleTestCase):
+    """The rainfall inputs under trial (CANDIDATE_FEATURES)."""
+
+    def test_candidates_are_not_given_to_the_model(self):
+        self.assertFalse(set(CANDIDATE_FEATURES) & set(FEATURE_NAMES))
+
+    def test_longer_totals_reach_further_back(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(90)}
+        rain[WINDOW_END - dt.timedelta(days=75)] = 21.0  # only the 90-day window holds this
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_60d"], 60)
+        self.assertAlmostEqual(features["rain_60d"], features["rain_30d"] + features["rain_prev_30d"])
+        self.assertAlmostEqual(features["rain_90d"], 89 + 21)
+
+    def test_a_long_total_is_unknown_without_the_days_behind_it(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(60)}
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_60d"], 60)
+        self.assertTrue(math.isnan(features["rain_90d"]))
+
+    def test_short_peak_and_heavy_days(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(30)}
+        rain[WINDOW_END - dt.timedelta(days=5)] = 60.0
+        rain[WINDOW_END - dt.timedelta(days=4)] = 50.0  # the threshold itself counts
+        rain[WINDOW_END - dt.timedelta(days=20)] = 49.9
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_3d_max"], 60 + 50 + 1)
+        self.assertEqual(features["heavy_days"], 2)
+
+
+def _trial_data(years=range(2000, 2012), counties=("C0", "C1", "C2")):
+    """Daily rainfall and a matching training set whose floods follow rain_90d."""
+    rng = np.random.default_rng(0)
+    first, last = dt.date(years[0] - 1, 1, 1), dt.date(years[-1], 12, 31)
+    days = [first + dt.timedelta(days=i) for i in range((last - first).days + 1)]
+    rainfall = {county: dict(zip(days, rng.gamma(0.4, 8.0, len(days)))) for county in counties}
+
+    rows, y, dates, names = [], [], [], []
+    for year in years:
+        for month in range(1, 13):
+            end = dt.date(year, month, 28)
+            for county in counties:
+                rain = rainfall_features(rainfall[county], end)
+                rows.append([rain["rain_30d"], rain["rain_prev_30d"]])
+                y.append(int(rain["rain_90d"] > 330))
+                dates.append(end.isoformat())
+                names.append(county)
+    data = train.TrainingSet(
+        features=("rain_30d", "rain_prev_30d"),
+        X=np.array(rows),
+        y=np.array(y),
+        years=np.array([int(date[:4]) for date in dates]),
+        months=np.array([int(date[5:7]) for date in dates]),
+        counties=np.array(names),
+        dates=dates,
+        meta={},
+    )
+    return data, rainfall
+
+
+class ExperimentTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.data, cls.rainfall = _trial_data()
+
+    def test_trial_inputs_are_added_as_columns(self):
+        wider = experiments.with_candidates(self.data, self.rainfall, ["rain_90d", "heavy_days"])
+
+        self.assertEqual(wider.features, ("rain_30d", "rain_prev_30d", "rain_90d", "heavy_days"))
+        self.assertEqual(wider.X.shape, (len(self.data.y), 4))
+        np.testing.assert_array_equal(wider.X[:, :2], self.data.X)
+        expected = rainfall_features(self.rainfall["C0"], dt.date.fromisoformat(self.data.dates[0]))
+        self.assertAlmostEqual(wider.X[0, 2], expected["rain_90d"])
+
+    def test_only_inputs_under_trial_can_be_added(self):
+        with self.assertRaises(ValueError):
+            experiments.with_candidates(self.data, self.rainfall, ["elevation"])
+
+    def test_rainfall_that_does_not_match_the_training_set_is_refused(self):
+        other = {
+            county: {day: mm + 1.0 for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+        with self.assertRaises(ValueError):
+            experiments.with_candidates(self.data, other, ["rain_90d"])
+
+    def test_the_longest_cached_series_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            (cache / "Meru_1995-12-02_2021-09-30.json").write_text('{"2000-01-01": 1.0}')
+            (cache / "Meru_1984-12-02_2021-09-30.json").write_text('{"2000-01-01": 2.0}')
+            (cache / "Meru_2023-09-29_2023-11-28.json").write_text('{"2000-01-01": 3.0}')
+            # A county whose name starts the same way must not be picked up.
+            (cache / "Meru North_1970-01-01_2021-09-30.json").write_text('{"2000-01-01": 4.0}')
+
+            rainfall = experiments.cached_rainfall(cache, ["Meru"])
+
+            self.assertEqual(rainfall, {"Meru": {dt.date(2000, 1, 1): 2.0}})
+            with self.assertRaises(FileNotFoundError):
+                experiments.cached_rainfall(cache, ["Embu"])
+
+    def test_an_input_the_floods_follow_is_found_to_help(self):
+        result = experiments.compare(self.data, self.rainfall, ["rain_90d"], seeds=(0, 1))
+
+        before, after = result["before"], result["after"]
+        self.assertEqual(result["added"], ["rain_90d"])
+        self.assertEqual(after["features"], [*before["features"], "rain_90d"])
+        self.assertEqual(before["seeds"], [0, 1])
+        self.assertEqual(before["floods"], int(self.data.y.sum()))
+        self.assertGreater(after["average_precision"]["mean"], before["average_precision"]["mean"])
+        self.assertLess(after["floods_missed"]["mean"], before["floods_missed"]["mean"])
+        self.assertTrue(result["beyond_noise"])
+        self.assertAlmostEqual(
+            result["average_precision_change"],
+            after["average_precision"]["mean"] - before["average_precision"]["mean"],
+            places=4,
+        )
+
+    def test_rainfall_inputs_are_worked_out_again_from_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        changed = experiments.with_rainfall(self.data, doubled)
+
+        self.assertEqual(changed.features, self.data.features)
+        np.testing.assert_allclose(changed.X, 2 * self.data.X)
+        np.testing.assert_array_equal(changed.y, self.data.y)
+
+    def test_trial_inputs_follow_the_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        result = experiments.compare(
+            self.data, self.rainfall, ["rain_90d"], seeds=(0,), other_rainfall=doubled
+        )
+
+        # Doubling every day's rain keeps the order of every row, so a
+        # forest scores the same as on the original rainfall.
+        same = experiments.compare(self.data, self.rainfall, ["rain_90d"], seeds=(0,))
+        self.assertEqual(result["after"]["features"], same["after"]["features"])
+        self.assertAlmostEqual(
+            result["after"]["average_precision"]["mean"],
+            same["after"]["average_precision"]["mean"],
+            places=3,
+        )
+
+
+class LabelCheckTests(SimpleTestCase):
+    """The circle labels set against mapped flood water (geodata/services/gfd.py)."""
+
+    def test_counties_are_counted_under_the_circle_and_mapped_wet(self):
+        from geodata.services import gfd
+
+        circles = {7: {"A", "B", "C"}, 9: {"A"}}
+        mapped = {7: {"A": 12.0, "B": 4.9, "C": 0.0, "D": 5.0}}
+
+        rows = gfd.compare_with_circles(circles, mapped, min_km2=5.0)
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "event": 7,
+                    "circle": 3,
+                    "circle_and_wet": 1,
+                    "circle_only": 2,
+                    "wet_only": 1,
+                    "mapped_km2": 21.9,
+                }
+            ],
+        )
+
+    def test_cached_events_need_no_earth_engine(self):
+        from geodata.services import gfd
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "km2.json"
+            cache.write_text(json.dumps({"7": {"A": 12.0}, "8": {"A": 1.0}}))
+            with mock.patch.object(gfd.earth_engine_rain, "_ee", side_effect=AssertionError):
+                mapped = gfd.flooded_km2([], [7], cache)
+
+        self.assertEqual(mapped, {7: {"A": 12.0}})
+

@@ -25,6 +25,11 @@ HISTORY_DAYS = 2 * WINDOW_DAYS
 # rather than summed short.
 MAX_MISSING_DAYS = 3
 
+# The windows and threshold of the inputs under trial below.
+LONG_WINDOW_DAYS = 3 * WINDOW_DAYS
+SHORT_PEAK_DAYS = 3
+HEAVY_DAY_MM = 50.0
+
 # Fixed properties of the region, read off its GeospatialFeature.
 #
 # The drainage fields on the same row (distance_to_river,
@@ -65,32 +70,58 @@ FEATURE_NAMES = (
     "log_area",
 )
 
+# Inputs under trial: `rainfall_features` works them out, but the model is
+# not given them. `manage.py compare_inputs` scores the model with and
+# without each on held-out years, and the result goes in the experiments log
+# in riskengine/ml/README.md. One that is kept moves into FEATURE_NAMES.
+#
+# All four were tried on 9 October 2026 and none raised held-out average
+# precision. They stay here so they can be tried again once the labels say
+# where the water was.
+CANDIDATE_FEATURES = (
+    "rain_60d",  # mm over this window and the one before: rain_30d + rain_prev_30d
+    "rain_90d",  # mm over the 90 days ending on the date, so June still sees April
+    "rain_3d_max",  # wettest 3 consecutive days in the window, mm
+    "heavy_days",  # days in the window with HEAVY_DAY_MM or more
+)
+
 NAN = float("nan")
 
 # The short rains, by the month the 30-day window ends in.
 SHORT_RAINS_MONTHS = frozenset({10, 11, 12})
 
 
-def _window(rain: Mapping[dt.date, float], end: dt.date) -> list[float] | None:
-    """Daily mm for the WINDOW_DAYS ending on `end`, gaps as 0, or None if too gappy."""
-    days = [rain.get(end - dt.timedelta(days=offset)) for offset in range(WINDOW_DAYS - 1, -1, -1)]
-    if sum(day is None for day in days) > MAX_MISSING_DAYS:
+def _window(
+    rain: Mapping[dt.date, float], end: dt.date, days: int = WINDOW_DAYS
+) -> list[float] | None:
+    """Daily mm for the `days` ending on `end`, gaps as 0, or None if too gappy.
+
+    A longer window may miss proportionally more days.
+    """
+    values = [rain.get(end - dt.timedelta(days=offset)) for offset in range(days - 1, -1, -1)]
+    if sum(value is None for value in values) > MAX_MISSING_DAYS * days // WINDOW_DAYS:
         return None
-    return [day or 0.0 for day in days]
+    return [value or 0.0 for value in values]
+
+
+def _wettest(window: list[float], days: int) -> float:
+    """The largest total over `days` consecutive days of `window`."""
+    return max(sum(window[i : i + days]) for i in range(len(window) - days + 1))
 
 
 def rainfall_features(rain: Mapping[dt.date, float], end: dt.date) -> dict[str, float]:
-    """The three rainfall totals for the window ending on `end`."""
+    """The rainfall inputs for the window ending on `end`, CANDIDATE_FEATURES included."""
     current = _window(rain, end)
     previous = _window(rain, end - dt.timedelta(days=WINDOW_DAYS))
+    long = _window(rain, end, LONG_WINDOW_DAYS)
     return {
         "rain_30d": sum(current) if current else NAN,
-        "rain_7d_max": (
-            max(sum(current[i : i + PEAK_DAYS]) for i in range(WINDOW_DAYS - PEAK_DAYS + 1))
-            if current
-            else NAN
-        ),
+        "rain_7d_max": _wettest(current, PEAK_DAYS) if current else NAN,
         "rain_prev_30d": sum(previous) if previous else NAN,
+        "rain_60d": sum(current) + sum(previous) if current and previous else NAN,
+        "rain_90d": sum(long) if long else NAN,
+        "rain_3d_max": _wettest(current, SHORT_PEAK_DAYS) if current else NAN,
+        "heavy_days": float(sum(mm >= HEAVY_DAY_MM for mm in current)) if current else NAN,
     }
 
 
