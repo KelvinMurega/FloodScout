@@ -1,7 +1,7 @@
 name: CI
 
-# Runs on every pull request into develop and main (docs/GAP_CLOSURE_PLAN.md,
-# Phase 5), and by hand from the Actions tab.
+# Runs on every pull request into develop and main, and by hand from the
+# Actions tab.
 on:
   pull_request:
     branches: [develop, main]
