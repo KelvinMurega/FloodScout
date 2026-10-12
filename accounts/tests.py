@@ -1,6 +1,5 @@
-"""Tests for signing in and the administrator role (Phase 4 of
-docs/GAP_CLOSURE_PLAN.md). The endpoint the role guards is tested in
-api/tests.py."""
+"""Tests for signing in and the administrator role. The endpoint the role
+guards is tested in api/tests.py."""
 
 from django.core.cache import cache
 from django.urls import reverse

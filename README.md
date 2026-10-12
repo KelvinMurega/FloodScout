@@ -267,7 +267,7 @@ FloodScout/
 ├── notebooks/      train_flood_model.ipynb, the Colab training run with
 │                   its evaluation charts
 ├── data/           raw/, processed/ and external/; not committed
-└── docs/           Data dictionary, plans, the Chapter 5 draft and figures
+└── docs/           The data dictionary and the figures
 ```
 
 The four Django apps map onto the Class Diagram and ERD in Chapter 4
@@ -295,10 +295,7 @@ As of 12 October 2026.
 |---|---|
 | `riskengine/ml/README.md` | The model: inputs, evaluation, limits and the experiments log |
 | `docs/DATA_DICTIONARY.md` | Every data source, its fields and its licence |
-| `docs/IMPLEMENTATION_GUIDE.md` | The task list for finishing the project, with progress |
-| `docs/MODEL_IMPROVEMENT_PLAN.md` | The plan for making the model more accurate |
-| `docs/CHAPTER_5_DRAFT.md` | The draft of Chapter 5 of the report |
-| `docs/TECH_STACK_RATIONALE.md` | Why each technology was chosen |
+| `docs/figures/` | The evaluation charts and the dashboard screenshots |
 | `frontend/README.md` | The dashboard: configuration and design choices |
 
 ## Licence and access
