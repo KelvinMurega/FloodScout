@@ -509,6 +509,23 @@ class OpenMeteoClientTests(TestCase):
             {datetime.date(2026, 9, 20): 1.0, datetime.date(2026, 9, 22): 3.0},
         )
 
+    def test_archive_asks_for_era5_unless_told_otherwise(self):
+        payload = {"daily": {"time": ["2018-04-01"], "precipitation_sum": [12.0]}}
+        point = [open_meteo.Point(36.8, -1.3)]
+        day = datetime.date(2018, 4, 1)
+        with mock.patch.object(open_meteo, "_get_json", return_value=payload) as get:
+            open_meteo.fetch_archive_rainfall(point, day, day)
+            open_meteo.fetch_archive_rainfall(point, day, day, model="best_match")
+
+        self.assertEqual(
+            [call.args[1]["models"] for call in get.call_args_list], ["era5", "best_match"]
+        )
+
+    def test_archive_refuses_an_unknown_model(self):
+        day = datetime.date(2018, 4, 1)
+        with self.assertRaises(ValueError):
+            open_meteo.fetch_archive_rainfall([open_meteo.Point(36.8, -1.3)], day, day, model="ifs")
+
     def test_short_elevation_response_is_an_error(self):
         with mock.patch.object(
             open_meteo, "_get_json", return_value={"elevation": [1.0]}

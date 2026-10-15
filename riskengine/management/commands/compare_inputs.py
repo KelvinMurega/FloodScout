@@ -30,7 +30,13 @@ from geodata.services import earth_engine_rain
 from riskengine.ml import experiments, train
 from riskengine.ml.features import CANDIDATE_FEATURES, HISTORY_DAYS
 
-from .build_training_set import EE_RAINFALL_DIR, RAINFALL_DIR, TRAINING_SET_PATH
+from .build_training_set import (
+    EE_RAINFALL_DIR,
+    RAINFALL_DIR,
+    TRAINING_SET_PATH,
+    rain_model_of,
+    rainfall_cache_dir,
+)
 
 MEASURES = (
     ("average_precision", "Average precision, pooled", None),
@@ -84,7 +90,10 @@ class Command(BaseCommand):
             rainfall = (
                 self._county_mean_rainfall(data)
                 if on_county_mean
-                else experiments.cached_rainfall(RAINFALL_DIR, sorted(set(data.counties)))
+                else experiments.cached_rainfall(
+                    rainfall_cache_dir(RAINFALL_DIR, rain_model_of(data.meta)),
+                    sorted(set(data.counties)),
+                )
             )
             county_mean = self._county_mean_rainfall(data) if options["county_mean_rain"] else None
             result = experiments.compare(

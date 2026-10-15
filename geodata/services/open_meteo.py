@@ -17,10 +17,11 @@ Sources, both free for non-commercial use and both citable:
               analysis — measured/analysed values, not a forecast, for
               dates already past.
   History     https://archive-api.open-meteo.com/v1/archive
-              Daily `precipitation_sum`. No model is named in the
-              request, so the service picks: the ERA5 reanalysis for dates
-              before 2017 and the ECMWF IFS analysis from 2017 on. See
-              docs/DATA_DICTIONARY.md, section 3.
+              Daily `precipitation_sum`. The request names ERA5, so the
+              whole record is one reanalysis. Left to itself (`best_match`)
+              the service gives ERA5 before 2017 and the ECMWF IFS analysis
+              from 2017 on, which is how the training sets up to October
+              2026 were built. See docs/DATA_DICTIONARY.md, section 3.
               The training record.
   Outlook     https://seasonal-api.open-meteo.com/v1/seasonal
               ECMWF seasonal ensemble, daily `precipitation_sum` per member
@@ -52,6 +53,11 @@ MAX_FORECAST_LOCATIONS = 25
 # Decades of days, or 51 ensemble members, per location: keep batches small.
 MAX_ARCHIVE_LOCATIONS = 5
 MAX_SEASONAL_LOCATIONS = 10
+
+# Rainfall models the archive is asked for. `best_match` is the service's
+# own choice, kept so the older training sets can be rebuilt as they were.
+ARCHIVE_MODELS = ("era5", "best_match")
+DEFAULT_ARCHIVE_MODEL = "era5"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -195,16 +201,19 @@ def fetch_daily_rainfall(
 
 
 def fetch_archive_rainfall(
-    points: list[Point], start: dt.date, end: dt.date
+    points: list[Point], start: dt.date, end: dt.date, model: str = DEFAULT_ARCHIVE_MODEL
 ) -> list[dict[dt.date, float]]:
-    """Historical daily rainfall in mm per point: ERA5 to 2016, ECMWF IFS from 2017.
+    """Historical daily rainfall in mm per point, from the rainfall `model`.
 
     This is what the model is trained on: one consistent record back to 1940,
-    which the forecast endpoint (a few months of history) cannot give.
+    which the forecast endpoint (a few months of history) cannot give. It is
+    only consistent with `model="era5"`; `best_match` changes dataset at 2017.
     """
+    if model not in ARCHIVE_MODELS:
+        raise ValueError(f"Unknown archive model {model!r}; expected one of {ARCHIVE_MODELS}")
     series: list[dict[dt.date, float]] = []
     for batch in _chunks(points, MAX_ARCHIVE_LOCATIONS):
-        params = {"start_date": start.isoformat(), "end_date": end.isoformat()}
+        params = {"start_date": start.isoformat(), "end_date": end.isoformat(), "models": model}
         series.extend(_series(daily) for daily in _daily_locations(ARCHIVE_URL, batch, params))
     return series
 
