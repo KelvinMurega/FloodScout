@@ -108,3 +108,35 @@ class EnvironmentalData(models.Model):
 
     def __str__(self) -> str:
         return f"{self.region} — {self.record_date}"
+
+
+class GridCell(models.Model):
+    """One square of a regular latitude/longitude grid laid over Kenya.
+
+    A county is scored as one place, so the whole of it takes one colour
+    even when the rain fell on one side of it. The grid is scored as many
+    places: each cell has its own rainfall and terrain, read at its centre,
+    so the map can show where inside a county the risk is. The cell belongs
+    to the county its centre lies in, and borrows that county's normal
+    rainfall and area, which the model needs and a cell does not have.
+
+    Filled by `seed_grid`; scored by `score_grid` into GridRiskScore.
+    """
+
+    lon = models.FloatField(help_text="Longitude of the centre, degrees")
+    lat = models.FloatField(help_text="Latitude of the centre, degrees")
+    size_deg = models.FloatField(help_text="Width and height of the cell, degrees")
+    county = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="grid_cells")
+    elevation = models.FloatField(null=True, blank=True, help_text="Metres above sea level")
+    slope = models.FloatField(null=True, blank=True, help_text="Degrees")
+
+    class Meta:
+        ordering = ["lat", "lon"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lon", "lat", "size_deg"], name="unique_gridcell_position"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Cell {self.lat:.2f}, {self.lon:.2f} ({self.county})"

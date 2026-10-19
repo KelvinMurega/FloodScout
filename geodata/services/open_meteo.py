@@ -98,6 +98,11 @@ def _get_json(url: str, params: dict[str, str]):
             if exc.code == 429 and attempt < RATE_LIMIT_RETRIES:
                 _sleep(_retry_after_seconds(exc))
                 continue
+            # A 5xx is the service shedding load, seen part-way through the
+            # thousands of points of an area grid: wait, like a dropped connection.
+            if exc.code >= 500 and attempt < CONNECTION_RETRIES:
+                _sleep(CONNECTION_WAIT_SECONDS)
+                continue
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
         except (urllib.error.URLError, TimeoutError) as exc:
             # A dropped connection part-way through a long run. Unlike a 429

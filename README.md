@@ -176,6 +176,25 @@ It starts Docker and the scheduler when you sign in and every morning at
 The seasonal outlook is not part of the daily refresh. Run `flood_outlook`
 when a new monthly forecast is out.
 
+### Risk by area
+
+A county score gives the whole county one colour, even when the rain fell
+on one side of it. The area grid splits Kenya into squares of 0.25 degrees
+(about 28 km, 768 squares) and scores each from the rain measured at its
+centre, with its own elevation and slope. The dashboard's "Colour by: Area"
+switch draws it.
+
+```bash
+docker compose run --rm web python manage.py seed_grid    # once: lay the grid, measure terrain
+docker compose run --rm web python manage.py score_grid   # today; refresh_scores does this daily
+```
+
+The model learned from floods recorded per county, so a square's score is
+the chance of a large flood for a county that had received that square's
+rain. It shows where the dangerous rain fell, not the outline of a flood.
+`seed_grid --cell-deg 0.1` gives finer squares, but about 4,700 of them,
+which is more daily rainfall requests than Open-Meteo's free tier allows.
+
 ### Where the data comes from
 
 All of it is real and public. Nothing is simulated, and a value that could

@@ -8,7 +8,7 @@ from geodata.views import (
     GeospatialFeatureViewSet,
     RegionViewSet,
 )
-from riskengine.views import RiskOutlookViewSet, RiskScoreViewSet
+from riskengine.views import RiskGridViewSet, RiskOutlookViewSet, RiskScoreViewSet
 
 from . import views
 
@@ -19,6 +19,7 @@ router.register("geospatial-features", GeospatialFeatureViewSet, basename="geosp
 router.register("environmental-data", EnvironmentalDataViewSet, basename="environmental-data")
 router.register("risk-scores", RiskScoreViewSet, basename="risk-score")
 router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
+router.register("risk-grid", RiskGridViewSet, basename="risk-grid")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),

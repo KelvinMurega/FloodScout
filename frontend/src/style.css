@@ -268,6 +268,14 @@ body {
   outline-offset: 2px;
 }
 
+/* "Colour by" ahead of the region-or-area choice. */
+.layer-bar__label {
+  flex: none;
+  align-self: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 /* The earlier-day picker, at the end of the period bar. */
 .period-bar__date {
   flex: none;
@@ -740,6 +748,17 @@ body {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+}
+
+.legend__note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.grid-tooltip {
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
 }
 
 /* --- Table (the non-colour route to the same data) --------------------- */

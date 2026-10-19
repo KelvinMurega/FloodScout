@@ -18,7 +18,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from geodata.models import EnvironmentalData, GeospatialFeature, Region
+from geodata.models import EnvironmentalData, GeospatialFeature, GridCell, Region
 from geodata.services.climate_indices import oni_for, parse_oni
 from riskengine.management.commands import refresh_scores
 from riskengine.management.commands.score_regions import start_of_day
@@ -42,7 +42,7 @@ from riskengine.ml.infer import (
 )
 
 from .inputs import compare
-from .models import RiskOutlook, RiskScore
+from .models import GridRiskScore, RiskOutlook, RiskScore
 
 
 def _square(x=36.8, y=-1.3, size=0.1):
@@ -859,6 +859,28 @@ class RefreshScoresCommandTests(TestCase):
             ],
         )
         self.assertEqual(self._steps(run)[0], ("seed_rainfall", "--past-days", "64"))
+
+    def test_scores_the_area_grid_once_there_is_one(self):
+        county = make_region("Gridded")
+        cell = GridCell.objects.create(lon=0.5, lat=0.5, size_deg=0.25, county=county)
+        GridRiskScore.objects.create(
+            cell=cell,
+            date=dt.date(2026, 10, 17),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test",
+        )
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run)[-1],
+            ("score_grid", "--date", "2026-10-18", "--date", "2026-10-19"),
+        )
+
+    def test_no_grid_no_grid_scoring(self):
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertNotIn("score_grid", [step[0] for step in self._steps(run)])
 
     def test_a_second_run_on_the_same_day_rescores_only_today(self):
         self._scored(self.TODAY)
