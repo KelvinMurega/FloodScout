@@ -1,0 +1,95 @@
+event,date,county,flooded_km2,flooded,probability,risk_category
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Baringo,109.44,1,0.2024,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Bomet,0.0,0,0.1723,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Bungoma,0.0,0,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Busia,22.01,1,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Elgeyo-Marakwet,0.56,0,0.1185,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Embu,58.91,1,0.1682,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Garissa,2751.67,1,0.195,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Homa Bay,91.49,1,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Isiolo,2022.01,1,0.195,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kajiado,372.81,1,0.1877,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kakamega,0.0,0,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kericho,0.14,0,0.1723,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kiambu,20.98,1,0.1534,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kilifi,128.64,1,0.1851,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kirinyaga,26.21,1,0.1725,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kisii,0.0,0,0.1795,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kisumu,163.48,1,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kitui,70.74,1,0.195,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Kwale,59.26,1,0.183,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Laikipia,1.68,0,0.1787,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Lamu,188.33,1,0.1737,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Machakos,71.43,1,0.1491,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Makueni,28.43,1,0.1478,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Mandera,280.82,1,0.2497,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Marsabit,1567.89,1,0.2293,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Meru,8.05,1,0.1705,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Migori,29.56,1,0.2023,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Mombasa,18.59,1,0.283,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Murang'a,15.96,1,0.1394,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nairobi,9.88,1,0.167,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nakuru,59.34,1,0.1157,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nandi,0.0,0,0.1762,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Narok,0.75,0,0.1539,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nyamira,0.0,0,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nyandarua,1.68,0,0.1405,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Nyeri,0.0,0,0.162,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Samburu,18.25,1,0.2288,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Siaya,43.03,1,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Taita Taveta,80.36,1,0.2015,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Tana River,1165.44,1,0.195,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Tharaka,1.99,0,0.1781,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Trans Nzoia,0.0,0,0.1547,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Turkana,969.57,1,0.1495,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Uasin Gishu,1.96,0,0.162,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Vihiga,0.0,0,0.1811,high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,Wajir,3131.7,1,0.3127,very_high
+"Short rains, 19 to 28 November 2023 (UNOSAT FL20231124KEN, VIIRS)",2023-11-28,West Pokot,40.57,1,0.1546,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Baringo,106.64,1,0.3145,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Bomet,0.0,0,0.4438,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Bungoma,0.0,0,0.407,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Busia,14.11,1,0.4287,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Elgeyo-Marakwet,0.0,0,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Embu,39.54,1,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Garissa,137.04,1,0.1609,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Homa Bay,32.13,1,0.3786,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Isiolo,11.32,1,0.1724,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kajiado,228.81,1,0.3208,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kakamega,0.0,0,0.3133,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kericho,0.0,0,0.3905,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kiambu,5.46,1,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kilifi,103.58,1,0.3145,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kirinyaga,18.59,1,0.3262,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kisii,0.0,0,0.41,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kisumu,99.88,1,0.3786,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kitui,12.6,1,0.1498,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Kwale,30.37,1,0.3279,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Laikipia,0.14,0,0.3145,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Lamu,47.85,1,0.2898,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Machakos,37.43,1,0.2874,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Makueni,1.45,0,0.1672,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Mandera,6.44,1,0.2404,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Marsabit,1085.84,1,0.1609,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Meru,1.18,0,0.2997,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Migori,8.37,1,0.3262,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Mombasa,9.93,1,0.3262,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Murang'a,0.98,0,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nairobi,3.65,0,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nakuru,38.49,1,0.294,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nandi,0.0,0,0.3962,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Narok,0.33,0,0.4274,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nyamira,0.0,0,0.4213,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nyandarua,0.0,0,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Nyeri,0.0,0,0.3262,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Samburu,28.07,1,0.3208,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Siaya,18.19,1,0.4293,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Taita Taveta,3.93,0,0.3145,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Tana River,167.68,1,0.1609,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Tharaka,1.17,0,0.298,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Trans Nzoia,0.0,0,0.3133,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Turkana,1267.48,1,0.1724,high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Uasin Gishu,0.56,0,0.29,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Vihiga,0.0,0,0.432,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,Wajir,39.05,1,0.244,very_high
+"Long rains, 24 to 28 April 2024 (UNOSAT FL20240426KEN, VIIRS)",2024-04-28,West Pokot,15.81,1,0.286,very_high

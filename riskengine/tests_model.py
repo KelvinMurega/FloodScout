@@ -955,6 +955,60 @@ class ExperimentTests(SimpleTestCase):
         )
 
 
+class FloodWindowTests(SimpleTestCase):
+    """How a flood is assigned to a 30-day window (`in_window`)."""
+
+    START, END = dt.date(2005, 6, 1), dt.date(2005, 6, 30)
+
+    def _event(self, began, ended):
+        from geodata.services.dfo import FloodEvent
+
+        return FloodEvent(1, "Kenya", began, ended, 37.0, 0.0, 1000.0, 1.0, 0, 0, "Heavy rain")
+
+    def _counts(self, began, ended, min_days):
+        from riskengine.management.commands.build_training_set import in_window
+
+        return in_window(self._event(began, ended), self.START, self.END, min_days)
+
+    def test_any_overlap_counts_by_default(self):
+        from riskengine.management.commands.build_training_set import MIN_OVERLAP_DAYS, in_window
+
+        tail = self._event(dt.date(2005, 5, 3), dt.date(2005, 6, 3))
+        self.assertEqual(MIN_OVERLAP_DAYS, 1)
+        self.assertTrue(in_window(tail, self.START, self.END))
+        self.assertFalse(in_window(self._event(dt.date(2005, 5, 3), dt.date(2005, 5, 31)), self.START, self.END))
+        self.assertFalse(in_window(self._event(dt.date(2005, 7, 1), dt.date(2005, 7, 9)), self.START, self.END))
+
+    def test_a_short_tail_from_an_earlier_window_does_not_count(self):
+        self.assertFalse(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 3), 7))
+        self.assertFalse(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 6), 7))
+        self.assertTrue(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 7), 7))
+
+    def test_a_flood_counts_where_it_began_however_briefly(self):
+        self.assertTrue(self._counts(dt.date(2005, 6, 17), dt.date(2005, 6, 20), 7))
+        self.assertTrue(self._counts(dt.date(2005, 6, 30), dt.date(2005, 8, 1), 7))
+
+    def test_labels_can_be_scored_against_another_truth(self):
+        data, _rainfall = _trial_data()
+        fewer = data.y.copy()
+        fewer[np.flatnonzero(data.y)[::2]] = 0  # every other flood removed
+        kept = int(fewer.sum())
+
+        result = experiments.compare_labels(data, fewer, seeds=(0,))
+
+        self.assertEqual(result["current"]["floods"], int(data.y.sum()))
+        self.assertEqual(result["new"]["floods"], kept)
+        self.assertEqual(result["current_on_new"]["floods"], kept)
+        self.assertEqual(result["new"]["base_rate"], round(kept / len(data.y), 4))
+        # Trained on the current labels either way, so the same probabilities
+        # are behind both: only the truth they are scored against differs.
+        self.assertNotEqual(
+            result["current"]["average_precision"], result["current_on_new"]["average_precision"]
+        )
+        # This small set has no month inputs, so no season-only model.
+        self.assertIsNone(result["current"]["season_only_average_precision"])
+
+
 class LabelCheckTests(SimpleTestCase):
     """The circle labels set against mapped flood water (geodata/services/gfd.py)."""
 

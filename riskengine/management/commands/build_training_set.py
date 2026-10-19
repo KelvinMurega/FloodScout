@@ -65,6 +65,10 @@ TRAINING_META_PATH = TRAINING_SET_PATH.with_suffix(".meta.json")
 
 LABEL_COLUMNS = ("flood", "severity", "events")
 
+# A flood counts for the 30-day window it began in, and for a later window
+# when at least this many of its days fall in it. 1 is any overlap at all.
+MIN_OVERLAP_DAYS = 1
+
 FETCH_BATCH = 5
 
 
@@ -76,6 +80,36 @@ def month_ends(first: dt.date, last: dt.date) -> list[dt.date]:
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
         ends.append(dt.date(year, month, 1) - dt.timedelta(days=1))
     return ends
+
+
+def in_window(event, start: dt.date, end: dt.date, min_days: int = MIN_OVERLAP_DAYS) -> bool:
+    """Whether `event` counts as a flood in the window from `start` to `end`.
+
+    It always counts in the window it began in, because the rain behind it
+    fell there. With `min_days` above 1, a flood whose last few days run
+    into a later window no longer labels the whole of that window.
+    """
+    overlap = (min(event.ended, end) - max(event.began, start)).days + 1
+    return overlap >= 1 and (event.began >= start or overlap >= min_days)
+
+
+def events_by_county(counties, log=print) -> dict:
+    """{county name: [DFO events whose footprint touches the county]}."""
+    events = dfo.load_events(dfo.download(DFO_PATH))
+    by_county = defaultdict(list)
+    placed = set()
+    for event in events:
+        # Cheap reject before any geometry: Kenya sits inside this box,
+        # padded by the radius of the largest footprints.
+        if not (25 <= event.lon <= 50 and -14 <= event.lat <= 14):
+            continue
+        footprint = dfo.footprint(event)
+        for county in counties:
+            if county.geom.intersects(footprint):
+                by_county[county.name].append(event)
+                placed.add(event.id)
+    log(f"DFO archive: {len(events)} events worldwide, {len(placed)} reaching Kenya")
+    return by_county
 
 
 def county_area(region) -> float | None:
@@ -148,7 +182,7 @@ class Command(BaseCommand):
         source = options["rain_source"]
         ends = month_ends(FIRST_MONTH, LAST_MONTH)
         try:
-            events_by_county = self._events_by_county(counties)
+            placed = events_by_county(counties, log=self.stdout.write)
             rainfall, rain_points = county_rainfall(
                 counties,
                 ends[0] - dt.timedelta(days=HISTORY_DAYS),
@@ -183,11 +217,7 @@ class Command(BaseCommand):
 
             for end in ends:
                 start = end - dt.timedelta(days=WINDOW_DAYS - 1)
-                active = [
-                    event
-                    for event in events_by_county[county.name]
-                    if event.began <= end and event.ended >= start
-                ]
+                active = [event for event in placed[county.name] if in_window(event, start, end)]
                 features = feature_row(
                     rain,
                     end,
@@ -218,6 +248,7 @@ class Command(BaseCommand):
                     "rain_source": "earth-engine-county-mean" if source == "earth-engine" else "open-meteo-point",
                     "rain_points": rain_points,
                     "period": [ends[0].isoformat(), ends[-1].isoformat()],
+                    "min_overlap_days": MIN_OVERLAP_DAYS,
                     "built": dt.date.today().isoformat(),
                 },
                 indent=2,
@@ -232,22 +263,3 @@ class Command(BaseCommand):
             f"County-months with a recorded flood: {flooded} ({100 * flooded / len(rows):.1f}%)"
         )
 
-    def _events_by_county(self, counties):
-        """DFO events whose footprint touches each county."""
-        events = dfo.load_events(dfo.download(DFO_PATH))
-        by_county = defaultdict(list)
-        placed = set()
-        for event in events:
-            # Cheap reject before any geometry: Kenya sits inside this box,
-            # padded by the radius of the largest footprints.
-            if not (25 <= event.lon <= 50 and -14 <= event.lat <= 14):
-                continue
-            footprint = dfo.footprint(event)
-            for county in counties:
-                if county.geom.intersects(footprint):
-                    by_county[county.name].append(event)
-                    placed.add(event.id)
-        self.stdout.write(
-            f"DFO archive: {len(events)} events worldwide, {len(placed)} reaching Kenya"
-        )
-        return by_county

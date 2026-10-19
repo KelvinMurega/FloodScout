@@ -17,7 +17,10 @@ Sources, both free for non-commercial use and both citable:
               analysis — measured/analysed values, not a forecast, for
               dates already past.
   History     https://archive-api.open-meteo.com/v1/archive
-              Daily `precipitation_sum` from the ERA5 reanalysis, 1940 on.
+              Daily `precipitation_sum`. No model is named in the
+              request, so the service picks: the ERA5 reanalysis for dates
+              before 2017 and the ECMWF IFS analysis from 2017 on. See
+              docs/DATA_DICTIONARY.md, section 3.
               The training record.
   Outlook     https://seasonal-api.open-meteo.com/v1/seasonal
               ECMWF seasonal ensemble, daily `precipitation_sum` per member
@@ -189,7 +192,7 @@ def fetch_daily_rainfall(
 def fetch_archive_rainfall(
     points: list[Point], start: dt.date, end: dt.date
 ) -> list[dict[dt.date, float]]:
-    """Historical daily rainfall in mm per point, from the ERA5 reanalysis.
+    """Historical daily rainfall in mm per point: ERA5 to 2016, ECMWF IFS from 2017.
 
     This is what the model is trained on: one consistent record back to 1940,
     which the forecast endpoint (a few months of history) cannot give.

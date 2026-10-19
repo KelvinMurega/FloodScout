@@ -64,7 +64,7 @@ built:
 
 | `--rain-source` | What it is | Scoring then averages |
 |---|---|---|
-| `open-meteo` (default) | ERA5 at one representative point per county | 1 point per region |
+| `open-meteo` (default) | One representative point per county: ERA5 to 2016, ECMWF IFS from 2017 (see "The Colab retrain" in the experiments log) | 1 point per region |
 | `earth-engine` | ERA5-Land averaged over the whole county | 5 points per region |
 
 The choice is recorded in `training_set.meta.json` and in the trained
@@ -571,7 +571,11 @@ docker compose run --rm web python manage.py compare_inputs --county-mean-rain
 
 With no inputs added the command gives average precision 0.2516 (0.0027),
 the figure in "Repeated runs" above, so it measures the same thing as the
-training run. The counts below are means over five seeds, so they differ a
+training run. The comparisons in the log were run on the training set
+built on point rainfall on 2 October (SHA-256 `367173d3...`, the one the
+7 October model was trained on). It is kept in `data/processed/` as
+`training_set_point_20261002.csv`, because `training_set.csv` was rebuilt
+on county-mean rainfall on 9 October for the retrain. The counts below are means over five seeds, so they differ a
 little from the baseline table, which is seed 0 alone (June floods missed:
 86.2 against 86).
 
@@ -584,7 +588,8 @@ measure the change targets beside it.
 |---|---|---|---|---|
 | 9 Oct 2026 | Added `rain_60d` and `rain_90d`, rainfall over 60 and 90 days, so that June still sees the long rains | 0.2516; 86.2 of 88 June floods missed | 0.2499; 85.8 of 88 | Dropped |
 | 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
-| 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (ERA5, Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept. Not in the shipped model until it is retrained on Colab |
+| 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept in cross-validation, then retrained on Colab and **not shipped**: see "The Colab retrain" |
+| 9 Oct 2026 | Labels: a flood counts for the window it began in, and for a later one only with seven days in it (on county-mean rainfall) | 0.2713 on the current labels; lift over season only 2.20 | 0.2566 on the new labels; lift 2.36. Trained on the current labels and scored on the new: 0.2672 | Not adopted |
 
 #### County-mean rainfall (kept)
 
@@ -611,16 +616,131 @@ so the mean is the better measure of how much rain the county received.
 `build_training_set --rain-source earth-engine` already builds a training
 set this way; this is the first measurement of it recorded here.
 
-What keeping it requires, none of it done yet:
+The training set was then rebuilt with `--rain-source earth-engine` and the
+model retrained on Colab. The next section has what that run showed.
 
-1. Rebuild the training set with `--rain-source earth-engine`, and retrain
-   on Colab. Until then the shipped model is still the 7 October one.
-2. Scoring then averages five Open-Meteo points per region, which
-   `rain_points` in the model already tells `seed_rainfall` and
-   `flood_outlook` to do. Those points are ERA5 at about 25 km and the
-   training rainfall is ERA5-Land at about 11 km, so the two are close but
-   not the same measurement. Run `validate_unosat` again after the retrain
-   to see whether the gain carries over to scoring.
+#### The Colab retrain on county-mean rainfall (not shipped)
+
+Run `20261009T1051Z_8058da0`, from commit `8058da0`, on 9 October 2026:
+1,314 seconds on the free Colab runtime. Its `metrics.json`, `run.json`
+and satellite check are kept in
+`artifacts/not_shipped/20261009T1051Z_8058da0/`; the model, the charts and
+the executed notebook are in the run's folder in Google Drive. **The
+shipped model is still `flood-random-forest-20261007`.**
+
+Cross-validation, pooled over held-out years:
+
+| Model | ROC AUC | Average precision | Brier |
+|---|---|---|---|
+| Gradient Boosting (selected, depth 2, learning rate 0.02) | 0.785 | 0.278 | 0.0784 |
+| Random Forest | 0.799 | 0.274 | 0.0790 |
+| Logistic Regression | 0.774 | 0.242 | 0.0828 |
+| Season only | 0.565 | 0.124 | 0.0873 |
+
+The three checks do not agree:
+
+| Check | Shipped model (7 October, point rainfall) | This run (county-mean rainfall) |
+|---|---|---|
+| Cross-validation: selected model, average precision | Random Forest 0.254 | Gradient Boosting 0.278 |
+| Cross-validation: Very High, given against recorded | 31.2% against 26.4% | 30.2% against 29.8% |
+| Cross-validation: false alarms above 10% | 3,689 | 3,126 |
+| Final test 2017 to 2021: the model the earlier years chose | Gradient Boosting 0.191, 1.08 times season only | Gradient Boosting 0.177, 1.00 times |
+| Final test: Random Forest, not chosen | 0.186 (ROC AUC 0.782) | 0.209 (ROC AUC 0.822) |
+| Final test: Logistic Regression, not chosen | 0.270 (ROC AUC 0.852) | 0.262 (ROC AUC 0.873) |
+| UNOSAT, counties, both events: ROC AUC | 0.616 | 0.427 |
+| UNOSAT, November 2023 and April 2024 | 0.744 and 0.430 | 0.690 and 0.327 |
+
+- **Cross-validation, the criterion fixed in advance, prefers this run.**
+  Its probabilities are also better calibrated there and it raises fewer
+  false alarms.
+- **The final test does not.** The model the earlier years choose is no
+  better than the calendar on 2017 to 2021. The two models not chosen
+  both rank those years better than before, so the rainfall helped them
+  and the choice of model did not.
+- **The satellite check is worse**, most of all for April 2024, where the
+  model ranks counties worse than chance.
+- **The choice of model changed again**, from Random Forest to Gradient
+  Boosting, on a lead of 0.004 in average precision. Over five seeds the
+  two are 0.2784 (0.0032) and 0.2713 (0.0019).
+
+With one check for and two against, the run is not shipped. That is a
+decision to take with the supervisor, not one cross-validation makes
+alone. This was the fifth look at the final test years; nothing was chosen
+from it.
+
+**Why the checks disagree: the point rainfall is two datasets.** Comparing
+the two training sets showed that point and county-mean rainfall agree
+closely until 2016 and much less from 2017:
+
+| Years | Correlation of `rain_30d`, point against county mean |
+|---|---|
+| 1996 to 2016, year by year | 0.81 to 0.92 |
+| 2017 | 0.64 |
+| 2018 | 0.72 |
+| 2019 | 0.71 |
+| 2020 | 0.60 |
+| 2021 | 0.73 |
+
+The cause is the Open-Meteo archive. Asked for no particular model, it
+serves ERA5 for dates before 2017 and the ECMWF IFS analysis at 9 km from
+2017 on. For Kisumu in April 2018 it returns 279 mm by default, which is
+its `ecmwf_ifs` figure, and 351 mm when ERA5 is named; for April 2015 the
+default and ERA5 are the same 335 mm. `fetch_archive_rainfall` names no
+model, so every training set built with `--rain-source open-meteo` is ERA5
+to 2016 and IFS from 2017. Until now this file and the code said ERA5
+throughout.
+
+What follows from it:
+
+- **The final test boundary sits on the change of dataset.** 2017 was
+  chosen as the boundary without knowing this. A model chosen on 1996 to
+  2016 has seen only ERA5, and is then tested on IFS rainfall. Part of the
+  weak final test reported above for the shipped model may be this, and not
+  only a failure to carry over to later years. It cannot be told apart
+  without rebuilding the point rainfall with ERA5 named throughout.
+- **The shipped model's last five training years are IFS.** The rainfall
+  it is scored on each day comes from Open-Meteo's forecast service, which
+  is operational model output and not ERA5 either. Which model that service
+  uses for Kenya has not been checked.
+- **A model trained on county-mean ERA5-Land would be scored on points
+  from that forecast service**, which it has never seen. The satellite check above avoided
+  that by reading ERA5-Land for 2023 and 2024, and still came out worse,
+  so the mismatch is not the reason for that result.
+- **The two rainfall records disagree about the events themselves.** For
+  the 30 days to 28 April 2024 the county means average 342 mm and the
+  points 204 mm, and across counties the two correlate at 0.47 (0.25 for
+  November 2023).
+
+A one-off check, not kept as a command, fitted each of the three models on
+each training set and scored the two UNOSAT events (ROC AUC, November
+2023, April 2024, both):
+
+| Model | Point rainfall | County-mean rainfall |
+|---|---|---|
+| Random Forest | 0.742, 0.430, 0.615 | 0.851, 0.277, 0.506 |
+| Gradient Boosting, tuned | 0.682, 0.513, 0.555 | 0.690, 0.327, 0.427 |
+| Logistic Regression | 0.647, 0.614, 0.638 | 0.450, 0.335, 0.393 |
+
+On county-mean rainfall every model ranks April 2024 worse than chance,
+and the Random Forest ranks November 2023 better than anything else
+tried. One reading, not tested: the water mapped in April 2024 includes
+Turkana and Garissa, arid counties where a flood comes down a river from
+rain that fell elsewhere. A model that reads each county's own rainfall
+more accurately would rank such an event worse, not better, which points
+at the inputs (no rain upstream, no rivers) more than at the rainfall
+measurement. It is two events, and the cautions in "Checking against
+satellite floods" apply.
+
+What to do next, in order:
+
+1. Rebuild the point rainfall for 2017 to 2021 with ERA5 named, so the
+   whole record is one dataset, and repeat the final test. This is the
+   cleanest answer to how much of the weak final test was the change of
+   dataset.
+2. Decide the scoring rainfall to match: the daily refresh would have to
+   read a source consistent with training.
+3. Only then choose between point and county-mean rainfall, and between
+   the three models, with the supervisor.
 
 #### Rainfall inputs (dropped)
 
@@ -640,10 +760,10 @@ What the first two results show:
   whole of June: 76 of the 88 rows. Across the 88, June itself was drier
   than usual (median 33 mm against 41 mm in June months with no flood)
   while the month before was much wetter (152 mm against 80 mm). The
-  model's low June probability is a fair reading of such a month. The remedy is in how a flood is assigned to a month, for
-  example by requiring a minimum number of days of overlap. That changes
-  the target for every month, so it belongs with the work on the labels
-  and is not done here.
+  model's low June probability is a fair reading of such a month. The
+  remedy is in how a flood is assigned to a month, for example by
+  requiring a minimum number of days of overlap. That was tried next: see
+  "Assigning a flood to a month" below.
 - **`heavy_days` has almost nothing to count.** ERA5 rainfall at about
   25 km reaches 50 mm in a day on 0.1% of days, and 3% of county-months
   have any such day. A city flood from an hour of rain is not in this
@@ -654,6 +774,60 @@ What the first two results show:
 The four inputs are still worked out by `rainfall_features` and listed as
 `CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
 better labels.
+
+### Assigning a flood to a month (not adopted)
+
+The June result above suggested a change to the labels: a flood counts for
+the 30 days it began in, and for a later 30 days only when at least seven
+of its days fall in them. `compare_labels` works the labels out again under
+that rule and compares, on county-mean rainfall. Run on 9 October 2026.
+
+```bash
+docker compose run --rm web python manage.py compare_labels --min-overlap-days 7 --county-mean-rain
+```
+
+Changing the labels changes what is predicted, so there are three columns
+and no single before and after.
+
+| | Current labels | New labels | Trained on current, scored on new |
+|---|---|---|---|
+| County-months with a flood | 1,406 | 1,198 | 1,198 |
+| Base rate | 0.0968 | 0.0825 | 0.0825 |
+| Season-only average precision | 0.1235 | 0.1085 | 0.1117 |
+| Average precision, pooled | 0.2713 | 0.2566 | 0.2672 |
+| Average precision, mean of six folds | 0.3006 | 0.2926 | 0.2999 |
+| ROC AUC, pooled | 0.7980 | 0.8204 | 0.8201 |
+| Lift over the base rate | 2.80 | 3.11 | 3.24 |
+| Lift over the season-only model | 2.20 | 2.36 | 2.39 |
+| False alarms | 3,598 | 2,826 | 3,691 |
+| June floods, and how many are missed | 88, 84 missed | 12, 12 missed | 12, 8.4 missed |
+
+- **The rule removes 208 flood labels of 1,406 (15%)**, every one of them
+  the last one to six days of a flood that began in an earlier window.
+  June goes from 88 floods to 12.
+- **The model is better than its headline figures say.** Scored against
+  labels without those tails, the model as it is trained now reaches ROC
+  AUC 0.820 against 0.798, and 3.24 times the base rate against 2.80. Part
+  of what was counted as error was the labels.
+- **Training on the new labels does not help.** The model trained on the
+  current labels predicts the new ones at least as well as the model
+  trained on them (average precision 0.2672 against 0.2566). The tail of a
+  flood still tells the model that a place was wet, so removing it takes
+  away a little signal along with the noise.
+- **So the rule is not adopted.** `MIN_OVERLAP_DAYS` in `build_training_set`
+  stays at 1 and the labels are unchanged. Adopting it would change the
+  target, and with it every figure in this file, for no gain in what the
+  model learns. The finding is reported here instead.
+- **The 12 June floods that remain are still missed** by a model trained on
+  the new labels. With 12 of them in 26 years there is too little to learn
+  from, and too little to conclude from.
+
+A stricter first version of the rule (seven days in the window, or half of
+a shorter flood, with no exception for the window a flood began in) was
+tried first and did worse: it also removed the month in which a flood
+began late, which is the month whose rain caused it. Average precision on
+its own labels was 0.2231, and the model trained on the current labels
+again predicted them better (0.2473).
 
 ### The labels against mapped flood water
 

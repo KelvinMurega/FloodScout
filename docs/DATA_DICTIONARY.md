@@ -296,14 +296,22 @@ weakness of the labels: see `riskengine/ml/README.md`.
 
 | | |
 |---|---|
-| **Dataset** | ERA5 reanalysis, daily `precipitation_sum`, mm |
+| **Dataset** | Daily `precipitation_sum`, mm: ERA5 reanalysis for dates to 2016, ECMWF IFS analysis (9 km) from 2017 |
 | **Publisher** | ECMWF / Copernicus Climate Change Service, served by Open-Meteo |
 | **Endpoint** | `https://archive-api.open-meteo.com/v1/archive` |
 | **Licence** | CC BY 4.0 |
 | **Sampled at** | Each county's representative point, the same one `seed_terrain` uses |
 
-Reanalysis is a model constrained by observations, not a rain gauge. It is
-used because it is one consistent record over the whole 37 years.
+Reanalysis is a model constrained by observations, not a rain gauge. It was
+chosen as one consistent record over the whole period.
+
+**It is not one record.** Found on 9 October 2026: the archive endpoint,
+asked for no particular model, serves ERA5 before 2017 and the ECMWF IFS
+analysis from 2017 on, and the request in
+`geodata/services/open_meteo.py` names no model. The training rows of 2017
+to 2021 are therefore IFS rainfall. Adding `models=era5` to the request
+gives ERA5 throughout. `riskengine/ml/README.md`, "The Colab retrain", has
+the evidence and what it means for the final test.
 
 ### El Niño index
 
