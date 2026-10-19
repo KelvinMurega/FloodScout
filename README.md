@@ -310,13 +310,15 @@ The docstring on each model says which.
 
 ## Status
 
-As of 12 October 2026.
+As of 19 October 2026.
 
 | Area | State |
 |---|---|
 | Data pipeline | Done. 47 counties and 290 sub-counties with real terrain, rainfall and drainage. |
 | Model and evaluation | Done. Trained on Colab, cross-validated by year, tested on 2017 to 2021 and checked against satellite extents. |
 | API and dashboard | Done. Daily scores, seasonal outlook, search, history, inputs, report and CSV export. |
+| Risk by area | Built (PR #78). A 768-square grid (0.25°, about 28 km) scored daily from each square's own rain; "Colour by: Area" on the map. |
+| Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
 | Model performance panel | Built on `feat/dashboard-model-performance`; not yet merged. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
