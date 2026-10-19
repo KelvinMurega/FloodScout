@@ -46,6 +46,10 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      # Print each step as it happens, so `docker compose logs scheduler`
+      # shows the refresh in progress instead of nothing until a buffer fills.
+      PYTHONUNBUFFERED: "1"
     depends_on:
       db:
         condition: service_healthy

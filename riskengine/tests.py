@@ -20,6 +20,7 @@ from rest_framework.test import APITestCase
 
 from geodata.models import EnvironmentalData, GeospatialFeature, Region
 from geodata.services.climate_indices import oni_for, parse_oni
+from riskengine.management.commands import refresh_scores
 from riskengine.management.commands.score_regions import start_of_day
 from riskengine.ml import train
 from riskengine.ml.features import (
@@ -798,30 +799,113 @@ class RiskOutlookAPITests(APITestCase):
 
 class RefreshScoresCommandTests(TestCase):
     COMMANDS = "riskengine.management.commands.refresh_scores"
+    TODAY = dt.date(2026, 10, 19)
 
-    def test_fetches_rainfall_then_scores(self):
+    def setUp(self):
+        real = timezone.localdate
+        # Only "today" moves; converting a stored timestamp to a date still works.
+        patcher = mock.patch(
+            f"{self.COMMANDS}.timezone.localdate",
+            side_effect=lambda value=None: self.TODAY if value is None else real(value),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _scored(self, day):
+        RiskScore.objects.create(
+            region=make_region(f"R{day}"),
+            prediction_date=start_of_day(day),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+        )
+
+    def _steps(self, run):
+        return [call.args for call in run.call_args_list]
+
+    def test_fetches_rainfall_then_scores_today(self):
         with mock.patch(f"{self.COMMANDS}.call_command") as run:
             call_command("refresh_scores", stdout=StringIO())
-        self.assertEqual([call.args[0] for call in run.call_args_list], ["seed_rainfall", "score_regions"])
+        self.assertEqual(
+            self._steps(run),
+            [("seed_rainfall", "--past-days", "61"), ("score_regions", "--date", "2026-10-19")],
+        )
+
+    def test_catches_up_on_the_days_it_missed(self):
+        self._scored(dt.date(2026, 10, 16))
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run),
+            [
+                # Two more days of rain, so the 17th has its full history.
+                ("seed_rainfall", "--past-days", "63"),
+                ("score_regions", "--date", "2026-10-17"),
+                ("score_regions", "--date", "2026-10-18"),
+                ("score_regions", "--date", "2026-10-19"),
+            ],
+        )
+
+    def test_fills_gaps_between_scored_days(self):
+        for day in (dt.date(2026, 10, 15), dt.date(2026, 10, 17), dt.date(2026, 10, 19)):
+            self._scored(day)
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run)[1:],
+            [
+                ("score_regions", "--date", "2026-10-16"),
+                ("score_regions", "--date", "2026-10-18"),
+                ("score_regions", "--date", "2026-10-19"),
+            ],
+        )
+        self.assertEqual(self._steps(run)[0], ("seed_rainfall", "--past-days", "64"))
+
+    def test_a_second_run_on_the_same_day_rescores_only_today(self):
+        self._scored(self.TODAY)
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(self._steps(run)[1:], [("score_regions", "--date", "2026-10-19")])
+
+    def test_catch_up_stops_where_the_rainfall_record_does(self):
+        self._scored(dt.date(2026, 1, 1))
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        steps = self._steps(run)
+        self.assertEqual(steps[0], ("seed_rainfall", "--past-days", str(refresh_scores.MAX_PAST_DAYS)))
+        self.assertEqual(len(steps) - 1, refresh_scores.MAX_CATCH_UP_DAYS + 1)
 
     def test_a_failed_fetch_stops_a_single_run(self):
         with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):
             with self.assertRaises(CommandError):
                 call_command("refresh_scores", stdout=StringIO())
 
-    def test_on_a_schedule_a_failed_run_is_reported_and_the_next_one_still_happens(self):
+    def _schedule(self, clock, error=None):
+        """Run --every-hours 24 against `clock` until the third sleep; the call_command mock."""
+
         class Stop(Exception):
             pass
 
+        ticks = iter(clock)
         stderr = StringIO()
-        with mock.patch(
-            f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")
-        ) as run, mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, Stop]) as sleep:
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=error) as run, mock.patch(
+            f"{self.COMMANDS}._now", side_effect=lambda: next(ticks)
+        ), mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, None, Stop]) as sleep:
             with self.assertRaises(Stop):
                 call_command("refresh_scores", "--every-hours", "24", stdout=StringIO(), stderr=stderr)
+        sleep.assert_called_with(refresh_scores.CHECK_SECONDS)
+        return run, stderr.getvalue()
+
+    def test_on_a_schedule_the_next_run_waits_the_interval(self):
+        hours = 3600
+        # Runs at 0, checks at 1 h (not due) and at 24 h (due), runs again.
+        run, _ = self._schedule([0, 1 * hours, 24 * hours, 24 * hours])
+        self.assertEqual([step[0] for step in self._steps(run)].count("seed_rainfall"), 2)
+
+    def test_on_a_schedule_a_failed_run_is_reported_and_retried_within_the_hour(self):
+        # Fails at 0, checks at 10 min (not due) and at 1 h (due), runs again.
+        run, stderr = self._schedule([0, 600, 3600, 3600], error=CommandError("no network"))
         self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
-        sleep.assert_called_with(24 * 3600)
-        self.assertIn("no network", stderr.getvalue())
+        self.assertIn("no network", stderr)
 
     def test_the_interval_must_be_positive(self):
         with self.assertRaises(CommandError):
