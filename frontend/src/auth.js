@@ -31,11 +31,17 @@ function signInMessage(error) {
 
 /**
  * @param {HTMLElement} root  where the control is drawn
- * @param {{ onRescored: () => Promise<void> }} hooks  called after a rescore,
- *        so the map can load the new scores
+ * @param {{ onRescored: () => Promise<void>, onUserChange?: (user) => void }} hooks
+ *        `onRescored` runs after a rescore, so the map can load the new
+ *        scores; `onUserChange` whenever someone signs in or out.
  */
-export function initAuth(root, { onRescored }) {
+export function initAuth(root, { onRescored, onUserChange = () => {} }) {
   let user = null;
+
+  function setUser(next) {
+    user = next;
+    onUserChange(user);
+  }
 
   function renderSignedOut() {
     root.replaceChildren(button("Administrator sign in", renderForm));
@@ -71,8 +77,8 @@ export function initAuth(root, { onRescored }) {
       submit.disabled = true;
       message.textContent = "";
       try {
-        user = await signIn(username.value, password.value);
-        renderSignedIn();
+        const signedIn = await signIn(username.value, password.value);
+        renderSignedIn(signedIn);
       } catch (error) {
         password.value = "";
         message.textContent = signInMessage(error);
@@ -84,7 +90,13 @@ export function initAuth(root, { onRescored }) {
     username.focus();
   }
 
-  function renderSignedIn(note = "") {
+  function renderSignedIn(signedIn) {
+    user = signedIn;
+    renderUser();
+    onUserChange(user);
+  }
+
+  function renderUser(note = "") {
     const who = el(
       "span",
       "auth__who",
@@ -107,8 +119,8 @@ export function initAuth(root, { onRescored }) {
           } catch (error) {
             if (error.status === 401) {
               // The token was deleted on the server, e.g. signed out elsewhere.
-              user = null;
               renderSignedOut();
+              setUser(null);
               return;
             }
             message.textContent = `Rescore failed: ${error.message}`;
@@ -119,14 +131,17 @@ export function initAuth(root, { onRescored }) {
         "auth__button auth__button--primary",
       );
       run.title = "Score every region again from the rainfall already stored";
-      nodes.push(run);
+      const analytics = el("a", "auth__button", "Analytics");
+      analytics.href = "#/admin";
+      analytics.title = "Model evaluation and system health";
+      nodes.push(analytics, run);
     }
 
     nodes.push(
       button("Sign out", async () => {
         await signOut().catch(() => {});
-        user = null;
         renderSignedOut();
+        setUser(null);
       }),
       message,
     );

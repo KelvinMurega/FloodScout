@@ -5,7 +5,7 @@ from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -14,9 +14,11 @@ from geodata.filters import filter_by_region_params
 from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
+from .analytics import satellite_check, system_health
 from .inputs import score_inputs
 from .ml import infer as scorer
 from .models import GridRiskScore, RiskOutlook, RiskScore
+from .performance import load_performance
 from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskOutlookSerializer, RiskScoreSerializer
 
@@ -219,6 +221,26 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
                 "categories": dict(result.categories),
             }
         )
+
+
+@api_view(["GET"])
+@permission_classes([IsAdministrator])
+def admin_analytics(request):
+    """Everything the administrator's analytics page shows, in one response.
+
+    `model`: how the loaded model did when it was evaluated, from the
+    metrics.json its training run wrote (null while the placeholder rule
+    is scoring, which was never evaluated). `satellite_check`: its scores
+    against floodwater UNOSAT mapped from satellite images. `health`: whether
+    the pipeline is keeping the map current, worked out from the database now.
+    """
+    return Response(
+        {
+            "model": load_performance() if scorer._MODEL else None,
+            "satellite_check": satellite_check() if scorer._MODEL else None,
+            "health": system_health(),
+        }
+    )
 
 
 class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
