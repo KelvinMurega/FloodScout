@@ -16,7 +16,7 @@ from geodata.models import Region
 from .advisory import CATEGORY_RANK
 from .inputs import score_inputs
 from .ml import infer as scorer
-from .models import RiskOutlook, RiskScore
+from .models import GridRiskScore, RiskOutlook, RiskScore
 from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskOutlookSerializer, RiskScoreSerializer
 
@@ -250,3 +250,55 @@ class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
             .order_by("month")
         )
         return Response(list(rows))
+
+
+class RiskGridViewSet(viewsets.ViewSet):
+    """Read-only flood risk per grid cell (see riskengine/grid.py).
+
+    `list` gives every cell's score for one day: `?date=YYYY-MM-DD`, or the
+    latest day with grid scores. `?county=<id>` (repeatable) keeps the cells
+    of those counties. `dates/` lists the days grid scores exist for.
+
+    Cells are sent as plain objects rather than GeoJSON: a square is fully
+    described by its centre and the one `cell_deg` for the whole grid, and
+    hundreds of polygons would be several times the size.
+    """
+
+    def list(self, request):
+        params = request.query_params
+        day = date_param(params, "date")
+        if day is None:
+            day = GridRiskScore.objects.aggregate(day=Max("date"))["day"]
+        scores = GridRiskScore.objects.filter(date=day).select_related("cell__county")
+        counties = params.getlist("county")
+        if counties:
+            if not all(county.isdigit() for county in counties):
+                raise ValidationError({"county": "Expected county ids."})
+            scores = scores.filter(cell__county_id__in=[int(c) for c in counties])
+        scores = list(scores)
+        return Response(
+            {
+                "date": day.isoformat() if day else None,
+                "cell_deg": scores[0].cell.size_deg if scores else None,
+                "model_version": scores[0].model_version if scores else None,
+                "cells": [
+                    {
+                        "lon": score.cell.lon,
+                        "lat": score.cell.lat,
+                        "county": score.cell.county_id,
+                        "county_name": score.cell.county.county_name,
+                        "predicted_value": score.predicted_value,
+                        "times_usual": scorer.times_usual(score.predicted_value),
+                        "risk_category": score.risk_category,
+                        "rain_30d": score.rain_30d,
+                        "rain_30d_ratio": score.rain_30d_ratio,
+                    }
+                    for score in scores
+                ],
+            }
+        )
+
+    @action(detail=False, methods=["get"])
+    def dates(self, request):
+        days = GridRiskScore.objects.order_by("-date").values_list("date", flat=True).distinct()
+        return Response([day.isoformat() for day in days])

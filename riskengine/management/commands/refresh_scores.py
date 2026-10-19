@@ -14,6 +14,9 @@ last MAX_CATCH_UP_DAYS that has no scores, not only today. So a computer
 that was off over a weekend has Saturday and Sunday on the map once it is
 back on, scored from the rain that actually fell on them.
 
+When `seed_grid` has laid an area grid, its cells are scored too, with the
+same catching up.
+
 The seasonal outlook is not refreshed here. The forecast behind it is issued
 monthly and takes much longer to fetch; run `flood_outlook` when a new one
 is out.
@@ -26,13 +29,12 @@ import time
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Min
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from geodata.management.commands.seed_rainfall import DEFAULT_PAST_DAYS
-from riskengine.models import RiskScore
-from riskengine.scoring import start_of_day
+from geodata.models import GridCell
+from riskengine.models import GridRiskScore, RiskScore
 
 # The most days back Open-Meteo's forecast endpoint serves. Scoring a day
 # reads the DEFAULT_PAST_DAYS before it, so this caps how far back a run can
@@ -55,25 +57,36 @@ _sleep = time.sleep
 _now = time.time
 
 
-def days_to_score(today: dt.date) -> list[dt.date]:
+def days_to_score(today: dt.date, scored_days) -> list[dt.date]:
     """The days in the last MAX_CATCH_UP_DAYS with no scores, then `today`.
 
-    Gaps are filled wherever they are, not only after the last scored day.
-    Nothing before the first scored day is filled in, so a new database
-    starts with just today. Today is always included, so a second run on
-    the same day rescores it with the rain that has fallen since.
+    `scored_days` are the days that already have scores. Gaps are filled
+    wherever they are, not only after the last scored day. Nothing before
+    the first scored day is filled in, so a new database starts with just
+    today. Today is always included, so a second run on the same day
+    rescores it with the rain that has fallen since.
     """
-    first = RiskScore.objects.aggregate(first=Min("prediction_date"))["first"]
-    if first is None:
+    scored = set(scored_days)
+    if not scored:
         return [today]
-    start = max(timezone.localdate(first), today - dt.timedelta(days=MAX_CATCH_UP_DAYS))
-    scored = set(
-        RiskScore.objects.filter(prediction_date__gte=start_of_day(start))
-        .annotate(day=TruncDate("prediction_date"))
-        .values_list("day", flat=True)
-    )
+    start = max(min(scored), today - dt.timedelta(days=MAX_CATCH_UP_DAYS))
     days = [start + dt.timedelta(days=n) for n in range((today - start).days)]
     return [day for day in days if day not in scored] + [today]
+
+
+def region_days(today: dt.date) -> list[dt.date]:
+    """The days the regions need scoring for."""
+    scored = (
+        RiskScore.objects.annotate(day=TruncDate("prediction_date"))
+        .values_list("day", flat=True)
+        .distinct()
+    )
+    return days_to_score(today, scored)
+
+
+def grid_days(today: dt.date) -> list[dt.date]:
+    """The days the area grid needs scoring for."""
+    return days_to_score(today, GridRiskScore.objects.values_list("date", flat=True).distinct())
 
 
 class Command(BaseCommand):
@@ -118,7 +131,7 @@ class Command(BaseCommand):
 
     def refresh(self):
         today = timezone.localdate()
-        days = days_to_score(today)
+        days = region_days(today)
         self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")
         if len(days) > 1:
             self.stdout.write(f"Catching up on {len(days)} days from {days[0].isoformat()}")
@@ -131,3 +144,9 @@ class Command(BaseCommand):
             call_command(
                 "score_regions", "--date", day.isoformat(), stdout=self.stdout, stderr=self.stderr
             )
+
+        # The area grid, once `seed_grid` has laid one. It fetches its own
+        # rainfall, at the cells' centres.
+        if GridCell.objects.exists():
+            dates = [arg for day in grid_days(today) for arg in ("--date", day.isoformat())]
+            call_command("score_grid", *dates, stdout=self.stdout, stderr=self.stderr)

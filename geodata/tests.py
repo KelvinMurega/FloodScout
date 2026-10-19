@@ -547,6 +547,21 @@ class OpenMeteoClientTests(TestCase):
 
         self.assertEqual(sleep.call_count, open_meteo.RATE_LIMIT_RETRIES)
 
+    def test_a_server_error_is_waited_out_then_retried(self):
+        unavailable = urllib.error.HTTPError(
+            open_meteo.ELEVATION_URL, 503, "Service Unavailable", {}, None
+        )
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.read.return_value = b'{"elevation": [1.0]}'
+
+        with mock.patch.object(
+            open_meteo.urllib.request, "urlopen", side_effect=[unavailable, ok]
+        ), mock.patch.object(open_meteo, "_sleep") as sleep:
+            elevations = open_meteo.fetch_elevations([open_meteo.Point(36.8, -1.3)])
+
+        self.assertEqual(elevations, [1.0])
+        sleep.assert_called_once_with(open_meteo.CONNECTION_WAIT_SECONDS)
+
 
 # --- Sub-counties -------------------------------------------------------
 
