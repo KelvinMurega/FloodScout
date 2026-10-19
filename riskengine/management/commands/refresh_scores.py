@@ -45,6 +45,11 @@ MAX_CATCH_UP_DAYS = MAX_PAST_DAYS - DEFAULT_PAST_DAYS
 # that sleeps through the night still refreshes as soon as it wakes.
 CHECK_SECONDS = 600
 
+# How soon a scheduled run that failed is tried again. Open-Meteo's free
+# tier answers 429 once a day's or an hour's allowance is spent, and the
+# allowance comes back long before the next daily run.
+RETRY_SECONDS = 3600
+
 # Indirection so tests can skip the wait and move the clock.
 _sleep = time.sleep
 _now = time.time
@@ -98,9 +103,14 @@ class Command(BaseCommand):
                     if every is None:
                         raise
                     # A failed fetch must not end the schedule: yesterday's
-                    # scores stay on the dashboard and the next run tries again.
+                    # scores stay on the dashboard and a run tries again in
+                    # RETRY_SECONDS, not a whole interval later.
+                    retry = min(RETRY_SECONDS, every * 3600)
+                    last_run -= every * 3600 - retry
                     self.stderr.write(
-                        self.style.ERROR(f"Refresh failed, will retry next run: {exc}")
+                        self.style.ERROR(
+                            f"Refresh failed, will retry in {retry / 60:.0f} minutes: {exc}"
+                        )
                     )
             if every is None:
                 return

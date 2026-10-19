@@ -879,24 +879,33 @@ class RefreshScoresCommandTests(TestCase):
             with self.assertRaises(CommandError):
                 call_command("refresh_scores", stdout=StringIO())
 
-    def test_on_a_schedule_a_failed_run_is_reported_and_the_next_one_still_happens(self):
+    def _schedule(self, clock, error=None):
+        """Run --every-hours 24 against `clock` until the third sleep; the call_command mock."""
+
         class Stop(Exception):
             pass
 
-        hours = 3600
+        ticks = iter(clock)
         stderr = StringIO()
-        # Runs at 0, checks at 10 min (not due) and at 24 h (due), runs again.
-        clock = iter([0, 600, 24 * hours, 24 * hours])
-        with mock.patch(
-            f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")
-        ) as run, mock.patch(f"{self.COMMANDS}._now", side_effect=lambda: next(clock)), mock.patch(
-            f"{self.COMMANDS}._sleep", side_effect=[None, None, Stop]
-        ) as sleep:
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=error) as run, mock.patch(
+            f"{self.COMMANDS}._now", side_effect=lambda: next(ticks)
+        ), mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, None, Stop]) as sleep:
             with self.assertRaises(Stop):
                 call_command("refresh_scores", "--every-hours", "24", stdout=StringIO(), stderr=stderr)
-        self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
         sleep.assert_called_with(refresh_scores.CHECK_SECONDS)
-        self.assertIn("no network", stderr.getvalue())
+        return run, stderr.getvalue()
+
+    def test_on_a_schedule_the_next_run_waits_the_interval(self):
+        hours = 3600
+        # Runs at 0, checks at 1 h (not due) and at 24 h (due), runs again.
+        run, _ = self._schedule([0, 1 * hours, 24 * hours, 24 * hours])
+        self.assertEqual([step[0] for step in self._steps(run)].count("seed_rainfall"), 2)
+
+    def test_on_a_schedule_a_failed_run_is_reported_and_retried_within_the_hour(self):
+        # Fails at 0, checks at 10 min (not due) and at 1 h (due), runs again.
+        run, stderr = self._schedule([0, 600, 3600, 3600], error=CommandError("no network"))
+        self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
+        self.assertIn("no network", stderr)
 
     def test_the_interval_must_be_positive(self):
         with self.assertRaises(CommandError):
