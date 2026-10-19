@@ -76,7 +76,7 @@ from riskengine.ml.infer import (
     region_row,
 )
 
-from .build_training_set import DATA_DIR, RAINFALL_DIR, county_rainfall
+from .build_training_set import DATA_DIR, RAINFALL_DIR, county_rainfall, rain_model_of
 
 # Area-preserving CRS for measuring flooded km² (EPSG:6933, global equal area).
 EQUAL_AREA_SRID = 6933
@@ -218,6 +218,8 @@ class Command(BaseCommand):
                     source,
                     log=self.stdout.write,
                     cache_dir=SUB_COUNTY_RAINFALL_DIR if sub_county else RAINFALL_DIR,
+                    # The same archive model the model was trained on.
+                    model=rain_model_of(model),
                 )
             except (OpenMeteoError, earth_engine_rain.EarthEngineError) as exc:
                 raise CommandError(str(exc)) from exc

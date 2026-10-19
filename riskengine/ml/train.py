@@ -894,6 +894,9 @@ def build(
         "first_training_year": first_year,
         "features": list(data.features),
         "rain_source": data.meta.get("rain_source", "open-meteo-point"),
+        # The archive model behind point rainfall. Absent from training sets
+        # built before it was named, which were ERA5 to 2016 and IFS after.
+        **({"rain_model": data.meta["rain_model"]} if "rain_model" in data.meta else {}),
         "validation": f"{CV_FOLDS}-fold cross-validation grouped by year, normals refit per fold",
         "baseline_brier": round(float(brier_score_loss(y, np.full(len(y), base_rate))), 4),
         "baselines": {
@@ -966,6 +969,8 @@ def build(
         "rain_source": metrics["rain_source"],
         "rain_points": int(data.meta.get("rain_points", 1)),
     }
+    if "rain_model" in metrics:
+        artifact["rain_model"] = metrics["rain_model"]
     return artifact, metrics
 
 

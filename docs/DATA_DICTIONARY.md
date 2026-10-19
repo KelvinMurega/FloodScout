@@ -296,7 +296,7 @@ weakness of the labels: see `riskengine/ml/README.md`.
 
 | | |
 |---|---|
-| **Dataset** | Daily `precipitation_sum`, mm: ERA5 reanalysis for dates to 2016, ECMWF IFS analysis (9 km) from 2017 |
+| **Dataset** | Daily `precipitation_sum`, mm: ERA5 reanalysis (`models=era5`) for every date |
 | **Publisher** | ECMWF / Copernicus Climate Change Service, served by Open-Meteo |
 | **Endpoint** | `https://archive-api.open-meteo.com/v1/archive` |
 | **Licence** | CC BY 4.0 |
@@ -305,13 +305,19 @@ weakness of the labels: see `riskengine/ml/README.md`.
 Reanalysis is a model constrained by observations, not a rain gauge. It was
 chosen as one consistent record over the whole period.
 
-**It is not one record.** Found on 9 October 2026: the archive endpoint,
-asked for no particular model, serves ERA5 before 2017 and the ECMWF IFS
-analysis from 2017 on, and the request in
-`geodata/services/open_meteo.py` names no model. The training rows of 2017
-to 2021 are therefore IFS rainfall. Adding `models=era5` to the request
-gives ERA5 throughout. `riskengine/ml/README.md`, "The Colab retrain", has
-the evidence and what it means for the final test.
+**Earlier training sets were not one record.** Found on 9 October 2026:
+the archive endpoint, asked for no particular model (`best_match`), serves
+ERA5 before 2017 and the ECMWF IFS analysis (9 km) from 2017 on. Until
+then the request named no model, so the training rows of 2017 to 2021 were
+IFS rainfall. `riskengine/ml/README.md`, "The Colab retrain", has the
+evidence and what it means for the final test.
+
+The request now names `models=era5`. `build_training_set --rain-model
+best_match` still builds the older kind of set. The model is written to
+`training_set.meta.json` as `rain_model` and travels with the trained
+model; a set without it is `best_match`. ERA5 files are cached in
+`data/raw/rainfall_archive/era5/`, apart from the `best_match` files above
+them, so neither is read back as the other.
 
 ### El Niño index
 
