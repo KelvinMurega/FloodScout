@@ -13,6 +13,10 @@
  * day, or the seasonal outlook for a month ahead; the period bar switches
  * between them.
  *
+ * Today's and earlier days' scores can also be drawn by area: a grid of
+ * squares, each scored from the rain that fell on it, so the map shows
+ * where inside a county the risk is instead of one colour per county.
+ *
  * The view lives in the URL hash (#/coast), so it survives a reload and the
  * browser's back button leaves a region. #/admin is the System
  * Administrator's analytics page instead of the map (admin/admin.js). Nothing here knows how a score was
@@ -26,11 +30,13 @@ import "./style.css";
 import {
   API_BASE_URL,
   fetchFocusRegions,
+  fetchGridDates,
   fetchLatestScores,
   fetchLowerRiskNeighbours,
   fetchOutlook,
   fetchOutlookMonths,
   fetchRegions,
+  fetchRiskGrid,
   fetchScoreDates,
   fetchScoreHistory,
   fetchScoreInputs,
@@ -80,6 +86,7 @@ const els = {
   provenance: document.getElementById("provenance"),
   regionBar: document.getElementById("region-bar"),
   periodBar: document.getElementById("period-bar"),
+  layerBar: document.getElementById("layer-bar"),
   regionIntro: document.getElementById("region-intro"),
   relocation: document.getElementById("relocation"),
   detailHeading: document.getElementById("detail-heading"),
@@ -112,6 +119,15 @@ const state = {
   scoreDate: null,
   // County scores per period and date, fetched on first use.
   countyCache: new Map(),
+  // "region" colours each county or sub-county as one; "grid" colours the
+  // squares of the area grid, each by its own score.
+  mapBy: "region",
+  // Days grid scores are stored for, newest first. Empty hides the choice.
+  gridDates: [],
+  // Grid scores per date ("" for the latest), fetched on first use.
+  gridCache: new Map(),
+  // Whether the view on screen is drawn by area.
+  gridOn: false,
   focusByCountyId: new Map(),
   // Per region, fetched on first open.
   regionCache: new Map(),
@@ -273,10 +289,15 @@ map.attributionControl.addAttribution(
 // to dissolve the polygons into one.
 map.createPane("context").style.zIndex = 340;
 map.createPane("outline").style.zIndex = 350;
+// Above the region fills, so the squares take the pointer and their tooltips.
+map.createPane("grid").style.zIndex = 410;
 map.createPane("countyLines").style.zIndex = 420;
 map.createPane("labels").style.zIndex = 450;
 map.getPane("countyLines").style.pointerEvents = "none";
 map.getPane("labels").style.pointerEvents = "none";
+
+// Hundreds of squares draw far faster on one canvas than as SVG paths.
+const GRID_RENDERER = L.canvas({ pane: "grid", padding: 0.2 });
 
 /**
  * A point to hang a region's name on: the area-weighted centroid of its
@@ -378,7 +399,8 @@ function styleFor(feature) {
   const score = state.scoresByRegion.get(regionId);
   return {
     fillColor: colourFor(score?.risk_category, DARK),
-    fillOpacity: FILL_OPACITY,
+    // Under the grid the regions keep their outlines but give up their fill.
+    fillOpacity: state.gridOn ? 0 : FILL_OPACITY,
     ...restingStroke(regionId),
   };
 }
@@ -450,6 +472,70 @@ function drawChoropleth(features) {
   return layer;
 }
 
+/** A grid square's tooltip: its county, its risk, and the rain behind it. */
+function gridTooltip(cell) {
+  const box = el("div", "grid-tooltip");
+  box.append(
+    el("strong", null, `${cell.county_name} area — ${labelFor(cell.risk_category)}`),
+    el("div", null, formatTimesUsual(cell.times_usual)),
+  );
+  if (typeof cell.rain_30d === "number") {
+    const usual =
+      typeof cell.rain_30d_ratio === "number"
+        ? ` (${Math.round(cell.rain_30d_ratio * 100)}% of usual)`
+        : "";
+    box.append(el("div", null, `Rain in the last 30 days: ${Math.round(cell.rain_30d)} mm${usual}`));
+  }
+  return box;
+}
+
+/**
+ * The area grid: one square per cell, coloured by its own score. Only the
+ * cells of `countyIds` when given. Clicking a square opens its county when
+ * the county is on the map as a region.
+ */
+function drawGrid(grid, countyIds = null) {
+  const half = grid.cell_deg / 2;
+  const cells = countyIds ? grid.cells.filter((c) => countyIds.has(c.county)) : grid.cells;
+  const group = L.layerGroup();
+  for (const cell of cells) {
+    const square = L.rectangle(
+      [
+        [cell.lat - half, cell.lon - half],
+        [cell.lat + half, cell.lon + half],
+      ],
+      {
+        renderer: GRID_RENDERER,
+        pane: "grid",
+        stroke: false,
+        fillColor: colourFor(cell.risk_category, DARK),
+        fillOpacity: FILL_OPACITY,
+      },
+    );
+    square.bindTooltip(gridTooltip(cell), { sticky: true });
+    square.on("click", () => {
+      if (state.layersByRegion.has(cell.county)) select(cell.county);
+    });
+    group.addLayer(square);
+  }
+  addToView(group);
+  return cells;
+}
+
+/** Region borders drawn over the grid, so each square reads against its region. */
+function drawRegionLines(features) {
+  addToView(
+    L.geoJSON(
+      { type: "FeatureCollection", features },
+      {
+        pane: "countyLines",
+        interactive: false,
+        style: { color: cssVar("--county-line"), weight: 1, fill: false },
+      },
+    ),
+  );
+}
+
 function drawOutline(features) {
   addToView(
     L.geoJSON(
@@ -509,6 +595,13 @@ function renderProvenance(scores) {
     if (age > STALE_AFTER_DAYS) {
       els.provenance.append(` These are ${age} days old: the daily refresh has not run.`);
     }
+  }
+  if (state.gridOn) {
+    els.provenance.append(
+      " Coloured by area: each square is scored from the rain that fell on it. The model " +
+        "learned from floods recorded per county, so a square shows where the dangerous " +
+        "rain fell, not the outline of a flood.",
+    );
   }
 }
 
@@ -593,6 +686,49 @@ function renderPeriodBar() {
   if (hasEarlierDays) els.periodBar.append(...scoreDatePicker());
 }
 
+function hasGrid() {
+  return state.gridDates.length > 0 && !isOutlook();
+}
+
+/** The choice between colouring by region and by area, when there is a grid. */
+function renderLayerBar() {
+  els.layerBar.hidden = !hasGrid();
+  els.layerBar.replaceChildren();
+  if (!hasGrid()) return;
+
+  els.layerBar.append(el("span", "layer-bar__label", "Colour by"));
+  const options = [
+    { mapBy: "region", name: isRegionView() ? "Sub-county" : "County" },
+    { mapBy: "grid", name: "Area" },
+  ];
+  for (const option of options) {
+    const button = el("button", "region-bar__button", option.name);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(option.mapBy === state.mapBy));
+    button.addEventListener("click", () => {
+      state.mapBy = option.mapBy;
+      route();
+    });
+    els.layerBar.append(button);
+  }
+}
+
+/** Grid scores for the day on screen, or null when the view is not by area. */
+function loadGrid() {
+  if (state.mapBy !== "grid" || !hasGrid()) return Promise.resolve(null);
+  const date = state.scoreDate ?? "";
+  if (!state.gridCache.has(date)) {
+    state.gridCache.set(
+      date,
+      fetchRiskGrid(date || undefined).catch((error) => {
+        state.gridCache.delete(date); // let a retry refetch
+        throw error;
+      }),
+    );
+  }
+  return state.gridCache.get(date);
+}
+
 function renderLegend(scores) {
   const counts = new Map();
   for (const score of scores) {
@@ -608,6 +744,10 @@ function renderLegend(scores) {
       el("span", "legend__count", `${counts.get(category) ?? 0}`),
     );
     els.legend.append(item);
+  }
+
+  if (state.gridOn) {
+    els.legend.append(el("li", "legend__note", "Counts are squares of the area grid."));
   }
 
   if (isRegionView() && givesAdvice()) {
@@ -1348,31 +1488,36 @@ function loadCountyScores() {
 async function showOverview() {
   const slug = currentSlug();
   const view = viewKey();
-  const scores = await loadCountyScores();
+  const mapBy = state.mapBy;
+  const [scores, grid] = await Promise.all([loadCountyScores(), loadGrid()]);
   // Another view may have been chosen while this one loaded.
-  if (currentSlug() !== slug || viewKey() !== view) return;
+  if (currentSlug() !== slug || viewKey() !== view || state.mapBy !== mapBy) return;
 
   state.focus = null;
   clearView();
   state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
+  state.gridOn = grid?.cells.length > 0;
 
   const features = state.counties.features;
   drawOutline(features);
   const layer = drawChoropleth(features);
+  const cells = state.gridOn ? drawGrid(grid) : null;
+  if (state.gridOn) drawRegionLines(features);
   if (layer.getLayers().length > 0) lockTo(layer.getBounds());
   updateLabelVisibility();
 
   renderProvenance(scores);
   renderRegionBar();
   renderPeriodBar();
+  renderLayerBar();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "County";
   renderEmptyDetail();
-  renderLegend(scores);
+  renderLegend(cells ?? scores);
   renderTable(features);
   renderReport(scores);
-  setStatus(null);
+  setStatus(grid && !state.gridOn ? "No area scores for this day; coloured by county." : null);
   selectPending();
 }
 
@@ -1407,13 +1552,15 @@ async function loadRegion(focus) {
 async function showRegion(focus) {
   setStatus(`Loading ${focus.name} sub-counties…`);
   const view = viewKey();
-  const [subCounties, scores] = await loadRegion(focus);
+  const mapBy = state.mapBy;
+  const [[subCounties, scores], grid] = await Promise.all([loadRegion(focus), loadGrid()]);
   // Another view may have been chosen while this one loaded.
-  if (currentSlug() !== focus.slug || viewKey() !== view) return;
+  if (currentSlug() !== focus.slug || viewKey() !== view || state.mapBy !== mapBy) return;
 
   state.focus = focus;
   clearView();
   state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
+  state.gridOn = grid?.cells.length > 0;
 
   const focusCountyIds = new Set(focus.counties.map((c) => c.id));
   const focusCounties = state.counties.features.filter((f) =>
@@ -1447,6 +1594,8 @@ async function showRegion(focus) {
   // leave slivers of gap and overhang along the region's edge.
   drawOutline(subCounties.features);
   const choropleth = drawChoropleth(subCounties.features);
+  const cells = state.gridOn ? drawGrid(grid, focusCountyIds) : null;
+  if (state.gridOn) drawRegionLines(subCounties.features);
   // County borders over the sub-county fills, so each sub-county reads
   // against its county. Pointless for a one-county region like Nairobi,
   // where the only county border is the region's own edge.
@@ -1470,11 +1619,12 @@ async function showRegion(focus) {
   renderProvenance(scores);
   renderRegionBar();
   renderPeriodBar();
+  renderLayerBar();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "Sub-county";
   renderEmptyDetail();
-  renderLegend(scores);
+  renderLegend(cells ?? scores);
   renderTable(subCounties.features);
   renderReport(scores);
   setStatus(null);
@@ -1539,6 +1689,7 @@ async function load() {
       resetAdmin();
       state.countyCache.clear();
       state.regionCache.clear();
+      state.gridCache.clear();
       // A rescore may have added today to the days on offer.
       state.scoreDates = await fetchScoreDates().catch(() => state.scoreDates);
       return route();
@@ -1553,19 +1704,21 @@ async function load() {
   try {
     setStatus("Loading counties and risk scores…");
 
-    const [counties, focusRegions, outlookMonths, scoreDates] = await Promise.all([
+    const [counties, focusRegions, outlookMonths, scoreDates, gridDates] = await Promise.all([
       fetchRegions(),
       fetchFocusRegions(),
       // The outlook and the earlier days are extras: without them the
       // dashboard still shows today.
       fetchOutlookMonths().catch(() => []),
       fetchScoreDates().catch(() => []),
+      fetchGridDates().catch(() => []),
     ]);
 
     state.counties = counties;
     state.focusRegions = focusRegions;
     state.outlookMonths = outlookMonths;
     state.scoreDates = scoreDates;
+    state.gridDates = gridDates;
     for (const focus of focusRegions) {
       for (const county of focus.counties) state.focusByCountyId.set(county.id, focus);
     }

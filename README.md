@@ -152,14 +152,48 @@ them works offline, because the values are in the database.
 
 While the stack is up, the `scheduler` service keeps the map current. It
 runs `refresh_scores` (`seed_rainfall`, then `score_regions`) when it starts
-and once a day after that. To refresh by hand:
+and once a day after that. Each run also scores any days since the last
+scored one, up to a month back, so days the computer was off still appear on
+the map. To refresh by hand:
 
 ```bash
 docker compose run --rm web python manage.py refresh_scores
 ```
 
+On Windows, Docker Desktop does not start on its own unless told to, and the
+scheduler runs only while it does. To have the scores refresh without
+opening anything, register the scheduled task once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\install-scheduler-task.ps1
+```
+
+It starts Docker and the scheduler when you sign in and every morning at
+07:00, or as soon as the computer is on if it was off at 07:00. It writes to
+`scheduler-task.log`. Remove it with
+`Unregister-ScheduledTask -TaskName "FloodScout daily refresh" -Confirm:$false`.
+
 The seasonal outlook is not part of the daily refresh. Run `flood_outlook`
 when a new monthly forecast is out.
+
+### Risk by area
+
+A county score gives the whole county one colour, even when the rain fell
+on one side of it. The area grid splits Kenya into squares of 0.25 degrees
+(about 28 km, 768 squares) and scores each from the rain measured at its
+centre, with its own elevation and slope. The dashboard's "Colour by: Area"
+switch draws it.
+
+```bash
+docker compose run --rm web python manage.py seed_grid    # once: lay the grid, measure terrain
+docker compose run --rm web python manage.py score_grid   # today; refresh_scores does this daily
+```
+
+The model learned from floods recorded per county, so a square's score is
+the chance of a large flood for a county that had received that square's
+rain. It shows where the dangerous rain fell, not the outline of a flood.
+`seed_grid --cell-deg 0.1` gives finer squares, but about 4,700 of them,
+which is more daily rainfall requests than Open-Meteo's free tier allows.
 
 ### Where the data comes from
 
@@ -276,13 +310,15 @@ The docstring on each model says which.
 
 ## Status
 
-As of 12 October 2026.
+As of 19 October 2026.
 
 | Area | State |
 |---|---|
 | Data pipeline | Done. 47 counties and 290 sub-counties with real terrain, rainfall and drainage. |
 | Model and evaluation | Done. Trained on Colab, cross-validated by year, tested on 2017 to 2021 and checked against satellite extents. |
 | API and dashboard | Done. Daily scores, seasonal outlook, search, history, inputs, report and CSV export. |
+| Risk by area | Built (PR #78). A 768-square grid (0.25°, about 28 km) scored daily from each square's own rain; "Colour by: Area" on the map. |
+| Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
 | Model performance panel | Built on `feat/dashboard-model-performance`; not yet merged. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |

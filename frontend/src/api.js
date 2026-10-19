@@ -163,3 +163,17 @@ export function fetchFocusRegions() {
 export function fetchLowerRiskNeighbours(regionId) {
   return getJson(withParams("risk-scores/lower-risk-neighbours/", { region: regionId }));
 }
+
+/**
+ * Flood risk per grid square for one day: { date, cell_deg, model_version,
+ * cells: [{ lon, lat, county, county_name, risk_category, times_usual,
+ * rain_30d, rain_30d_ratio, ... }] }. With no date, the latest day.
+ */
+export function fetchRiskGrid(date) {
+  return getJson(withParams("risk-grid/", { date }));
+}
+
+/** The days grid scores exist for, newest first, as YYYY-MM-DD strings. */
+export function fetchGridDates() {
+  return getJson(withParams("risk-grid/dates/"));
+}

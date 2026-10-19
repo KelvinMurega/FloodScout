@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from geodata.models import Region
+from geodata.models import GridCell, Region
 
 
 class RiskScore(models.Model):
@@ -81,3 +81,33 @@ class RiskOutlook(models.Model):
 
     def __str__(self) -> str:
         return f"{self.region} — {self.risk_category} ({self.month:%Y-%m} outlook)"
+
+
+class GridRiskScore(models.Model):
+    """The flood probability for one grid cell on one day.
+
+    Worked out by the same model as RiskScore, from the cell's own rainfall
+    and terrain (see geodata.GridCell). The model learned from floods
+    recorded per county, so a cell's value reads as "a county that got this
+    cell's rain would have this chance of a large flood": it shows where in
+    a county the rain that drives the risk fell, not a flood extent.
+    """
+
+    cell = models.ForeignKey(GridCell, on_delete=models.CASCADE, related_name="risk_scores")
+    date = models.DateField(help_text="The day the score is for")
+    predicted_value = models.FloatField(help_text="Raw model output score")
+    risk_category = models.CharField(max_length=10, choices=RiskScore.RiskCategory.choices)
+    rain_30d = models.FloatField(null=True, blank=True, help_text="mm in the 30 days to the date")
+    rain_30d_ratio = models.FloatField(
+        null=True, blank=True, help_text="rain_30d over the county's normal for the month"
+    )
+    model_version = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ["-date", "cell_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["cell", "date"], name="unique_gridriskscore_cell_date")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cell} — {self.risk_category} ({self.date:%Y-%m-%d})"

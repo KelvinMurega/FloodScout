@@ -17,9 +17,16 @@ The Random Forest is the model compared, because it is the one selected.
 It draws random numbers, so every figure is a mean over SEEDS: a difference
 smaller than the spread between seeds is not a difference.
 
-The final test years play no part. `manage.py compare_inputs` prints the
-result, and it is recorded in the experiments log in riskengine/ml/README.md
-whether the change is kept or not.
+A change to the labels (`compare_labels`) cannot be judged by one number,
+because it changes what is being predicted. Each set of labels is scored
+against itself, with its own base rate and season-only model beside it, and
+the model trained on the current labels is also scored against the new
+ones, which shows whether learning from the new labels helps predict them.
+
+The final test years play no part. `manage.py compare_inputs` and
+`manage.py compare_labels` print the result, and it is recorded in the
+experiments log in riskengine/ml/README.md whether the change is kept or
+not.
 """
 
 from __future__ import annotations
@@ -139,17 +146,34 @@ def _missed(flooded, warned, inside) -> tuple[int, int]:
     return int((inside & flooded & ~warned).sum()), int((inside & flooded).sum())
 
 
-def evaluate(data: train.TrainingSet, seeds=train.SEEDS) -> dict:
+def with_labels(data: train.TrainingSet, labels: np.ndarray) -> train.TrainingSet:
+    """`data` with `labels` as its target and everything else unchanged."""
+    return train.TrainingSet(
+        features=data.features,
+        X=data.X,
+        y=np.asarray(labels, dtype=int),
+        years=data.years,
+        months=data.months,
+        counties=data.counties,
+        dates=data.dates,
+        meta=data.meta,
+    )
+
+
+def evaluate(data: train.TrainingSet, seeds=train.SEEDS, truth: np.ndarray | None = None) -> dict:
     """The selected model's held-out scores on `data`, averaged over `seeds`.
 
     The same folds as `train.select` makes, so two calls on training sets
-    that differ only in their columns are compared row for row.
+    that differ only in their columns or labels are compared row for row.
+    The model always learns from `data.y`. With `truth`, its held-out
+    probabilities are scored against those labels instead.
     """
     folds = list(GroupKFold(train.CV_FOLDS).split(data.X, data.y, groups=data.years))
     columns = list(range(len(data.features)))
     pipeline = train.candidates()[MODEL]
     seed_steps = train._random_steps(pipeline)
-    flooded = data.y == 1
+    truth = data.y if truth is None else np.asarray(truth, dtype=int)
+    flooded = truth == 1
     june = data.months == JUNE
     intense = np.isin(data.counties, INTENSE_RAIN_COUNTIES)
 
@@ -159,23 +183,33 @@ def evaluate(data: train.TrainingSet, seeds=train.SEEDS) -> dict:
         held_out = train.held_out_probabilities(data, lambda: clone(seeded), columns, folds)
         warned = held_out > train.WARNING_THRESHOLD
         fold_precision = [
-            average_precision_score(data.y[test_rows], held_out[test_rows])
+            average_precision_score(truth[test_rows], held_out[test_rows])
             for _train_rows, test_rows in folds
+            if 0 < truth[test_rows].sum() < len(test_rows)
         ]
         runs.append(
             {
-                **train._scores(data.y, held_out),
+                **train._scores(truth, held_out),
                 "average_precision_fold_mean": float(np.mean(fold_precision)),
-                "floods_missed": _missed(flooded, warned, np.ones(len(data.y), dtype=bool))[0],
+                "floods_missed": _missed(flooded, warned, np.ones(len(truth), dtype=bool))[0],
                 "false_alarms": int((~flooded & warned).sum()),
                 "june_missed": _missed(flooded, warned, june)[0],
                 "intense_rain_missed": _missed(flooded, warned, intense)[0],
             }
         )
 
+    # The season-only model learns from the same labels as the forest and is
+    # scored against the same truth. It has nothing random in it.
+    season_columns = [data.column(name) for name in train.SEASON_FEATURES if name in data.features]
+    season_precision = None
+    if season_columns:
+        season = train.held_out_probabilities(data, train.season_baseline, season_columns, folds)
+        season_precision = round(float(average_precision_score(truth, season)), 4)
     out = {
         "features": list(data.features),
         "seeds": [int(seed) for seed in seeds],
+        "base_rate": round(float(flooded.mean()), 4),
+        "season_only_average_precision": season_precision,
         "floods": int(flooded.sum()),
         "june_floods": int((flooded & june).sum()),
         "intense_rain_floods": int((flooded & intense).sum()),
@@ -212,4 +246,18 @@ def compare(
         "after": after,
         "average_precision_change": change,
         "beyond_noise": abs(change) > NOISE,
+    }
+
+
+def compare_labels(data: train.TrainingSet, labels: np.ndarray, seeds=train.SEEDS) -> dict:
+    """The current labels against `labels`, for the same rows and inputs.
+
+    `current` and `new` are each trained and scored on their own labels.
+    `current_on_new` is trained on the current labels and scored against
+    the new ones.
+    """
+    return {
+        "current": evaluate(data, seeds),
+        "new": evaluate(with_labels(data, labels), seeds),
+        "current_on_new": evaluate(data, seeds, truth=labels),
     }
