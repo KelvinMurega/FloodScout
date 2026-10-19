@@ -14,7 +14,8 @@
  * between them.
  *
  * The view lives in the URL hash (#/coast), so it survives a reload and the
- * browser's back button leaves a region. Nothing here knows how a score was
+ * browser's back button leaves a region. #/admin is the System
+ * Administrator's analytics page instead of the map (admin/admin.js). Nothing here knows how a score was
  * produced, only what the API says produced it.
  */
 
@@ -34,6 +35,7 @@ import {
   fetchScoreHistory,
   fetchScoreInputs,
 } from "./api.js";
+import { hideAdmin, resetAdmin, showAdmin } from "./admin/admin.js";
 import { initAuth } from "./auth.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
 import { reportFileName, scoresToCsv, sortByRisk } from "./report.js";
@@ -92,6 +94,7 @@ const els = {
   printReport: document.getElementById("print-report"),
   downloadCsv: document.getElementById("download-csv"),
   report: document.getElementById("report"),
+  admin: document.getElementById("admin"),
 };
 
 const state = {
@@ -133,6 +136,10 @@ const state = {
   rowsByRegion: new Map(),
   selectedRegionId: null,
   viewLayers: [],
+  // Who is signed in, as the API described them; null when nobody is.
+  user: null,
+  // Whether the analytics page is on screen instead of the map.
+  adminOpen: false,
 };
 
 /* ---------------------------------------------------------------- utils */
@@ -1485,8 +1492,27 @@ function currentSlug() {
   return location.hash.replace(/^#\/?/, "");
 }
 
+function isAdminSlug(slug) {
+  return slug === "admin" || slug.startsWith("admin/");
+}
+
+function setAdminOpen(open) {
+  state.adminOpen = open;
+  document.body.classList.toggle("is-admin", open);
+  if (!open) hideAdmin();
+}
+
 async function route() {
   const slug = currentSlug();
+  if (isAdminSlug(slug)) {
+    setAdminOpen(true);
+    window.scrollTo(0, 0);
+    await showAdmin(els.admin, { slug, user: state.user });
+    return;
+  }
+  if (state.adminOpen) setAdminOpen(false);
+  // The map views need the counties; load() routes again once they are in.
+  if (!state.counties) return;
   const focus = state.focusRegions.find((f) => f.slug === slug);
   try {
     if (focus) {
@@ -1501,16 +1527,26 @@ async function route() {
 }
 
 async function load() {
+  // Before the data, so the analytics page works even if the map's data
+  // does not load. route() leaves the map views until it has.
+  window.addEventListener("hashchange", route);
+
   // Before the data, so an administrator can still sign in and rescore when
   // there are no scores to show yet.
   initAuth(document.getElementById("auth"), {
     // Scores are cached per view; drop them so the redraw fetches the new ones.
     onRescored: async () => {
+      resetAdmin();
       state.countyCache.clear();
       state.regionCache.clear();
       // A rescore may have added today to the days on offer.
       state.scoreDates = await fetchScoreDates().catch(() => state.scoreDates);
       return route();
+    },
+    onUserChange: (user) => {
+      state.user = user;
+      if (!user) resetAdmin();
+      if (isAdminSlug(currentSlug())) route();
     },
   });
 
@@ -1540,7 +1576,6 @@ async function load() {
 
     initSearch();
     initReport();
-    window.addEventListener("hashchange", route);
     await route();
   } catch (error) {
     console.error(error);

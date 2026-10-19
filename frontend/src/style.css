@@ -172,6 +172,7 @@ body {
 
 .auth__button {
   cursor: pointer;
+  text-decoration: none;
 }
 
 .auth__button:hover {

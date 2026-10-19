@@ -18,10 +18,10 @@ export function resolveBaseUrl(search = window.location.search) {
 
 export const API_BASE_URL = resolveBaseUrl();
 
-async function getJson(url) {
+async function getJson(url, headers = {}) {
   let response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { headers });
   } catch (cause) {
     // fetch() rejects on DNS/connection/CORS failures, where the status code
     // would tell us nothing. Name the URL — the usual cause is the API not
@@ -29,7 +29,9 @@ async function getJson(url) {
     throw new Error(`Could not reach ${url}. Is the API running?`, { cause });
   }
   if (!response.ok) {
-    throw new Error(`${url} returned ${response.status} ${response.statusText}`);
+    const error = new Error(`${url} returned ${response.status} ${response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -78,6 +80,20 @@ export async function signOut() {
 /** Administrator only: score every region again for today. */
 export function rescore() {
   return postJson("risk-scores/rescore/");
+}
+
+/**
+ * Administrator only: the model's evaluation, its satellite check and the
+ * pipeline's health, for the analytics page. Rejects with `status` 401 when
+ * nobody is signed in.
+ */
+export function fetchAnalytics() {
+  if (!authToken) {
+    const error = new Error("Sign in as an administrator to see the analytics.");
+    error.status = 401;
+    return Promise.reject(error);
+  }
+  return getJson(`${API_BASE_URL}/admin/analytics/`, { Authorization: `Token ${authToken}` });
 }
 
 function withParams(path, params = {}) {
