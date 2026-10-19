@@ -57,3 +57,6 @@ data/external/*
 docs/*
 !docs/DATA_DICTIONARY.md
 !docs/figures/
+
+# Written by scripts/windows/start-scheduler.ps1
+scheduler-task.log

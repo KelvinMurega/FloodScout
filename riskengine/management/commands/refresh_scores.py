@@ -9,6 +9,11 @@ wrote before for the same days, so running it twice does no harm.
 The `scheduler` service in docker-compose.yml runs the second form, so the
 dashboard stays current for as long as the stack is up.
 
+Days the stack was down are caught up on: a run scores every day in the
+last MAX_CATCH_UP_DAYS that has no scores, not only today. So a computer
+that was off over a weekend has Saturday and Sunday on the map once it is
+back on, scored from the rain that actually fell on them.
+
 The seasonal outlook is not refreshed here. The forecast behind it is issued
 monthly and takes much longer to fetch; run `flood_outlook` when a new one
 is out.
@@ -16,14 +21,54 @@ is out.
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Min
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-# Indirection so tests can skip the wait.
+from geodata.management.commands.seed_rainfall import DEFAULT_PAST_DAYS
+from riskengine.models import RiskScore
+from riskengine.scoring import start_of_day
+
+# The most days back Open-Meteo's forecast endpoint serves. Scoring a day
+# reads the DEFAULT_PAST_DAYS before it, so this caps how far back a run can
+# catch up.
+MAX_PAST_DAYS = 92
+MAX_CATCH_UP_DAYS = MAX_PAST_DAYS - DEFAULT_PAST_DAYS
+
+# How often a scheduled run wakes to check whether the next refresh is due.
+# The wait is measured on the wall clock, not by one long sleep, so a laptop
+# that sleeps through the night still refreshes as soon as it wakes.
+CHECK_SECONDS = 600
+
+# Indirection so tests can skip the wait and move the clock.
 _sleep = time.sleep
+_now = time.time
+
+
+def days_to_score(today: dt.date) -> list[dt.date]:
+    """The days in the last MAX_CATCH_UP_DAYS with no scores, then `today`.
+
+    Gaps are filled wherever they are, not only after the last scored day.
+    Nothing before the first scored day is filled in, so a new database
+    starts with just today. Today is always included, so a second run on
+    the same day rescores it with the rain that has fallen since.
+    """
+    first = RiskScore.objects.aggregate(first=Min("prediction_date"))["first"]
+    if first is None:
+        return [today]
+    start = max(timezone.localdate(first), today - dt.timedelta(days=MAX_CATCH_UP_DAYS))
+    scored = set(
+        RiskScore.objects.filter(prediction_date__gte=start_of_day(start))
+        .annotate(day=TruncDate("prediction_date"))
+        .values_list("day", flat=True)
+    )
+    days = [start + dt.timedelta(days=n) for n in range((today - start).days)]
+    return [day for day in days if day not in scored] + [today]
 
 
 class Command(BaseCommand):
@@ -43,17 +88,36 @@ class Command(BaseCommand):
         if every is not None and every <= 0:
             raise CommandError("--every-hours must be positive.")
 
+        last_run = None
         while True:
-            self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")
-            try:
-                call_command("seed_rainfall", stdout=self.stdout, stderr=self.stderr)
-                call_command("score_regions", stdout=self.stdout, stderr=self.stderr)
-            except CommandError as exc:
-                if every is None:
-                    raise
-                # A failed fetch must not end the schedule: yesterday's scores
-                # stay on the dashboard and the next run tries again.
-                self.stderr.write(self.style.ERROR(f"Refresh failed, will retry next run: {exc}"))
+            if last_run is None or _now() - last_run >= every * 3600:
+                last_run = _now()
+                try:
+                    self.refresh()
+                except CommandError as exc:
+                    if every is None:
+                        raise
+                    # A failed fetch must not end the schedule: yesterday's
+                    # scores stay on the dashboard and the next run tries again.
+                    self.stderr.write(
+                        self.style.ERROR(f"Refresh failed, will retry next run: {exc}")
+                    )
             if every is None:
                 return
-            _sleep(every * 3600)
+            _sleep(min(CHECK_SECONDS, every * 3600))
+
+    def refresh(self):
+        today = timezone.localdate()
+        days = days_to_score(today)
+        self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")
+        if len(days) > 1:
+            self.stdout.write(f"Catching up on {len(days)} days from {days[0].isoformat()}")
+
+        past_days = DEFAULT_PAST_DAYS + (today - days[0]).days
+        call_command(
+            "seed_rainfall", "--past-days", str(past_days), stdout=self.stdout, stderr=self.stderr
+        )
+        for day in days:
+            call_command(
+                "score_regions", "--date", day.isoformat(), stdout=self.stdout, stderr=self.stderr
+            )

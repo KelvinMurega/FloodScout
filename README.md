@@ -152,11 +152,26 @@ them works offline, because the values are in the database.
 
 While the stack is up, the `scheduler` service keeps the map current. It
 runs `refresh_scores` (`seed_rainfall`, then `score_regions`) when it starts
-and once a day after that. To refresh by hand:
+and once a day after that. Each run also scores any days since the last
+scored one, up to a month back, so days the computer was off still appear on
+the map. To refresh by hand:
 
 ```bash
 docker compose run --rm web python manage.py refresh_scores
 ```
+
+On Windows, Docker Desktop does not start on its own unless told to, and the
+scheduler runs only while it does. To have the scores refresh without
+opening anything, register the scheduled task once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\install-scheduler-task.ps1
+```
+
+It starts Docker and the scheduler when you sign in and every morning at
+07:00, or as soon as the computer is on if it was off at 07:00. It writes to
+`scheduler-task.log`. Remove it with
+`Unregister-ScheduledTask -TaskName "FloodScout daily refresh" -Confirm:$false`.
 
 The seasonal outlook is not part of the daily refresh. Run `flood_outlook`
 when a new monthly forecast is out.
