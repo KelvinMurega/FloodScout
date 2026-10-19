@@ -8,7 +8,7 @@ from geodata.views import (
     GeospatialFeatureViewSet,
     RegionViewSet,
 )
-from riskengine.views import RiskOutlookViewSet, RiskScoreViewSet
+from riskengine.views import RiskOutlookViewSet, RiskScoreViewSet, admin_analytics
 
 from . import views
 
@@ -24,5 +24,6 @@ urlpatterns = [
     path("health/", views.health_check, name="health-check"),
     path("auth/token/", ObtainTokenView.as_view(), name="auth-token"),
     path("auth/logout/", RevokeTokenView.as_view(), name="auth-logout"),
+    path("admin/analytics/", admin_analytics, name="admin-analytics"),
     path("", include(router.urls)),
 ]
