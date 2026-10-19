@@ -8,7 +8,10 @@ recorded a large flood there in that window.
 Rainfall comes from one of two sources (--rain-source):
 
   open-meteo    ERA5 at one representative point per county. The default;
-                needs no account.
+                needs no account. --rain-model best_match asks for the
+                service's own choice instead, which is ERA5 to 2016 and the
+                ECMWF IFS analysis from 2017; the training sets up to
+                October 2026 were built that way.
   earth-engine  ERA5-Land averaged over the whole county, computed by
                 Google Earth Engine. Better for large counties; needs
                 earthengine-api and an authorised Earth Engine project.
@@ -45,7 +48,12 @@ from geodata.services.climate_indices import (
     fetch_oni,
     oni_for,
 )
-from geodata.services.open_meteo import OpenMeteoError, fetch_archive_rainfall
+from geodata.services.open_meteo import (
+    ARCHIVE_MODELS,
+    DEFAULT_ARCHIVE_MODEL,
+    OpenMeteoError,
+    fetch_archive_rainfall,
+)
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, WINDOW_DAYS, feature_row
 
 # The archive runs to 2021 but has almost no Kenyan floods before 1996, so
@@ -64,6 +72,10 @@ TRAINING_SET_PATH = DATA_DIR / "processed" / "training_set.csv"
 TRAINING_META_PATH = TRAINING_SET_PATH.with_suffix(".meta.json")
 
 LABEL_COLUMNS = ("flood", "severity", "events")
+
+# A training set or model that names no rainfall model was built before the
+# archive was asked for one, so the service chose.
+UNNAMED_RAIN_MODEL = "best_match"
 
 # A flood counts for the 30-day window it began in, and for a later window
 # when at least this many of its days fall in it. 1 is any overlap at all.
@@ -118,12 +130,35 @@ def county_area(region) -> float | None:
     return county.area_size
 
 
-def open_meteo_rainfall(counties, start, end, log=print, cache_dir: Path = RAINFALL_DIR):
+def rain_model_of(meta: dict) -> str:
+    """The archive rainfall model a training set or trained model was built on."""
+    return meta.get("rain_model", UNNAMED_RAIN_MODEL)
+
+
+def rainfall_cache_dir(cache_dir: Path, model: str) -> Path:
+    """Where rainfall from `model` is cached under `cache_dir`.
+
+    `best_match` keeps the top level, where every file was written before
+    the model was named, so those files are still read back as what they
+    are. Any other model gets a folder of its own.
+    """
+    return cache_dir if model == UNNAMED_RAIN_MODEL else cache_dir / model
+
+
+def open_meteo_rainfall(
+    counties,
+    start,
+    end,
+    log=print,
+    cache_dir: Path = RAINFALL_DIR,
+    model: str = DEFAULT_ARCHIVE_MODEL,
+):
     """{region name: {date: mm}} at each region's representative point, cached per region.
 
     `cache_dir` keeps regions of another level apart: a sub-county can share
-    its name with a county.
+    its name with a county. Rainfall from each `model` is cached apart.
     """
+    cache_dir = rainfall_cache_dir(cache_dir, model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     rainfall = {}
     missing = []
@@ -138,24 +173,35 @@ def open_meteo_rainfall(counties, start, end, log=print, cache_dir: Path = RAINF
             missing.append((county, path))
 
     if missing:
-        log(f"Fetching {start} to {end} rainfall for {len(missing)} counties")
+        log(f"Fetching {start} to {end} {model} rainfall for {len(missing)} counties")
     # A few counties per request, each written as it arrives, so a run cut
     # short by the rate limit resumes where it stopped.
     for index in range(0, len(missing), FETCH_BATCH):
         batch = missing[index : index + FETCH_BATCH]
         points = [representative_point(county) for county, _path in batch]
-        for (county, path), series in zip(batch, fetch_archive_rainfall(points, start, end)):
+        for (county, path), series in zip(batch, fetch_archive_rainfall(points, start, end, model)):
             path.write_text(json.dumps({day.isoformat(): mm for day, mm in series.items()}))
             rainfall[county.name] = series
     return rainfall
 
 
-def county_rainfall(counties, start, end, source: str, log=print, cache_dir: Path = RAINFALL_DIR):
-    """Daily rainfall per county from `source`, and how many points scoring should average."""
+def county_rainfall(
+    counties,
+    start,
+    end,
+    source: str,
+    log=print,
+    cache_dir: Path = RAINFALL_DIR,
+    model: str = DEFAULT_ARCHIVE_MODEL,
+):
+    """Daily rainfall per county from `source`, and how many points scoring should average.
+
+    `model` is the archive model for open-meteo; Earth Engine is always ERA5-Land.
+    """
     if source == "earth-engine":
         series = earth_engine_rain.fetch_county_rainfall(counties, start, end, EE_RAINFALL_DIR, log=log)
         return series, earth_engine_rain.SCORING_POINTS
-    return open_meteo_rainfall(counties, start, end, log=log, cache_dir=cache_dir), 1
+    return open_meteo_rainfall(counties, start, end, log=log, cache_dir=cache_dir, model=model), 1
 
 
 class Command(BaseCommand):
@@ -169,6 +215,13 @@ class Command(BaseCommand):
             help="open-meteo: one point per county (default). "
             "earth-engine: averaged over the county (needs earthengine-api).",
         )
+        parser.add_argument(
+            "--rain-model",
+            choices=ARCHIVE_MODELS,
+            default=DEFAULT_ARCHIVE_MODEL,
+            help=f"Archive model for open-meteo rainfall (default {DEFAULT_ARCHIVE_MODEL}). "
+            "best_match is ERA5 to 2016 and ECMWF IFS from 2017, as the older training sets were.",
+        )
 
     def handle(self, *args, **options):
         counties = list(
@@ -180,6 +233,9 @@ class Command(BaseCommand):
             raise CommandError("No counties in the database — run `seed_regions` first.")
 
         source = options["rain_source"]
+        model = options["rain_model"]
+        if source == "earth-engine" and model != DEFAULT_ARCHIVE_MODEL:
+            raise CommandError("--rain-model applies to open-meteo rainfall; Earth Engine is ERA5-Land.")
         ends = month_ends(FIRST_MONTH, LAST_MONTH)
         try:
             placed = events_by_county(counties, log=self.stdout.write)
@@ -189,6 +245,7 @@ class Command(BaseCommand):
                 ends[-1],
                 source,
                 log=self.stdout.write,
+                model=model,
             )
             oni = fetch_oni()
             dmi = fetch_dmi()
@@ -242,11 +299,16 @@ class Command(BaseCommand):
             writer = csv.writer(handle)
             writer.writerow(["county", "date", "normal_30d", *FEATURE_NAMES, *LABEL_COLUMNS])
             writer.writerows(rows)
+        meta = {
+            "rain_source": "earth-engine-county-mean" if source == "earth-engine" else "open-meteo-point",
+            "rain_points": rain_points,
+        }
+        if source == "open-meteo":
+            meta["rain_model"] = model
         TRAINING_META_PATH.write_text(
             json.dumps(
                 {
-                    "rain_source": "earth-engine-county-mean" if source == "earth-engine" else "open-meteo-point",
-                    "rain_points": rain_points,
+                    **meta,
                     "period": [ends[0].isoformat(), ends[-1].isoformat()],
                     "min_overlap_days": MIN_OVERLAP_DAYS,
                     "built": dt.date.today().isoformat(),

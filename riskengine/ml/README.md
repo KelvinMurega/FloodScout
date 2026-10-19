@@ -590,6 +590,7 @@ measure the change targets beside it.
 | 9 Oct 2026 | Added `rain_3d_max` and `heavy_days`, the wettest three days and the days with 50 mm or more, for short intense rain | 0.2516; 32.4 of 71 floods missed in Nairobi, Kilifi, Lamu and Kwale | 0.2482; 31.0 of 71 | Dropped |
 | 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept in cross-validation, then retrained on Colab and **not shipped**: see "The Colab retrain" |
 | 9 Oct 2026 | Labels: a flood counts for the window it began in, and for a later one only with seven days in it (on county-mean rainfall) | 0.2713 on the current labels; lift over season only 2.20 | 0.2566 on the new labels; lift 2.36. Trained on the current labels and scored on the new: 0.2672 | Not adopted |
+| 15 Oct 2026 | Point rainfall asked for as ERA5 every year (`models=era5`), in place of the service's choice of ERA5 to 2016 and IFS from 2017; labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2579; 3,636 false alarms, 415.8 floods missed | Kept: the record is one dataset. Final test waits for the Colab retrain: see "One rainfall record" |
 
 #### County-mean rainfall (kept)
 
@@ -685,10 +686,11 @@ The cause is the Open-Meteo archive. Asked for no particular model, it
 serves ERA5 for dates before 2017 and the ECMWF IFS analysis at 9 km from
 2017 on. For Kisumu in April 2018 it returns 279 mm by default, which is
 its `ecmwf_ifs` figure, and 351 mm when ERA5 is named; for April 2015 the
-default and ERA5 are the same 335 mm. `fetch_archive_rainfall` names no
-model, so every training set built with `--rain-source open-meteo` is ERA5
-to 2016 and IFS from 2017. Until now this file and the code said ERA5
-throughout.
+default and ERA5 are the same 335 mm. `fetch_archive_rainfall` named no
+model, so every training set built with `--rain-source open-meteo` before
+15 October 2026 is ERA5 to 2016 and IFS from 2017. Until then this file and
+the code said ERA5 throughout. The request now names ERA5: see "One
+rainfall record" below.
 
 What follows from it:
 
@@ -741,6 +743,53 @@ What to do next, in order:
    read a source consistent with training.
 3. Only then choose between point and county-mean rainfall, and between
    the three models, with the supervisor.
+
+#### One rainfall record: ERA5 named throughout (kept)
+
+Step 1 above, done on 15 October 2026. `fetch_archive_rainfall` now sends
+`models=era5`, and `build_training_set --rain-model` records the model in
+`training_set.meta.json` (`best_match` rebuilds the older sets). The point
+training set was rebuilt and kept as
+`data/processed/training_set_point_era5_20261015.csv`.
+
+Only 2017 to 2021 changed. Against the 2 October point set, `rain_30d`
+moved by a median of 0 mm and at most 6.4 mm in 1996 to 2016, and by a
+median of 21.6 mm and up to 446 mm in 2017 to 2021. The flood labels are
+identical. The correlation with county-mean rainfall is now in the earlier
+range every year:
+
+| Year | Point (2 October, IFS from 2017) against county mean | Point (ERA5 throughout) against county mean |
+|---|---|---|
+| 1996 to 2016 | 0.81 to 0.92 | 0.81 to 0.92 |
+| 2017 | 0.64 | 0.85 |
+| 2018 | 0.72 | 0.89 |
+| 2019 | 0.71 | 0.89 |
+| 2020 | 0.60 | 0.84 |
+| 2021 | 0.73 | 0.91 |
+
+Cross-validation with `compare_inputs --county-mean-rain`, mean
+(standard deviation) over seeds 0 to 4:
+
+| Measure | Point, IFS from 2017 | Point, ERA5 throughout | County mean |
+|---|---|---|---|
+| Average precision, pooled | 0.2516 (0.0027) | 0.2579 (0.0028) | 0.2713 (0.0018) |
+| Average precision, mean of six folds | 0.2940 (0.0043) | 0.2930 (0.0039) | 0.3006 (0.0022) |
+| ROC AUC, pooled | 0.7834 (0.0024) | 0.7863 (0.0017) | 0.7980 (0.0011) |
+| Brier score, pooled | 0.0801 (0.0003) | 0.0798 (0.0002) | 0.0791 (0.0001) |
+| Floods missed, of 1,406 | 412.8 | 415.8 | 385.8 |
+| False alarms | 3,686 | 3,636 | 3,598 |
+| June floods missed, of 88 | 86.2 | 86.4 | 84.0 |
+| Floods missed in Nairobi, Kilifi, Lamu and Kwale, of 71 | 32.4 | 29.0 | 29.2 |
+
+Pooled average precision rises by 0.0063, just beyond the 0.005 threshold;
+the mean of folds does not move. The gain is in ranking across years,
+which is what a consistent record should change. County-mean rainfall is
+still ahead, by 0.0134 instead of 0.0197, so about a third of its earlier
+lead was the change of dataset.
+
+**Not yet known:** how much of the weak final test was the change of
+dataset. That needs the Colab retrain on this set, and is the sixth look at
+the final test years. The scoring rainfall (step 2) is also still open.
 
 #### Rainfall inputs (dropped)
 

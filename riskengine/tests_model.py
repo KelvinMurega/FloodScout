@@ -698,9 +698,39 @@ class ValidateUnosatSubCountyTests(TestCase):
             cache = Path(tmp) / "sub_county"
             fetched = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
             again = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
-            self.assertEqual([path.name for path in cache.iterdir()], [f"Sigowet-Soin_{day}_{day}.json"])
+            self.assertEqual(
+                [path.name for path in (cache / "era5").iterdir()], [f"Sigowet-Soin_{day}_{day}.json"]
+            )
         self.assertEqual(fetched, {"Sigowet/Soin": {day: 4.0}})
         self.assertEqual(again, fetched)  # read back from the cache
+
+    def test_the_rainfall_model_reaches_the_request_and_the_cache(self):
+        from riskengine.management.commands.build_training_set import open_meteo_rainfall
+
+        region = _county("Wetland", 35.0, -1.0)
+        day = dt.date(2018, 4, 1)
+        name = f"Wetland_{day}_{day}.json"
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "riskengine.management.commands.build_training_set.fetch_archive_rainfall",
+            side_effect=[[{day: 4.0}], [{day: 9.0}]],
+        ) as fetch:
+            cache = Path(tmp)
+            era5 = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
+            # Rainfall the service chose is not read back as ERA5, nor ERA5 as it.
+            chosen = open_meteo_rainfall(
+                [region], day, day, log=lambda _: None, cache_dir=cache, model="best_match"
+            )
+            self.assertTrue((cache / "era5" / name).exists())
+            self.assertTrue((cache / name).exists())
+
+        self.assertEqual([call.args[3] for call in fetch.call_args_list], ["era5", "best_match"])
+        self.assertEqual((era5["Wetland"][day], chosen["Wetland"][day]), (4.0, 9.0))
+
+    def test_a_training_set_without_a_rainfall_model_was_the_services_choice(self):
+        from riskengine.management.commands.build_training_set import rain_model_of
+
+        self.assertEqual(rain_model_of({"rain_source": "open-meteo-point"}), "best_match")
+        self.assertEqual(rain_model_of({"rain_model": "era5"}), "era5")
 
 
 class BuildColabBundleTests(SimpleTestCase):
