@@ -6,7 +6,7 @@
     <title>FloodScout — Kenya County Flood Risk</title>
     <meta
       name="description"
-      content="Read-only map of current flood risk across Kenya's counties and, in flood-prone regions, their sub-counties."
+      content="Flood risk across Kenya's counties and sub-counties, on basemaps with rivers, flood zones, past floods and satellite rain."
     />
   </head>
   <body>
@@ -30,7 +30,10 @@
 
       <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
       <nav class="region-bar" id="period-bar" aria-label="Choose today, an earlier day or a month ahead" hidden></nav>
-      <nav class="region-bar" id="layer-bar" aria-label="Colour the map by region or by area" hidden></nav>
+      <div class="map-bars">
+        <nav class="region-bar" id="theme-bar" aria-label="Choose what the colour shows"></nav>
+        <nav class="region-bar" id="layer-bar" aria-label="Colour the map by region or by area" hidden></nav>
+      </div>
 
       <main class="app__main">
         <div class="map-wrap">
@@ -59,6 +62,8 @@
             <p class="search__empty" id="search-empty" role="status" hidden></p>
           </section>
 
+          <section class="panel__section glance" id="glance" hidden></section>
+
           <section class="panel__section region-intro" id="region-intro" hidden></section>
 
           <section class="panel__section" id="relocation" hidden></section>
@@ -71,7 +76,7 @@
           </section>
 
           <section class="panel__section">
-            <h2 class="panel__heading">Legend</h2>
+            <h2 class="panel__heading" id="legend-heading">Legend</h2>
             <ul class="legend" id="legend"></ul>
           </section>
 

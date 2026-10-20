@@ -177,3 +177,21 @@ export function fetchRiskGrid(date) {
 export function fetchGridDates() {
   return getJson(withParams("risk-grid/dates/"));
 }
+
+/**
+ * What the map's themes colour by, for one day: { date, change_days,
+ * regions: [{ region, times_usual, change_7d, rain_30d, rain_30d_normal,
+ * rain_30d_ratio }] }. Same region params as fetchLatestScores, plus
+ * `date` (YYYY-MM-DD); the newest day without it.
+ */
+export function fetchMapContext(params) {
+  return getJson(withParams("risk-scores/context/", params));
+}
+
+/**
+ * Large floods recorded in Kenya, as GeoJSON points. `{ region: id }` keeps
+ * the ones whose recorded footprint reaches that region.
+ */
+export function fetchFloodEvents(params) {
+  return getJson(withParams("flood-events/", params));
+}

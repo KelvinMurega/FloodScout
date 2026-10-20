@@ -17,6 +17,11 @@
  * squares, each scored from the rain that fell on it, so the map shows
  * where inside a county the risk is instead of one colour per county.
  *
+ * The colour can show the risk category, the risk as a multiple of the usual
+ * chance, its change over a week, or the rain against normal (themes.js).
+ * Under the colours is a choice of basemaps and over them rivers, the
+ * 100-year flood zone, past floods and satellite rain (layers.js).
+ *
  * The view lives in the URL hash (#/coast), so it survives a reload and the
  * browser's back button leaves a region. #/admin is the System
  * Administrator's analytics page instead of the map (admin/admin.js). Nothing here knows how a score was
@@ -29,10 +34,12 @@ import "./style.css";
 
 import {
   API_BASE_URL,
+  fetchFloodEvents,
   fetchFocusRegions,
   fetchGridDates,
   fetchLatestScores,
   fetchLowerRiskNeighbours,
+  fetchMapContext,
   fetchOutlook,
   fetchOutlookMonths,
   fetchRegions,
@@ -52,17 +59,35 @@ import {
   labelFor,
   prefersDark,
 } from "./risk.js";
+import { initLayers, overlayLegend } from "./layers.js";
 import { searchRegions } from "./search.js";
+import {
+  THEMES,
+  THEME_ORDER,
+  describeChange,
+  describeRain,
+  legendEntries,
+  themeAvailable,
+  themeColour,
+} from "./themes.js";
 
 const KENYA_CENTRE = [0.25, 37.9];
 const KENYA_ZOOM = 6;
 
 const DARK = prefersDark();
 
-// No basemap. The region polygons *are* the map: nothing outside Kenya is
-// drawn, and the view is locked to whatever is on screen once it loads.
-const FILL_OPACITY = 1;
+// The regions sit on a basemap (layers.js), so their fill lets it show
+// through: rivers, towns and terrain stay readable under the colour. The
+// "Colour" slider changes it, for reading a satellite image underneath.
+// The view is still locked to whatever is on screen once it loads.
+const FILL_OPACITY = 0.72;
+const OPACITY_KEY = "floodscout.fillOpacity";
 const HOVER_WEIGHT = 2.5;
+
+// How many regions the "at a glance" panel names as the highest.
+const GLANCE_TOP = 5;
+// A rise in times-usual over 7 days at least this big counts as "rising".
+const RISING = 0.2;
 
 // Approximate label width per character at the label font size (px). Used to
 // decide whether a region is wide enough on screen to carry its name.
@@ -87,6 +112,9 @@ const els = {
   regionBar: document.getElementById("region-bar"),
   periodBar: document.getElementById("period-bar"),
   layerBar: document.getElementById("layer-bar"),
+  themeBar: document.getElementById("theme-bar"),
+  glance: document.getElementById("glance"),
+  legendHeading: document.getElementById("legend-heading"),
   regionIntro: document.getElementById("region-intro"),
   relocation: document.getElementById("relocation"),
   detailHeading: document.getElementById("detail-heading"),
@@ -128,6 +156,16 @@ const state = {
   gridCache: new Map(),
   // Whether the view on screen is drawn by area.
   gridOn: false,
+  // What the colour shows: one of THEME_ORDER (themes.js).
+  theme: "usual",
+  // How strongly the colour covers the basemap, 0.15 to 1.
+  fillOpacity: readOpacity(),
+  // Context rows (change, rain against normal) per view, fetched on first use.
+  contextCache: new Map(),
+  // The context row for each region on screen.
+  contextByRegion: new Map(),
+  // What the legend counts: [{ score, context }], one per region or square.
+  legendRows: [],
   focusByCountyId: new Map(),
   // Per region, fetched on first open.
   regionCache: new Map(),
@@ -159,6 +197,15 @@ const state = {
 };
 
 /* ---------------------------------------------------------------- utils */
+
+function readOpacity() {
+  try {
+    const saved = Number(localStorage.getItem(OPACITY_KEY));
+    return saved >= 0.15 && saved <= 1 ? saved : FILL_OPACITY;
+  } catch {
+    return FILL_OPACITY;
+  }
+}
 
 function setStatus(message, isError = false) {
   if (!message) {
@@ -277,16 +324,19 @@ const map = L.map("map", {
   zoomSnap: 0.25,
   zoomDelta: 0.5,
   maxZoom: 13,
+  // Basemap tiles appear at once instead of fading in. A fade is driven by
+  // animation frames, which a print preview or a headless screenshot may
+  // never run, leaving the tiles invisible.
+  fadeAnimation: false,
 });
 
 map.attributionControl.addAttribution(
   'Boundaries: <a href="https://www.geoboundaries.org/">geoBoundaries</a>',
 );
 
-// Panes, bottom to top. The outline stroke is wide, but the opaque fills
-// above it cover the inner half of every shared border, so only the half
-// outside the shape's edge survives — a clean outer outline without having
-// to dissolve the polygons into one.
+// Panes, bottom to top, all above the basemap tiles. The country outline
+// sits under the region fills, which half cover it, so it reads as an edge
+// around Kenya rather than a line through every border.
 map.createPane("context").style.zIndex = 340;
 map.createPane("outline").style.zIndex = 350;
 // Above the region fills, so the squares take the pointer and their tooltips.
@@ -298,6 +348,36 @@ map.getPane("labels").style.pointerEvents = "none";
 
 // Hundreds of squares draw far faster on one canvas than as SVG paths.
 const GRID_RENDERER = L.canvas({ pane: "grid", padding: 0.2 });
+
+// Basemaps and the context layers over the risk (layers.js). Past floods
+// are fetched once, the first time the layer is turned on.
+let floodEvents = null;
+const mapLayers = initLayers(map, {
+  dark: DARK,
+  loadFloodEvents: () => {
+    floodEvents ??= fetchFloodEvents().catch((error) => {
+      floodEvents = null;
+      throw error;
+    });
+    return floodEvents;
+  },
+  onChange: () => renderLegend(),
+});
+
+/** The theme on screen: the one chosen, or "usual" where it means nothing. */
+function currentTheme() {
+  const view = { outlook: isOutlook(), grid: state.gridOn };
+  return themeAvailable(state.theme, view) ? state.theme : "usual";
+}
+
+function regionColour(regionId) {
+  return themeColour(
+    currentTheme(),
+    state.scoresByRegion.get(regionId),
+    state.contextByRegion.get(regionId),
+    DARK,
+  );
+}
 
 /**
  * A point to hang a region's name on: the area-weighted centroid of its
@@ -396,11 +476,10 @@ function advisoryOf(regionId) {
 
 function styleFor(feature) {
   const regionId = regionIdOf(feature);
-  const score = state.scoresByRegion.get(regionId);
   return {
-    fillColor: colourFor(score?.risk_category, DARK),
+    fillColor: regionColour(regionId),
     // Under the grid the regions keep their outlines but give up their fill.
-    fillOpacity: state.gridOn ? 0 : FILL_OPACITY,
+    fillOpacity: state.gridOn ? 0 : state.fillOpacity,
     ...restingStroke(regionId),
   };
 }
@@ -431,9 +510,10 @@ function drawChoropleth(features) {
         const name = nameOf(feature);
         state.layersByRegion.set(regionId, featureLayer);
 
-        const score = state.scoresByRegion.get(regionId);
-        featureLayer.bindTooltip(`${name} — ${labelFor(score?.risk_category)}`, {
+        // A function, so the card reads the theme and context on screen now.
+        featureLayer.bindTooltip(() => regionTooltip(regionId, name), {
           sticky: true,
+          className: "map-card",
         });
         featureLayer.on({
           click: () => select(regionId),
@@ -472,6 +552,32 @@ function drawChoropleth(features) {
   return layer;
 }
 
+/**
+ * A region's hover card: its name, its risk in words, and the two things
+ * that say where it is heading: the week's change and the rain behind it.
+ */
+function regionTooltip(regionId, name) {
+  const score = state.scoresByRegion.get(regionId);
+  const context = state.contextByRegion.get(regionId);
+  const box = el("div", "grid-tooltip");
+  const title = el("strong", null, name);
+  const badge = el("span", "map-card__badge");
+  badge.append(swatch(score?.risk_category), labelFor(score?.risk_category));
+  box.append(title, badge);
+  if (score) box.append(el("div", null, formatTimesUsual(context?.times_usual ?? score.times_usual)));
+  const change = describeChange(context?.change_7d);
+  if (change) box.append(el("div", "map-card__muted", change));
+  const rain = describeRain(context);
+  if (rain) box.append(el("div", "map-card__muted", rain));
+  if (isOutlook() && typeof score?.rain_vs_normal === "number") {
+    box.append(
+      el("div", "map-card__muted", `Forecast rain ${score.rain_vs_normal.toFixed(1)} times normal`),
+    );
+  }
+  box.append(el("div", "map-card__hint", "Click for details"));
+  return box;
+}
+
 /** A grid square's tooltip: its county, its risk, and the rain behind it. */
 function gridTooltip(cell) {
   const box = el("div", "grid-tooltip");
@@ -508,8 +614,8 @@ function drawGrid(grid, countyIds = null) {
         renderer: GRID_RENDERER,
         pane: "grid",
         stroke: false,
-        fillColor: colourFor(cell.risk_category, DARK),
-        fillOpacity: FILL_OPACITY,
+        fillColor: themeColour(currentTheme(), cell, null, DARK),
+        fillOpacity: state.fillOpacity,
       },
     );
     square.bindTooltip(gridTooltip(cell), { sticky: true });
@@ -543,7 +649,7 @@ function drawOutline(features) {
       {
         pane: "outline",
         interactive: false,
-        style: { color: cssVar("--country-outline"), weight: 5, fill: false },
+        style: { color: cssVar("--country-outline"), weight: 2.5, fill: false },
       },
     ),
   );
@@ -713,6 +819,34 @@ function renderLayerBar() {
   }
 }
 
+/**
+ * The context rows (change, rain against normal) for the regions of a view,
+ * keyed by region id. An outlook has none: its rows carry their own forecast
+ * rain. A failure leaves the map coloured by what the scores themselves say.
+ */
+async function loadContext(params) {
+  if (isOutlook()) return new Map();
+  const key = `${viewKey()}|${JSON.stringify(params)}`;
+  if (!state.contextCache.has(key)) {
+    state.contextCache.set(
+      key,
+      fetchMapContext({ ...params, date: state.scoreDate ?? undefined })
+        .then((body) => new Map(body.regions.map((row) => [row.region, row])))
+        .catch((error) => {
+          console.error(error);
+          state.contextCache.delete(key);
+          return new Map();
+        }),
+    );
+  }
+  return state.contextCache.get(key);
+}
+
+/** Point the NASA satellite layers at the day on screen. */
+function syncLayerDate() {
+  mapLayers.setDate(isOutlook() ? null : viewDate() || null);
+}
+
 /** Grid scores for the day on screen, or null when the view is not by area. */
 function loadGrid() {
   if (state.mapBy !== "grid" || !hasGrid()) return Promise.resolve(null);
@@ -729,20 +863,104 @@ function loadGrid() {
   return state.gridCache.get(date);
 }
 
-function renderLegend(scores) {
-  const counts = new Map();
-  for (const score of scores) {
-    counts.set(score.risk_category, (counts.get(score.risk_category) ?? 0) + 1);
+/** "Show": what the colour on the map means (themes.js). */
+function renderThemeBar() {
+  els.themeBar.replaceChildren(el("span", "layer-bar__label", "Show"));
+  const view = { outlook: isOutlook(), grid: state.gridOn };
+  for (const theme of THEME_ORDER) {
+    if (!themeAvailable(theme, view)) continue;
+    const button = el("button", "region-bar__button", THEMES[theme].name);
+    button.type = "button";
+    button.title = THEMES[theme].hint;
+    button.setAttribute("aria-pressed", String(theme === currentTheme()));
+    button.addEventListener("click", () => {
+      state.theme = theme;
+      recolour();
+    });
+    els.themeBar.append(button);
+  }
+  els.themeBar.append(opacitySlider());
+}
+
+/** The "Colour" slider: how much of the basemap shows through the risk. */
+function opacitySlider() {
+  const wrap = el("label", "theme-bar__opacity", "Colour ");
+  const input = el("input", "theme-bar__range");
+  input.type = "range";
+  input.min = "15";
+  input.max = "100";
+  input.step = "5";
+  input.value = String(Math.round(state.fillOpacity * 100));
+  input.title = "How strongly the colour covers the map underneath";
+  input.addEventListener("input", () => {
+    state.fillOpacity = Number(input.value) / 100;
+    try {
+      localStorage.setItem(OPACITY_KEY, String(state.fillOpacity));
+    } catch {
+      // Blocked storage: the setting lasts this visit only.
+    }
+    for (const layer of state.viewLayers) {
+      layer.eachLayer?.((child) => {
+        if (child.options?.fillOpacity > 0 && child.options.pane !== "context") {
+          child.setStyle({ fillOpacity: state.fillOpacity });
+        }
+      });
+    }
+  });
+  wrap.append(input);
+  return wrap;
+}
+
+/** Repaint the view on screen for a new theme, without fetching anything. */
+function recolour() {
+  for (const [regionId, layer] of state.layersByRegion) {
+    layer.setStyle({ fillColor: regionColour(regionId) });
+  }
+  if (state.gridOn) route();
+  renderThemeBar();
+  renderLegend();
+}
+
+/** The rows the legend counts: the regions on screen, or the grid's squares. */
+function setLegendRows(scores, cells) {
+  state.legendRows = cells
+    ? cells.map((cell) => ({ score: cell, context: null }))
+    : scores.map((score) => ({ score, context: state.contextByRegion.get(score.region) }));
+}
+
+function renderLegend() {
+  const theme = currentTheme();
+  els.legendHeading.replaceChildren(
+    THEMES[theme].name,
+    el("span", "panel__hint", THEMES[theme].hint),
+  );
+  els.legend.replaceChildren();
+  for (const entry of legendEntries(theme, state.legendRows, DARK)) {
+    const item = el("li", "legend__item");
+    const mark = el("span", "legend__swatch");
+    mark.style.background = entry.colour;
+    item.append(
+      mark,
+      el("span", "legend__label", entry.label),
+      el("span", "legend__count", `${entry.count}`),
+    );
+    els.legend.append(item);
+  }
+  if (theme !== "risk") {
+    els.legend.append(
+      el(
+        "li",
+        "legend__note",
+        "The risk level is still the official reading: it is in the hover card, the table and the details.",
+      ),
+    );
   }
 
-  els.legend.replaceChildren();
-  for (const category of CATEGORY_ORDER) {
-    const item = el("li", "legend__item");
-    item.append(
-      swatch(category),
-      el("span", "legend__label", labelFor(category)),
-      el("span", "legend__count", `${counts.get(category) ?? 0}`),
-    );
+  for (const line of overlayLegend(mapLayers.active)) {
+    const item = el("li", "legend__item legend__item--overlay");
+    const mark = el("span", `legend__swatch legend__swatch--${line.kind}`);
+    mark.style.background = line.colour;
+    item.append(mark, el("span", "legend__label", line.label));
     els.legend.append(item);
   }
 
@@ -758,6 +976,70 @@ function renderLegend(scores) {
     );
     els.legend.append(item);
   }
+}
+
+/**
+ * The view on screen in a few lines: how many places are at each level,
+ * how many are rising, and the highest few, each one click from its details.
+ */
+function renderGlance(scores) {
+  if (scores.length === 0) {
+    els.glance.hidden = true;
+    return;
+  }
+  els.glance.hidden = false;
+  const where = isRegionView() ? `${state.focus.name} region` : "Kenya";
+  const heading = el("h2", "panel__heading", "At a glance");
+  heading.append(el("span", "panel__hint", where));
+
+  const counts = el("div", "glance__counts");
+  for (const category of [...CATEGORY_ORDER].reverse()) {
+    const n = scores.filter((s) => s.risk_category === category).length;
+    const item = el("div", "glance__count");
+    item.append(el("span", "glance__number", `${n}`), swatch(category), labelFor(category));
+    counts.append(item);
+  }
+
+  const lines = [];
+  const contexts = scores.map((s) => state.contextByRegion.get(s.region)).filter(Boolean);
+  const rising = contexts.filter((c) => (c.change_7d ?? 0) >= RISING).length;
+  const falling = contexts.filter((c) => (c.change_7d ?? 0) <= -RISING).length;
+  if (contexts.some((c) => typeof c.change_7d === "number")) {
+    lines.push(`${rising} rising and ${falling} falling over the last 7 days.`);
+  }
+  const wet = contexts.filter((c) => (c.rain_30d_ratio ?? 0) >= 1.5).length;
+  if (contexts.some((c) => typeof c.rain_30d_ratio === "number")) {
+    lines.push(`${wet} had at least one and a half times their normal rain in the last 30 days.`);
+  }
+
+  const valueOf = (s) => state.contextByRegion.get(s.region)?.times_usual ?? s.times_usual ?? s.predicted_value;
+  const top = [...scores].sort((a, b) => valueOf(b) - valueOf(a)).slice(0, GLANCE_TOP);
+  const list = el("ol", "glance__top");
+  for (const score of top) {
+    const item = el("li");
+    const button = el("button", "glance__place");
+    button.type = "button";
+    button.append(
+      swatch(score.risk_category),
+      el("span", "glance__name", score.region_name),
+      el("span", "glance__value", formatTimesShort(valueOf(score))),
+    );
+    button.addEventListener("click", () => select(score.region, { pan: true }));
+    item.append(button);
+    list.append(item);
+  }
+
+  els.glance.replaceChildren(
+    heading,
+    counts,
+    ...lines.map((line) => el("p", "glance__line", line)),
+    el("p", "detail__subheading", "Highest against the usual chance"),
+    list,
+  );
+}
+
+function formatTimesShort(times) {
+  return typeof times === "number" ? `${times.toFixed(1)}×` : "—";
 }
 
 function renderRegionIntro() {
@@ -1034,6 +1316,80 @@ async function renderInputs(regionId, score, container) {
   body.replaceWith(wrap);
 }
 
+/** The detail panel's lines for the week's change and the rain behind the score. */
+function contextEntries(context) {
+  const entries = [];
+  const change = describeChange(context?.change_7d);
+  if (change) entries.push(["Trend", change]);
+  const rain = describeRain(context);
+  if (rain) entries.push(["Rain", rain]);
+  return entries;
+}
+
+/**
+ * Large floods recorded in this place before (DFO, 1988 to 2021): how many,
+ * the most recent, and the worst. A recorded flood's footprint is a circle
+ * of its area, so "reached" is rough, and it is said so.
+ */
+async function renderPastFloods(regionId, container) {
+  const heading = el("p", "detail__subheading", "Floods recorded here before");
+  const body = el("p", "detail__empty", "Looking up past floods…");
+  container.append(heading, body);
+
+  let events;
+  try {
+    events = (await fetchFloodEvents({ region: regionId })).features;
+  } catch (error) {
+    console.error(error);
+    body.textContent = "Could not load past floods.";
+    return;
+  }
+  if (state.selectedRegionId !== regionId) return;
+
+  if (events.length === 0) {
+    body.textContent =
+      "No large flood recorded by the Dartmouth Flood Observatory reached this area from 1988 to 2021.";
+    return;
+  }
+  const year = (e) => new Date(e.properties.began).getFullYear();
+  const latest = events[0];
+  const worst = [...events].sort(
+    (a, b) => b.properties.dead - a.properties.dead || b.properties.displaced - a.properties.displaced,
+  )[0];
+  const wrap = el("div", "past-floods");
+  const years = [...new Set(events.map(year))].sort((a, b) => a - b);
+  wrap.append(
+    el(
+      "p",
+      "past-floods__count",
+      `${events.length} large flood${events.length === 1 ? "" : "s"} reached this area, in ${years.length} ` +
+        `different year${years.length === 1 ? "" : "s"} from ${years[0]} to ${years.at(-1)}.`,
+    ),
+  );
+  const describe = (e) => {
+    const p = e.properties;
+    const toll = [p.dead ? `${p.dead.toLocaleString()} dead` : null, p.displaced ? `${p.displaced.toLocaleString()} displaced` : null]
+      .filter(Boolean)
+      .join(", ");
+    return `${formatDate(p.began)}${p.main_cause ? `, ${p.main_cause.toLowerCase()}` : ""}${toll ? ` (${toll} in all)` : ""}`;
+  };
+  const list = el("dl", "detail__rows");
+  list.append(el("dt", null, "Most recent"), el("dd", null, describe(latest)));
+  if (worst !== latest && (worst.properties.dead || worst.properties.displaced)) {
+    list.append(el("dt", null, "Deadliest"), el("dd", null, describe(worst)));
+  }
+  wrap.append(
+    list,
+    el(
+      "p",
+      "relocation__note",
+      "Tolls are for the whole event, which often covered several counties. Turn on " +
+        "“Past floods” in the map's layer menu to see them all.",
+    ),
+  );
+  body.replaceWith(wrap);
+}
+
 function renderDetail(regionId) {
   const score = state.scoresByRegion.get(regionId);
   const layer = state.layersByRegion.get(regionId);
@@ -1081,6 +1437,7 @@ function renderDetail(regionId) {
         ...(typeof score.times_usual === "number"
           ? [["Chance of a large flood", formatTimesUsual(score.times_usual)]]
           : []),
+        ...contextEntries(state.contextByRegion.get(regionId)),
         ["Model output", formatValue(score.predicted_value)],
         ["Prediction date", formatDate(score.prediction_date)],
         ["Model version", score.model_version ?? "—"],
@@ -1098,6 +1455,7 @@ function renderDetail(regionId) {
   }
   // An outlook row is not a stored score and is driven by a forecast.
   if (score && !isOutlook()) renderInputs(regionId, score, els.detail);
+  renderPastFloods(regionId, els.detail);
 
   if (!isRegionView()) {
     const focus = state.focusByCountyId.get(regionId);
@@ -1489,13 +1847,18 @@ async function showOverview() {
   const slug = currentSlug();
   const view = viewKey();
   const mapBy = state.mapBy;
-  const [scores, grid] = await Promise.all([loadCountyScores(), loadGrid()]);
+  const [scores, grid, context] = await Promise.all([
+    loadCountyScores(),
+    loadGrid(),
+    loadContext({ level: "county" }),
+  ]);
   // Another view may have been chosen while this one loaded.
   if (currentSlug() !== slug || viewKey() !== view || state.mapBy !== mapBy) return;
 
   state.focus = null;
   clearView();
   state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
+  state.contextByRegion = context;
   state.gridOn = grid?.cells.length > 0;
 
   const features = state.counties.features;
@@ -1510,13 +1873,17 @@ async function showOverview() {
   renderRegionBar();
   renderPeriodBar();
   renderLayerBar();
+  renderThemeBar();
+  renderGlance(scores);
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "County";
   renderEmptyDetail();
-  renderLegend(cells ?? scores);
+  setLegendRows(scores, cells);
+  renderLegend();
   renderTable(features);
   renderReport(scores);
+  syncLayerDate();
   setStatus(grid && !state.gridOn ? "No area scores for this day; coloured by county." : null);
   selectPending();
 }
@@ -1553,13 +1920,18 @@ async function showRegion(focus) {
   setStatus(`Loading ${focus.name} sub-counties…`);
   const view = viewKey();
   const mapBy = state.mapBy;
-  const [[subCounties, scores], grid] = await Promise.all([loadRegion(focus), loadGrid()]);
+  const [[subCounties, scores], grid, context] = await Promise.all([
+    loadRegion(focus),
+    loadGrid(),
+    loadContext({ level: "sub_county", focus_region: focus.slug }),
+  ]);
   // Another view may have been chosen while this one loaded.
   if (currentSlug() !== focus.slug || viewKey() !== view || state.mapBy !== mapBy) return;
 
   state.focus = focus;
   clearView();
   state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
+  state.contextByRegion = context;
   state.gridOn = grid?.cells.length > 0;
 
   const focusCountyIds = new Set(focus.counties.map((c) => c.id));
@@ -1581,7 +1953,8 @@ async function showRegion(focus) {
         className: "context-shape",
         style: {
           fillColor: cssVar("--context-fill"),
-          fillOpacity: 1,
+          // Faint enough that the basemap still places the region in Kenya.
+          fillOpacity: 0.5,
           color: cssVar("--polygon-stroke"),
           weight: 1,
         },
@@ -1620,13 +1993,17 @@ async function showRegion(focus) {
   renderRegionBar();
   renderPeriodBar();
   renderLayerBar();
+  renderThemeBar();
+  renderGlance(scores);
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "Sub-county";
   renderEmptyDetail();
-  renderLegend(cells ?? scores);
+  setLegendRows(scores, cells);
+  renderLegend();
   renderTable(subCounties.features);
   renderReport(scores);
+  syncLayerDate();
   setStatus(null);
 
   if (subCounties.features.length === 0) {
@@ -1690,6 +2067,7 @@ async function load() {
       state.countyCache.clear();
       state.regionCache.clear();
       state.gridCache.clear();
+      state.contextCache.clear();
       // A rescore may have added today to the days on offer.
       state.scoreDates = await fetchScoreDates().catch(() => state.scoreDates);
       return route();
