@@ -11,6 +11,49 @@ already stored (about a minute). The token is kept in memory only
 the API checks the role on every request. An End User can sign in too, and
 sees no Rescore button.
 
+## What the map shows
+
+**Show** picks what the colour means (`src/themes.js`):
+
+| Theme | Colour from | Scale |
+|---|---|---|
+| Risk vs usual (default) | the score as a multiple of the usual chance of a large flood | 7 classes, ColorBrewer YlOrRd |
+| Risk level | the official category: Low, Moderate, High, Very High | the traffic-light colours of `src/risk.js` |
+| Change in 7 days | times-usual now minus a week ago | 7 classes, diverging RdBu |
+| Rain vs normal | rain in the last 30 days over the county's normal for the month | 8 classes, diverging BrBG |
+
+The breaks are fixed, not quantiles, so a colour means the same on every
+day. "Risk vs usual" is the default because in a wet season the category
+alone colours nearly all of Kenya High. The values come from
+`GET /api/risk-scores/context/`. **Colour** sets how strongly the fill covers
+the basemap.
+
+The layer button at the top right of the map (`src/layers.js`) picks the
+basemap and the overlays. None needs a key.
+
+| Layer | Source |
+|---|---|
+| Map (basemap) | Esri Light Gray Canvas, or Dark Gray in dark mode |
+| Satellite (basemap) | Esri World Imagery |
+| Satellite today (basemap) | NASA GIBS, VIIRS true colour for the day on screen |
+| Terrain (basemap) | OpenTopoMap |
+| Rivers | OpenStreetMap, the long named rivers |
+| 100-year flood zone | Copernicus GloFAS river flood hazard, 100-year return period |
+| Past floods (1988–2021) | Dartmouth Flood Observatory, `GET /api/flood-events/` |
+| Satellite rain | NASA GIBS, GPM IMERG precipitation rate for the day on screen |
+
+The rivers and the flood zone are static files in `public/layers/`, built by
+`python manage.py build_map_layers` from the downloads `seed_drainage` makes.
+The past floods are loaded into the database by
+`python manage.py seed_flood_events`. NASA publishes IMERG about two days
+late and VIIRS about a day late, so for the latest scores those layers show
+the newest day they exist for (`src/layerdates.js`).
+
+**At a glance**, at the top of the side panel, counts the places at each
+level, says how many are rising or unusually wet, and lists the five highest
+against the usual chance. Selecting a place adds its 7-day trend, its rain
+against normal and the large floods recorded there before.
+
 ## Why Vite and not a Django template
 
 Both work. This is a separate static app because:
@@ -37,6 +80,8 @@ and scored:
 python manage.py seed_regions                    # 47 counties
 python manage.py seed_regions --level sub_county # 290 sub-counties, for the region views
 python manage.py score_regions                   # a RiskScore per county and sub-county
+python manage.py seed_flood_events               # past floods, for the map layer
+python manage.py build_map_layers                # rivers and flood zone, once (needs seed_drainage's downloads)
 ```
 
 Then:
@@ -52,8 +97,9 @@ npm run dev        # http://localhost:5173
 `npm test` runs the unit tests (`src/*.test.js`) with Node's built-in test
 runner. They cover the logic that needs no browser, such as matching a typed
 name to a region (`src/search.js`), placing the points of the history chart
-(`src/history.js`) and writing the CSV export (`src/report.js`), and need no
-extra packages.
+(`src/history.js`), writing the CSV export (`src/report.js`), the map's colour
+scales (`src/themes.js`) and the dates asked of NASA (`src/layerdates.js`),
+and need no extra packages.
 
 ## Printing and exporting
 

@@ -35,6 +35,13 @@ Dr. Deperias Kerre.
   and the terrain. A scheduler refreshes the scores once a day.
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
+  The colour can show the risk level, the risk as a multiple of the usual
+  chance, its change over a week or the rain against normal, over a choice
+  of basemaps (map, satellite, today's satellite image, terrain).
+- **Puts the risk in context.** Rivers, the 100-year flood zone, 84 large
+  floods recorded in Kenya since 1988 and NASA's satellite rainfall can be
+  drawn over the risk, and a selected place lists the floods recorded there
+  before.
 - **Looks back and ahead.** The dashboard keeps the scores of earlier days
   with a 30-day history chart, and gives a seasonal outlook for the next
   three months.
@@ -145,7 +152,14 @@ docker compose run --rm web python manage.py seed_rainfall                     #
 docker compose run --rm web python manage.py score_regions                     # one score per region for today
 docker compose run --rm web python manage.py flood_outlook                     # county outlook, next three months
 docker compose run --rm web python manage.py flood_outlook --level sub_county
+docker compose run --rm web python manage.py seed_flood_events                 # past floods, for the map
+docker compose run --rm web python manage.py build_map_layers                  # rivers and flood zone, see below
 ```
+
+`build_map_layers` writes the rivers and the 100-year flood zone into
+`frontend/public/layers/`, which is committed, so it only needs running to
+refresh them. It reads the downloads `seed_drainage` makes and fetches them
+if they are missing (about 300 MB).
 
 `seed_terrain` and `seed_rainfall` need network access. Everything after
 them works offline, because the values are in the database.
@@ -209,6 +223,8 @@ not be measured is left empty.
 | Indian Ocean Dipole index (DMI) | NOAA Physical Sciences Laboratory |
 | Recorded floods, for training | Dartmouth Flood Observatory, 1996 to 2021 |
 | Satellite flood extents, for checking only | UNOSAT, November 2023 and April 2024 |
+| Rivers and the 100-year flood zone, for the map | OpenStreetMap; Copernicus GloFAS |
+| Basemaps and satellite layers, for the map | Esri, OpenTopoMap, NASA GIBS (VIIRS, GPM IMERG) |
 
 `docs/DATA_DICTIONARY.md` documents each source, its fields and its licence.
 The `data/` folder is not committed; `build_training_set` downloads and
@@ -319,7 +335,8 @@ As of 19 October 2026.
 | API and dashboard | Done. Daily scores, seasonal outlook, search, history, inputs, report and CSV export. |
 | Risk by area | Built (PR #78). A 768-square grid (0.25°, about 28 km) scored daily from each square's own rain; "Colour by: Area" on the map. |
 | Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
-| Model performance panel | Built on `feat/dashboard-model-performance`; not yet merged. |
+| Model performance panel | Done (PR #79), on the administrator's analytics page. |
+| Map layers | Built on `feat/map-layers`: basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
 | Performance and user testing | Not started. Both need the deployed system. |
