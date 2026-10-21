@@ -64,6 +64,9 @@ class ActivityLog(models.Model):
         ROLE_CHANGE = "role_change", "Changed a user's role"
         ACCOUNT_SWITCH = "account_switch", "Switched an account on or off"
         SUBSCRIPTION_REMOVE = "subscription_remove", "Stopped some alerts"
+        SOCIAL_LINK = "social_link", "Linked a Google, Microsoft or GitHub sign-in"
+        SOCIAL_UNLINK = "social_unlink", "Unlinked a Google, Microsoft or GitHub sign-in"
+        PASSWORD_RESET = "password_reset", "Reset their password by email"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -82,3 +85,74 @@ class ActivityLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user or 'someone'}: {self.get_action_display()} ({self.at:%Y-%m-%d %H:%M})"
+
+
+class SocialAccount(models.Model):
+    """A sign-in at Google, Microsoft or GitHub linked to a FloodScout account.
+
+    Matched on (provider, subject): the provider's own unchanging id for the
+    person, never the email, which can change hands.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_accounts"
+    )
+    provider = models.CharField(max_length=20)
+    subject = models.CharField(max_length=255, help_text="The provider's id for the person")
+    email = models.EmailField(blank=True, help_text="As the provider gave it, for display")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["provider"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "subject"], name="unique_social_account"),
+            models.UniqueConstraint(
+                fields=["user", "provider"], name="one_social_account_per_provider"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} via {self.provider}"
+
+
+class OAuthState(models.Model):
+    """One sign-in started at a provider and not yet finished.
+
+    Kept on the server so the PKCE verifier and the nonce never pass through
+    the browser: only `key` travels, as the OAuth `state`. Used once.
+    """
+
+    key = models.CharField(max_length=64, unique=True)
+    provider = models.CharField(max_length=20)
+    code_verifier = models.CharField(max_length=128)
+    nonce = models.CharField(max_length=64)
+    next = models.CharField(max_length=200, blank=True, help_text="Dashboard page to return to")
+    remember = models.BooleanField(default=False)
+    link_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Set when a signed-in user is linking this provider",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class LoginTicket(models.Model):
+    """A one-minute, single-use ticket the dashboard trades for a token.
+
+    The provider sends the browser back to the API; the API sends it on to
+    the dashboard with this ticket in the URL fragment (which never reaches a
+    server log), and the dashboard exchanges it by POST. The token itself is
+    never put in a URL.
+    """
+
+    key = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    next = models.CharField(max_length=200, blank=True)
+    remember = models.BooleanField(default=False)
+    created = models.BooleanField(default=False, help_text="The account was made by this sign-in")
+    linked = models.CharField(max_length=20, blank=True, help_text="Provider just linked, if any")
+    created_at = models.DateTimeField(auto_now_add=True)

@@ -158,5 +158,15 @@ AT_SENDER_ID = env("AT_SENDER_ID", default="")
 PUBLIC_API_URL = env("PUBLIC_API_URL", default="http://localhost:8000/api")
 DASHBOARD_URL = env("DASHBOARD_URL", default="http://localhost:5173")
 
+# Sign in with Google, Microsoft or GitHub (accounts/social.py). A provider
+# is offered only when both its values are set. Register this redirect URI
+# with each: <PUBLIC_API_URL>/auth/social/<google|microsoft|github>/callback/
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET", default="")
+MICROSOFT_CLIENT_ID = env("MICROSOFT_CLIENT_ID", default="")
+MICROSOFT_CLIENT_SECRET = env("MICROSOFT_CLIENT_SECRET", default="")
+GITHUB_CLIENT_ID = env("GITHUB_CLIENT_ID", default="")
+GITHUB_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET", default="")
+
 # CAP status of the published alerts. "Exercise" says they are not official.
 CAP_STATUS = env("CAP_STATUS", default="Exercise")
