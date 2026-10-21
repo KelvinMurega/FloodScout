@@ -408,6 +408,9 @@ def _mark_verified(subscriber: Subscriber) -> None:
         fields.append("phone_verified")
     if fields:
         user.save(update_fields=fields)
+        from accounts.home import sync_home_subscription  # accounts imports alerts
+
+        sync_home_subscription(user)
 
 
 def _send_active(subscriber: Subscriber, regions) -> int:
@@ -450,7 +453,11 @@ def subscribe_me(request):
         )
         raise ValidationError({"detail": message})
 
-    subscriber = Subscriber.objects.filter(user=user).order_by("-confirmed", "-created_at").first()
+    subscriber = (
+        Subscriber.objects.filter(user=user, is_home=False)
+        .order_by("-confirmed", "-created_at")
+        .first()
+    )
     if subscriber is None:
         subscriber = Subscriber(user=user)
     contacts_changed = subscriber.email != email or subscriber.phone != phone

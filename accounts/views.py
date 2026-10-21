@@ -23,9 +23,9 @@ from rest_framework.views import APIView
 
 from alerts.models import Subscriber
 
-from . import social
+from . import home, social, verification
 from .activity import PAGE, record
-from .models import ActivityLog, OAuthState, SocialAccount, User
+from .models import ActivityLog, ContactCode, OAuthState, SocialAccount, User
 from .permissions import IsAdministrator
 from .serializers import (
     ActivitySerializer,
@@ -35,6 +35,21 @@ from .serializers import (
     RegisterSerializer,
     UserAdminSerializer,
 )
+
+
+def email_check(user) -> dict:
+    """Send a confirmation code when the user's email is not yet confirmed.
+
+    What the page needs to ask for it: {"email_verified", "code_sent"}.
+    A failure to send is not an error here; the profile offers to resend.
+    """
+    if not user.email or user.email_verified:
+        return {"email_verified": bool(user.email) and user.email_verified, "code_sent": False}
+    try:
+        outcome = verification.send_code(user, ContactCode.Channel.EMAIL)
+    except verification.VerificationError:
+        outcome = "failed"
+    return {"email_verified": False, "code_sent": outcome in ("sent", "recent")}
 
 
 def signed_in(user, token) -> dict:
@@ -71,7 +86,7 @@ class ObtainTokenView(ObtainAuthToken):
         token, _created = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
         record(request, ActivityLog.Action.SIGN_IN, user=user)
-        return Response(signed_in(user, token))
+        return Response({**signed_in(user, token), **email_check(user)})
 
 
 class RevokeTokenView(APIView):
@@ -106,7 +121,9 @@ class RegisterView(APIView):
         token = Token.objects.create(user=user)
         update_last_login(None, user)
         record(request, ActivityLog.Action.REGISTER, user=user)
-        return Response(signed_in(user, token), status=status.HTTP_201_CREATED)
+        return Response(
+            {**signed_in(user, token), **email_check(user)}, status=status.HTTP_201_CREATED
+        )
 
 
 class MeView(APIView):
@@ -134,7 +151,13 @@ class MeView(APIView):
         data.save(**extra)
         if changed:
             record(request, ActivityLog.Action.PROFILE_UPDATE, fields=changed)
-        return Response(data.data)
+        user = request.user
+        body = dict(data.data)
+        if "email" in changed and user.email:
+            body.update(email_check(user))
+        if {"email", "phone"} & set(changed):
+            home.sync_home_subscription(user)
+        return Response(body)
 
 
 class PasswordView(APIView):
@@ -188,6 +211,7 @@ class MySubscriptionsView(APIView):
                     "min_level": sub.min_level,
                     "confirmed": sub.confirmed,
                     "regions": [str(region) for region in sub.regions.all()],
+                    "is_home": sub.is_home,
                     "created_at": sub.created_at,
                 }
                 for sub in my_subscriptions(request.user)
@@ -203,6 +227,9 @@ class MySubscriptionView(APIView):
     def delete(self, request, pk):
         sub = get_object_or_404(my_subscriptions(request.user), pk=pk)
         regions = [str(region) for region in sub.regions.all()]
+        if sub.is_home:
+            request.user.home_alerts = False
+            request.user.save(update_fields=["home_alerts"])
         sub.delete()
         record(request, ActivityLog.Action.SUBSCRIPTION_REMOVE, regions=regions)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -342,6 +369,7 @@ class SocialCompleteView(APIView):
         except social.SocialError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         user = ticket.user
+        home.sync_home_subscription(user)
         token, _created = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
         record(request, ActivityLog.Action.SIGN_IN, user=user, method="social")
@@ -465,3 +493,133 @@ class PasswordResetConfirmView(APIView):
         Token.objects.filter(user=user).delete()
         record(request, ActivityLog.Action.PASSWORD_RESET, user=user)
         return Response({"detail": "Your password has been changed. Sign in with it now."})
+
+
+# --- Confirming an email or phone, and where the user lives ------------------
+
+
+class VerifyContactView(APIView):
+    """POST {channel: "email"|"phone"} to send a code; with {code} to confirm it.
+
+    Confirming makes the contact verified, so alerts reach it without asking,
+    and brings the home subscription up to date.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "alerts"
+
+    def post(self, request):
+        channel = request.data.get("channel", ContactCode.Channel.EMAIL)
+        if channel not in ContactCode.Channel.values:
+            raise ValidationError({"channel": "Expected email or phone."})
+        user = request.user
+        code = str(request.data.get("code") or "").strip()
+        try:
+            if not code:
+                outcome = verification.send_code(user, channel, force=True)
+                return Response({"status": outcome})
+            verification.confirm(user, channel, code)
+        except verification.VerificationError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        record(request, ActivityLog.Action.CONTACT_VERIFIED, channel=channel)
+        home.sync_home_subscription(user)
+        return Response(
+            {
+                "status": "verified",
+                "email_verified": user.email_verified,
+                "phone_verified": user.phone_verified,
+                "home": home.home_summary(user),
+            }
+        )
+
+
+class HomeView(APIView):
+    """GET where the signed-in user lives; PUT it; DELETE to clear it.
+
+    PUT {address, lat, lon} finds the sub-county from the point; {region}
+    (a sub-county id) sets or corrects it directly. {alerts_on, alert_level}
+    choose the automatic warnings.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(home.home_summary(request.user))
+
+    def put(self, request):
+        user = request.user
+        data = request.data
+        if "alert_level" in data:
+            if data["alert_level"] not in ("advisory", "watch", "warning"):
+                raise ValidationError({"alert_level": "Expected advisory, watch or warning."})
+            user.home_alert_level = data["alert_level"]
+        if "alerts_on" in data:
+            user.home_alerts = bool(data["alerts_on"])
+        user.save(update_fields=["home_alert_level", "home_alerts"])
+        moving = any(k in data for k in ("lat", "lon", "region", "address"))
+        try:
+            if moving:
+                home.set_home(
+                    user,
+                    address=str(data.get("address") or ""),
+                    lat=data.get("lat"),
+                    lon=data.get("lon"),
+                    region_id=data.get("region"),
+                )
+                record(request, ActivityLog.Action.HOME_SET, region=user.home_region.name)
+            else:
+                home.sync_home_subscription(user)
+        except home.HomeError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(home.home_summary(user))
+
+    def delete(self, request):
+        home.clear_home(request.user)
+        return Response(home.home_summary(request.user))
+
+
+class HomeSearchView(APIView):
+    """GET ?q= : places in Kenya matching an address, each with its sub-county."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "alerts"
+
+    def get(self, request):
+        try:
+            places = home.geocode(request.query_params.get("q", ""))
+        except home.HomeError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        out = []
+        for place in places:
+            region = home.region_for_point(place["lon"], place["lat"])
+            out.append(
+                {
+                    **place,
+                    "region": region.pk if region else None,
+                    "region_name": region.name if region else None,
+                    "county_name": region.county_name if region else None,
+                }
+            )
+        return Response(out)
+
+
+class HomeLocateView(APIView):
+    """POST {lat, lon} from the browser's location: the sub-county it is in."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            lat, lon = float(request.data.get("lat")), float(request.data.get("lon"))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"detail": "That location could not be read."}) from exc
+        region = home.region_for_point(lon, lat)
+        return Response(
+            {
+                "region": region.pk if region else None,
+                "region_name": region.name if region else None,
+                "county_name": region.county_name if region else None,
+            }
+        )

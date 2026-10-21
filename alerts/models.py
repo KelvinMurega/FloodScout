@@ -128,6 +128,9 @@ class Subscriber(models.Model):
     token = models.CharField(max_length=40, unique=True, default=new_token)
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    # The automatic subscription for where a signed-up user lives, kept in
+    # step with their profile by accounts/home.py. At most one per user.
+    is_home = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at"]

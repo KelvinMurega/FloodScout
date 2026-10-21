@@ -3,6 +3,9 @@ from rest_framework.routers import DefaultRouter
 
 from accounts.views import (
     ActivityAdminView,
+    HomeLocateView,
+    HomeSearchView,
+    HomeView,
     MeView,
     MyActivityView,
     MySubscriptionsView,
@@ -20,6 +23,7 @@ from accounts.views import (
     SocialProvidersView,
     SocialStartView,
     UserAdminViewSet,
+    VerifyContactView,
 )
 from alerts.views import AlertViewSet, confirm, subscribe, subscribe_me, unsubscribe
 from geodata.views import (
@@ -61,6 +65,10 @@ urlpatterns = [
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("auth/password/", PasswordView.as_view(), name="auth-password"),
     path("auth/me/activity/", MyActivityView.as_view(), name="auth-my-activity"),
+    path("auth/me/home/", HomeView.as_view(), name="auth-my-home"),
+    path("auth/me/home/search/", HomeSearchView.as_view(), name="auth-my-home-search"),
+    path("auth/me/home/locate/", HomeLocateView.as_view(), name="auth-my-home-locate"),
+    path("auth/verify/", VerifyContactView.as_view(), name="auth-verify"),
     path("auth/me/subscriptions/", MySubscriptionsView.as_view(), name="auth-my-subscriptions"),
     path(
         "auth/me/subscriptions/<int:pk>/",

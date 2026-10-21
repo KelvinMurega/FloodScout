@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 
@@ -38,6 +39,33 @@ class User(AbstractUser):
     email_verified = models.BooleanField(default=False)
     phone_verified = models.BooleanField(default=False)
 
+    # Where the person lives, for warnings that come without asking
+    # (accounts/home.py). The point is rounded to about 100 m: enough to
+    # find the sub-county, not the house.
+    home_address = models.CharField(max_length=255, blank=True)
+    home_point = gis_models.PointField(srid=4326, null=True, blank=True)
+    home_region = models.ForeignKey(
+        "geodata.Region",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        limit_choices_to={"level": "sub_county"},
+        help_text="The sub-county the person lives in",
+    )
+    home_alerts = models.BooleanField(
+        default=True, help_text="Send the alerts for where they live without being asked"
+    )
+    home_alert_level = models.CharField(
+        max_length=10,
+        default="watch",
+        choices=[
+            ("advisory", "Advisories and up"),
+            ("watch", "Watches and warnings"),
+            ("warning", "Warnings only"),
+        ],
+    )
+
     def is_administrator(self) -> bool:
         # A Django superuser (`createsuperuser`) counts as well, so the first
         # account on a new install can administer without a role edit.
@@ -73,6 +101,8 @@ class ActivityLog(models.Model):
         SOCIAL_LINK = "social_link", "Linked a Google, Microsoft or GitHub sign-in"
         SOCIAL_UNLINK = "social_unlink", "Unlinked a Google, Microsoft or GitHub sign-in"
         PASSWORD_RESET = "password_reset", "Reset their password by email"
+        CONTACT_VERIFIED = "contact_verified", "Confirmed their email or phone"
+        HOME_SET = "home_set", "Set where they live"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -162,3 +192,31 @@ class LoginTicket(models.Model):
     created = models.BooleanField(default=False, help_text="The account was made by this sign-in")
     linked = models.CharField(max_length=20, blank=True, help_text="Provider just linked, if any")
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ContactCode(models.Model):
+    """A six-digit code sent to confirm that an email or phone is the user's.
+
+    Sent when the account is made, when someone signs in with an email not
+    yet confirmed, and when the email or phone changes. Entering it marks the
+    contact verified, and alerts then reach it without asking again.
+    """
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        PHONE = "phone", "Phone"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="contact_codes"
+    )
+    channel = models.CharField(max_length=5, choices=Channel.choices)
+    destination = models.CharField(max_length=254, help_text="The address or number it went to")
+    code = models.CharField(max_length=6)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "channel"], name="one_code_per_contact")
+        ]
