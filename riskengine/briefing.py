@@ -45,6 +45,9 @@ class Place:
     rain_ratio: float | None = None
     # The forecast week: [(day, category, times_usual, wettest day mm)].
     week: list[tuple[dt.date, str, float | None, float | None]] = field(default_factory=list)
+    # The county it lies in, and "county" or "sub_county".
+    county: str = ""
+    level: str = ""
 
     @property
     def peak(self):

@@ -17,7 +17,7 @@ from geodata.services.climate_indices import oni_for
 
 from .advisory import CATEGORY_RANK
 from .analytics import satellite_check, system_health
-from .briefing import Place, briefing
+from .briefing import briefing
 from .context import CHANGE_DAYS, map_context
 from .forecast import latest_issue
 from .inputs import score_inputs
@@ -26,6 +26,7 @@ from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
 from .performance import load_performance
 from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskForecastSerializer, RiskOutlookSerializer, RiskScoreSerializer
+from .situation import newest_places
 from .why import explain_score
 
 # How close two regions' boundaries must come to count as neighbours, in
@@ -306,45 +307,13 @@ def situation_briefing(request):
     scores_qs = filter_by_region_params(
         RiskScore.objects.select_related("region"), params, prefix="region__"
     )
-    newest = scores_qs.aggregate(newest=Max("prediction_date"))["newest"]
     focus = focus_regions.get(params.get("focus_region") or "")
     area = f"the {focus.name} region" if focus else "Kenya"
     unit = "county" if params["level"] == Region.Level.COUNTY else "sub-county"
-    if newest is None:
+    day, places, issued = newest_places(scores_qs)
+    if day is None:
         return Response(briefing([], date=timezone.localdate(), area=area, unit=unit, oni=None))
 
-    day = timezone.localtime(newest).date()
-    scores = list(scores_qs.filter(prediction_date=newest))
-    earlier = scores_qs.filter(prediction_date=start_of_day(day - dt.timedelta(days=CHANGE_DAYS)))
-    context = {row["region"]: row for row in map_context(scores, earlier, day)}
-
-    week: dict[int, list] = {}
-    issued = latest_issue()
-    if issued:
-        for row in RiskForecast.objects.filter(
-            issued_on=issued, region_id__in=[s.region_id for s in scores]
-        ).order_by("target_date"):
-            week.setdefault(row.region_id, []).append(
-                (
-                    row.target_date,
-                    row.risk_category,
-                    scorer.times_usual(row.predicted_value),
-                    row.rain_forecast_max_24h,
-                )
-            )
-
-    places = [
-        Place(
-            region=score.region_id,
-            name=score.region.name,
-            category=score.risk_category,
-            times_usual=scorer.times_usual(score.predicted_value),
-            change_7d=context[score.region_id]["change_7d"],
-            rain_ratio=context[score.region_id]["rain_30d_ratio"],
-            week=week.get(score.region_id, []),
-        )
-        for score in scores
-    ]
     model = scorer._MODEL
     oni = oni_for(day, model["oni"]) if model else None
     body = briefing(places, date=day, area=area, unit=unit, oni=oni)
