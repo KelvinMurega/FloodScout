@@ -21,6 +21,7 @@ import {
   signIn,
   startSocialSignIn,
 } from "../api.js";
+import { codeBox } from "./code.js";
 import { parseAuthSlug, passwordStrength } from "./format.js";
 import "./auth.css";
 
@@ -206,6 +207,28 @@ function footerLink(text, label, href) {
   return p;
 }
 
+/**
+ * After signing in or up: when the email is not confirmed and a code has
+ * just been sent to it, ask for the code here before going on. The person
+ * is already signed in; "Do this later" goes on without it.
+ */
+function afterSignIn(card, user, next, onSignedIn, { title, lede }) {
+  if (!user.email || user.email_verified || !user.code_sent) {
+    onSignedIn(user, next);
+    return;
+  }
+  const heading = card.querySelector(".auth-card__title");
+  heading.textContent = title;
+  const intro = el("p", "auth-card__lede", lede);
+  const box = codeBox({
+    email: user.email,
+    onConfirmed: () => onSignedIn({ ...user, email_verified: true }, next),
+    onSkip: () => onSignedIn(user, next),
+  });
+  card.replaceChildren(heading, intro, box);
+  box.querySelector("input").focus();
+}
+
 /* ---------------------------------------------------------------- pages */
 
 function renderSignIn(root, { error, next }, { onSignedIn }) {
@@ -238,7 +261,10 @@ function renderSignIn(root, { error, next }, { onSignedIn }) {
     submit.textContent = "Signing in…";
     try {
       const user = await signIn(name.value.trim(), box.value, keep.box.checked);
-      onSignedIn(user, next || "#/");
+      afterSignIn(form.closest(".auth-card"), user, next || "#/", onSignedIn, {
+        title: "Confirm your email",
+        lede: "Your email is not confirmed yet, so flood warnings cannot be sent to it. One code, once.",
+      });
     } catch (err) {
       box.value = "";
       problem.textContent =
@@ -315,7 +341,10 @@ function renderSignUp(root, { next }, { onSignedIn }) {
         { username: username.value.trim(), email: email.value.trim(), password: box.value },
         keep.box.checked,
       );
-      onSignedIn(user, next || "#/profile");
+      afterSignIn(form.closest(".auth-card"), user, next || "#/profile", onSignedIn, {
+        title: "Check your email",
+        lede: "Your account is made. Confirm your email so flood warnings can reach it.",
+      });
     } catch (err) {
       problem.textContent = err.message;
       submit.disabled = false;

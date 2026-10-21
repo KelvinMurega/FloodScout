@@ -197,3 +197,126 @@
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* --- Flood warnings for where you live (home.js) ---------------------- */
+
+.home-card {
+  border-color: #1f78d1;
+  box-shadow: 0 0 0 3px rgba(31, 120, 209, 0.12);
+}
+
+.home-card__body {
+  display: grid;
+  gap: 16px;
+}
+
+.home-status {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: var(--surface-page);
+}
+
+.home-status--on {
+  background: rgba(46, 158, 79, 0.12);
+}
+
+.home-status--waiting {
+  background: rgba(240, 140, 0, 0.14);
+}
+
+.home-status--off,
+.home-status--none {
+  background: var(--surface-page);
+}
+
+.home-form {
+  max-width: 640px;
+}
+
+.home-form__row {
+  display: flex;
+  gap: 8px;
+}
+
+.home-form__row .alerts-form__input {
+  flex: 1;
+}
+
+.home-form__results {
+  display: grid;
+  gap: 6px;
+}
+
+.home-form__results:empty {
+  display: none;
+}
+
+.home-form__result {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-form__result:hover {
+  background: var(--surface-page);
+}
+
+.home-form__found {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f7a3a;
+}
+
+.home-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-form .link-button {
+  justify-self: start;
+}
+
+/* --- The code box (auth/code.js), on the profile and the auth pages ---- */
+
+.code-box {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.code-box__lede {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.code-box__row {
+  display: flex;
+  gap: 8px;
+}
+
+.code-box__input {
+  max-width: 11ch;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-box__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}

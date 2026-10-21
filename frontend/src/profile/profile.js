@@ -18,13 +18,13 @@ import {
   fetchMe,
   fetchMyActivity,
   fetchMySubscriptions,
-  fetchRegionNames,
   fetchUsers,
   removeMySubscription,
   updateMe,
   updateUser,
 } from "../api.js";
 import { ROLE_LABELS, activityText, ago, displayName, initials } from "./format.js";
+import { renderHomeCard } from "./home.js";
 import "./profile.css";
 
 const TABS = [
@@ -34,7 +34,6 @@ const TABS = [
 ];
 
 let lastRender = null;
-let countyNames = null;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -79,16 +78,6 @@ function card(parent, title, subtitle) {
   return node;
 }
 
-function loadCounties() {
-  countyNames ??= fetchRegionNames()
-    .then((rows) => rows.filter((r) => r.level === "county"))
-    .catch((error) => {
-      countyNames = null;
-      throw error;
-    });
-  return countyNames;
-}
-
 /* ------------------------------------------------------------ my profile */
 
 function renderDetails(parent, me, onSaved) {
@@ -99,13 +88,6 @@ function renderDetails(parent, me, onSaved) {
   const email = input("email", me.email, { autocomplete: "email" });
   const phone = input("tel", me.phone, { autocomplete: "tel", placeholder: "0712 345 678" });
   const organisation = input("text", me.organisation, { autocomplete: "organization", placeholder: "e.g. Kisumu County Disaster Management" });
-  const county = el("select", "alerts-form__input");
-  county.append(new Option("Not set", ""));
-  loadCounties()
-    .then((rows) => {
-      for (const row of rows) county.append(new Option(row.name, row.id, false, row.id === me.county));
-    })
-    .catch(() => {});
   const message = note();
   const save = el("button", "auth__button auth__button--primary", "Save details");
   save.type = "submit";
@@ -115,7 +97,6 @@ function renderDetails(parent, me, onSaved) {
     field("Email", email),
     field("Phone", phone),
     field("Organisation", organisation),
-    field("Home county", county),
     save,
     message,
   );
@@ -129,7 +110,6 @@ function renderDetails(parent, me, onSaved) {
         email: email.value.trim(),
         phone: phone.value.trim(),
         organisation: organisation.value.trim(),
-        county: county.value ? Number(county.value) : null,
       });
       phone.value = saved.phone;
       say(message, "Saved.");
@@ -266,7 +246,7 @@ async function renderSubscriptions(parent) {
     const item = el("div", "profile-list__item");
     const text = el("div");
     text.append(
-      el("strong", null, row.regions.join(", ")),
+      el("strong", null, row.is_home ? `Where you live: ${row.regions.join(", ")}` : row.regions.join(", ")),
       el(
         "span",
         "alerts-form__hint",
@@ -483,6 +463,10 @@ export async function showProfile(root, { slug, user, onUserChange }) {
     await renderActivity(body);
     return;
   }
+
+  // First on the page: where the person lives, which is what makes the
+  // warnings come by themselves.
+  renderHomeCard(body, me);
 
   const columns = el("div", "profile-columns");
   const left = el("div", "profile-column");
