@@ -33,6 +33,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
+from accounts.activity import record
+from accounts.models import ActivityLog
 from accounts.permissions import IsAdministrator
 from geodata.models import Region
 
@@ -155,6 +157,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         alert = engine.issue_manual(
             region, level, description, request.user, str(request.data.get("instruction") or "")
         )
+        record(request, ActivityLog.Action.ALERT_ISSUE, headline=alert.headline, alert=alert.id)
         return Response(self.get_serializer(alert).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdministrator])
@@ -163,11 +166,19 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         if alert.status != Alert.Status.ACTIVE:
             raise ValidationError({"detail": "Only an active alert can be cancelled."})
         sent = engine.cancel(alert)
+        record(request, ActivityLog.Action.ALERT_CANCEL, headline=alert.headline, alert=alert.id)
         return Response({**self.get_serializer(alert).data, "messages_sent": sent.sent})
 
     @action(detail=False, methods=["post"], permission_classes=[IsAdministrator])
     def run(self, request):
         result = engine.run_alerts()
+        record(
+            request,
+            ActivityLog.Action.ALERT_RUN,
+            issued=result.issued,
+            upgraded=result.upgraded,
+            ended=result.ended,
+        )
         return Response(_run_dict(result))
 
     @action(detail=False, methods=["post"], permission_classes=[IsAdministrator])
@@ -194,6 +205,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             results["sms"] = vars(
                 channels.send_sms(number, "FloodScout test message. Nothing is wrong.")
             )
+        record(request, ActivityLog.Action.ALERT_TEST, channels=list(results))
         return Response(results)
 
     @action(detail=False, methods=["get"], permission_classes=[IsAdministrator])
