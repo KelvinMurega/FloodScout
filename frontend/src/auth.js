@@ -1,13 +1,14 @@
 /**
  * The account control in the header: sign in, and once signed in a menu.
  *
+ * Signed out it links to the sign-in and sign-up pages (auth/pages.js).
  * The map needs no account. Signing in adds the profile page for everyone,
  * and for the System Administrator the analytics, the users, the alert
  * controls and the Rescore action from the Use Case Diagram. What the menu
  * offers is a convenience; the API checks the role on every request.
  */
 
-import { rescore, signIn, signOut } from "./api.js";
+import { rescore, signOut } from "./api.js";
 import { ROLE_LABELS, displayName, initials } from "./profile/format.js";
 
 function el(tag, className, text) {
@@ -51,52 +52,13 @@ export function initAuth(root, { onRescored, onUserChange = () => {} }) {
 
   function renderSignedOut() {
     closeMenu();
-    root.replaceChildren(button("Sign in", renderForm));
-  }
-
-  function renderForm() {
-    const form = el("form", "auth__form");
-    form.setAttribute("aria-label", "Sign in");
-
-    const username = el("input", "auth__input");
-    username.name = "username";
-    username.autocomplete = "username";
-    username.placeholder = "Username";
-    username.setAttribute("aria-label", "Username");
-    username.required = true;
-
-    const password = el("input", "auth__input");
-    password.type = "password";
-    password.name = "password";
-    password.autocomplete = "current-password";
-    password.placeholder = "Password";
-    password.setAttribute("aria-label", "Password");
-    password.required = true;
-
-    const submit = el("button", "auth__button auth__button--primary", "Sign in");
-    submit.type = "submit";
-    const create = el("a", "auth__link", "Create an account");
-    create.href = "#/profile";
-    create.addEventListener("click", renderSignedOut);
-    const message = el("p", "auth__message");
-    message.setAttribute("role", "alert");
-
-    form.append(username, password, submit, button("Cancel", renderSignedOut), create, message);
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      message.textContent = "";
-      try {
-        setUser(await signIn(username.value, password.value));
-      } catch (error) {
-        password.value = "";
-        message.textContent = signInMessage(error);
-        submit.disabled = false;
-      }
-    });
-
-    root.replaceChildren(form);
-    username.focus();
+    const links = el("div", "auth__links");
+    const signin = el("a", "auth__button", "Sign in");
+    signin.href = "#/signin";
+    const signup = el("a", "auth__button auth__button--primary", "Create account");
+    signup.href = "#/signup";
+    links.append(signin, signup);
+    root.replaceChildren(links);
   }
 
   function menuLink(label, href) {

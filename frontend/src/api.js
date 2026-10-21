@@ -38,10 +38,47 @@ async function getJson(url, headers = {}) {
   return response.json();
 }
 
-// The administrator's token. Held in memory only, never in localStorage or a
-// cookie, so it is gone when the tab closes and a script injected into the
-// page later cannot read it from storage.
-let authToken = null;
+// The signed-in user's token. Kept for this tab in sessionStorage, so a
+// reload, or the trip to Google and back, does not sign anyone out; with
+// "Keep me signed in" it goes in localStorage and outlives the browser. It
+// was held in memory only until there was a sign-in page that leaves the
+// app and comes back. Storage that is blocked just means signing in again.
+const TOKEN_KEY = "floodscout.token";
+
+function storedToken() {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function remembered() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** Hold `token` (null to forget it), for this tab or, with `remember`, for good. */
+function keepToken(token, remember = remembered()) {
+  authToken = token;
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    if (token) (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  } catch {
+    // Blocked storage: the sign-in lasts until the page is left.
+  }
+}
+
+let authToken = storedToken();
+
+/** Whether a token from an earlier visit is waiting to be checked. */
+export function hasStoredSession() {
+  return authToken !== null;
+}
 
 /** Send JSON with `method`, signed in when there is a token; the reply's JSON. */
 async function sendJson(method, path, body) {
@@ -73,10 +110,13 @@ function postJson(path, body = {}) {
   return sendJson("POST", path, body);
 }
 
-/** Sign in. Resolves to { username, role, is_administrator }; keeps the token here. */
-export async function signIn(username, password) {
+/**
+ * Sign in with a username or an email. Resolves to { username, role,
+ * is_administrator, ... }; keeps the token, for good with `remember`.
+ */
+export async function signIn(username, password, remember = false) {
   const { token, ...user } = await postJson("auth/token/", { username, password });
-  authToken = token;
+  keepToken(token, remember);
   return user;
 }
 
@@ -85,7 +125,21 @@ export async function signOut() {
   try {
     if (authToken) await postJson("auth/logout/");
   } finally {
-    authToken = null;
+    keepToken(null);
+  }
+}
+
+/**
+ * Check a token from an earlier visit: the user it belongs to, or null after
+ * forgetting it when the API no longer accepts it.
+ */
+export async function restoreSession() {
+  if (!authToken) return null;
+  try {
+    return await fetchMe();
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) keepToken(null);
+    return null;
   }
 }
 
@@ -310,9 +364,9 @@ function authedGet(path) {
 }
 
 /** Create an End User account and sign in to it. Resolves like signIn. */
-export async function register(body) {
+export async function register(body, remember = false) {
   const { token, ...user } = await postJson("auth/register/", body);
-  authToken = token;
+  keepToken(token, remember);
   return user;
 }
 
@@ -332,7 +386,7 @@ export function updateMe(body) {
  */
 export async function changePassword(body) {
   const { token } = await postJson("auth/password/", body);
-  authToken = token;
+  keepToken(token);
 }
 
 /** What the signed-in user has done, newest first. */
@@ -363,4 +417,48 @@ export function updateUser(id, body) {
 /** Administrator only: what everyone has done, newest first. */
 export function fetchActivity() {
   return authedGet("admin/activity/");
+}
+
+/* ------------------------------------------------- social sign-in, reset */
+
+/** The sign-in providers set up on the server: [{ key, name }]. */
+export function fetchSocialProviders() {
+  return getJson(withParams("auth/social/providers/"));
+}
+
+/**
+ * Where to send the browser to sign in with `provider` ("google",
+ * "microsoft", "github"). Signed in, the provider is linked instead.
+ * `next` is the dashboard page to come back to.
+ */
+export async function startSocialSignIn(provider, { next = "", remember = false } = {}) {
+  const { url } = await postJson(`auth/social/${provider}/start/`, { next, remember });
+  return url;
+}
+
+/** Trade the ticket the provider's return brought for a sign-in. */
+export async function completeSocialSignIn(ticket) {
+  const { token, ...rest } = await postJson("auth/social/complete/", { ticket });
+  keepToken(token, rest.remember);
+  return rest;
+}
+
+/** The signed-in user's linked providers: { has_password, providers: [...] }. */
+export function fetchSocialAccounts() {
+  return authedGet("auth/social/accounts/");
+}
+
+/** Unlink a provider from the signed-in user's account. */
+export function unlinkSocialAccount(id) {
+  return sendJson("DELETE", `auth/social/accounts/${id}/`);
+}
+
+/** Email a password-reset link, if an account uses `email`. */
+export function requestPasswordReset(email) {
+  return postJson("auth/password-reset/", { email });
+}
+
+/** Set a new password from a reset link: { uid, token, new_password }. */
+export function confirmPasswordReset(body) {
+  return postJson("auth/password-reset/confirm/", body);
 }
