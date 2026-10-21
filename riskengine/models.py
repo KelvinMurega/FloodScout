@@ -111,3 +111,43 @@ class GridRiskScore(models.Model):
 
     def __str__(self) -> str:
         return f"{self.cell} — {self.risk_category} ({self.date:%Y-%m-%d})"
+
+
+class RiskForecast(models.Model):
+    """The flood probability for a region on a day in the coming week.
+
+    Written by `forecast_scores`: the same trained model as RiskScore, given
+    the rainfall that has fallen up to the day it was issued and the
+    rainfall *forecast* for the days after. Kept apart from RiskScore for the
+    reason RiskOutlook is: a score from rain that fell and a score from rain
+    that is only predicted must never be mistaken for one another.
+
+    Each run issues seven days ahead and keeps earlier issues, so a forecast
+    can later be checked against the score the day actually got.
+    """
+
+    region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="risk_forecasts")
+    issued_on = models.DateField(help_text="The day the forecast was made")
+    target_date = models.DateField(help_text="The day the forecast is for")
+    predicted_value = models.FloatField(help_text="Model output, as RiskScore.predicted_value")
+    risk_category = models.CharField(max_length=10, choices=RiskScore.RiskCategory.choices)
+    rain_forecast_mm = models.FloatField(
+        null=True, blank=True, help_text="Forecast rain from the day after issue to target_date, mm"
+    )
+    rain_forecast_max_24h = models.FloatField(
+        null=True, blank=True, help_text="Wettest forecast day in that span, mm"
+    )
+    model_version = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ["target_date", "region_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["region", "issued_on", "target_date"],
+                name="unique_riskforecast_region_issue_target",
+            )
+        ]
+        indexes = [models.Index(fields=["issued_on", "target_date"])]
+
+    def __str__(self) -> str:
+        return f"{self.region} — {self.risk_category} on {self.target_date} (issued {self.issued_on})"

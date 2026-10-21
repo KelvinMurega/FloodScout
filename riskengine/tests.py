@@ -827,7 +827,11 @@ class RefreshScoresCommandTests(TestCase):
             call_command("refresh_scores", stdout=StringIO())
         self.assertEqual(
             self._steps(run),
-            [("seed_rainfall", "--past-days", "61"), ("score_regions", "--date", "2026-10-19")],
+            [
+                ("seed_rainfall", "--past-days", "61"),
+                ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
+            ],
         )
 
     def test_catches_up_on_the_days_it_missed(self):
@@ -842,6 +846,7 @@ class RefreshScoresCommandTests(TestCase):
                 ("score_regions", "--date", "2026-10-17"),
                 ("score_regions", "--date", "2026-10-18"),
                 ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
             ],
         )
 
@@ -856,6 +861,7 @@ class RefreshScoresCommandTests(TestCase):
                 ("score_regions", "--date", "2026-10-16"),
                 ("score_regions", "--date", "2026-10-18"),
                 ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
             ],
         )
         self.assertEqual(self._steps(run)[0], ("seed_rainfall", "--past-days", "64"))
@@ -886,7 +892,21 @@ class RefreshScoresCommandTests(TestCase):
         self._scored(self.TODAY)
         with mock.patch(f"{self.COMMANDS}.call_command") as run:
             call_command("refresh_scores", stdout=StringIO())
-        self.assertEqual(self._steps(run)[1:], [("score_regions", "--date", "2026-10-19")])
+        self.assertEqual(
+            self._steps(run)[1:],
+            [("score_regions", "--date", "2026-10-19"), ("forecast_scores",)],
+        )
+
+    def test_a_failed_forecast_is_reported_but_does_not_fail_the_refresh(self):
+        def fail_forecast(name, *args, **kwargs):
+            if name == "forecast_scores":
+                raise CommandError("forecast down")
+
+        stderr = StringIO()
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=fail_forecast) as run:
+            call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
+        self.assertIn("Forecast skipped: forecast down", stderr.getvalue())
+        self.assertIn(("score_regions", "--date", "2026-10-19"), self._steps(run))
 
     def test_catch_up_stops_where_the_rainfall_record_does(self):
         self._scored(dt.date(2026, 1, 1))
@@ -894,7 +914,8 @@ class RefreshScoresCommandTests(TestCase):
             call_command("refresh_scores", stdout=StringIO())
         steps = self._steps(run)
         self.assertEqual(steps[0], ("seed_rainfall", "--past-days", str(refresh_scores.MAX_PAST_DAYS)))
-        self.assertEqual(len(steps) - 1, refresh_scores.MAX_CATCH_UP_DAYS + 1)
+        # Rainfall, one score per day, then the forecast.
+        self.assertEqual(len(steps) - 2, refresh_scores.MAX_CATCH_UP_DAYS + 1)
 
     def test_a_failed_fetch_stops_a_single_run(self):
         with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):
