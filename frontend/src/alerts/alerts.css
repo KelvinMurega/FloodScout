@@ -496,3 +496,43 @@
 .alerts-admin__tool--wide {
   grid-column: 1 / -1;
 }
+
+/* One-click "Get flood alerts" (quick.js). */
+.quick-alert {
+  display: grid;
+  gap: 6px;
+}
+
+.quick-alert__button {
+  justify-self: start;
+}
+
+.quick-alert__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.quick-alert__hint:empty {
+  display: none;
+}
+
+.quick-alert__done {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(46, 158, 79, 0.12);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.quick-alert__code {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.alert-card__actions .quick-alert {
+  display: contents;
+}

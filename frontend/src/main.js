@@ -57,6 +57,7 @@ import {
 import { hideAdmin, resetAdmin, showAdmin } from "./admin/admin.js";
 import { hideAlerts, showAlerts } from "./alerts/alerts.js";
 import { LEVEL_LABELS, bannerText, countByLevel } from "./alerts/format.js";
+import { quickAlertControl } from "./alerts/quick.js";
 import { initAuth } from "./auth.js";
 import { isAuthSlug } from "./auth/format.js";
 import { showAuthPage } from "./auth/pages.js";
@@ -2007,8 +2008,9 @@ function renderDetail(regionId) {
   if (stored) renderInputs(regionId, score, els.detail);
   renderPastFloods(regionId, els.detail);
 
-  const getAlerts = el("a", "auth__button get-alerts", `Get flood alerts for ${name}`);
-  getAlerts.href = `#/alerts/subscribe/${regionId}`;
+  // Signed in, one click with the profile's email and phone; else the form.
+  const getAlerts = quickAlertControl([{ id: regionId, name }], state.user);
+  getAlerts.classList.add("get-alerts");
   els.detail.append(getAlerts);
 
   if (!isRegionView()) {
@@ -2705,6 +2707,8 @@ async function load() {
     },
     onUserChange: (user) => {
       state.user = user;
+      // The detail panel's "Get flood alerts" depends on who is signed in.
+      if (state.selectedRegionId !== null && !state.adminOpen) renderDetail(state.selectedRegionId);
       if (!user && isProfileSlug(currentSlug())) location.hash = "#/";
       if (!user) resetAdmin();
       if (isPageSlug(currentSlug())) route();
