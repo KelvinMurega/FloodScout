@@ -15,7 +15,8 @@ that was off over a weekend has Saturday and Sunday on the map once it is
 back on, scored from the rain that actually fell on them.
 
 After the scores, the next seven days are forecast from forecast rain
-(`forecast_scores`). When `seed_grid` has laid an area grid, its cells are
+(`forecast_scores`), and the alerts are brought up to date and sent
+(`issue_alerts`). When `seed_grid` has laid an area grid, its cells are
 scored too, with the same catching up.
 
 The seasonal outlook is not refreshed here. The forecast behind it is issued
@@ -153,6 +154,10 @@ class Command(BaseCommand):
             call_command("forecast_scores", stdout=self.stdout, stderr=self.stderr)
         except CommandError as exc:
             self.stderr.write(self.style.WARNING(f"Forecast skipped: {exc}"))
+
+        # Issue, upgrade and end the alerts from the new scores and forecast,
+        # and send them to the people who asked.
+        call_command("issue_alerts", stdout=self.stdout, stderr=self.stderr)
 
         # The area grid, once `seed_grid` has laid one. It fetches its own
         # rainfall, at the cells' centres.
