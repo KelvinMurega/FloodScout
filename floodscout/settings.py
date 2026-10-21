@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "accounts",
     "geodata",
     "riskengine",
+    "alerts",
     "api",
 ]
 
@@ -126,6 +127,36 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
-    # Sign-in attempts per client address (accounts/views.py).
-    "DEFAULT_THROTTLE_RATES": {"login": "10/min"},
+    # Sign-in attempts per client address (accounts/views.py), and alert
+    # sign-ups and code entries (alerts/views.py), which send messages.
+    "DEFAULT_THROTTLE_RATES": {"login": "10/min", "alerts": "20/hour"},
 }
+
+# Alerts (alerts/). Email goes to an SMTP server when EMAIL_HOST is set, and
+# is otherwise written as files under data/outbox/, so the flow can be shown
+# without sending anything. Gmail works with an app password:
+# EMAIL_HOST=smtp.gmail.com, EMAIL_PORT=587, EMAIL_USE_TLS=True.
+EMAIL_HOST = env("EMAIL_HOST", default="")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+    EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.filebased.EmailBackend"
+    EMAIL_FILE_PATH = BASE_DIR / "data" / "outbox"
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="FloodScout <alerts@floodscout.local>")
+
+# Africa's Talking SMS. AT_USERNAME "sandbox" sends to the simulator on the
+# Africa's Talking dashboard instead of to phones. No key, no SMS.
+AT_USERNAME = env("AT_USERNAME", default="sandbox")
+AT_API_KEY = env("AT_API_KEY", default="")
+AT_SENDER_ID = env("AT_SENDER_ID", default="")
+
+# Where links in messages point: the API (unsubscribe) and the dashboard.
+PUBLIC_API_URL = env("PUBLIC_API_URL", default="http://localhost:8000/api")
+DASHBOARD_URL = env("DASHBOARD_URL", default="http://localhost:5173")
+
+# CAP status of the published alerts. "Exercise" says they are not official.
+CAP_STATUS = env("CAP_STATUS", default="Exercise")

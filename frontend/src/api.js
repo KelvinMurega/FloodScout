@@ -7,6 +7,8 @@
  *   3. http://localhost:8000/api       — the docker-compose default
  */
 
+import { errorMessage } from "./alerts/format.js";
+
 const FALLBACK_BASE_URL = "http://localhost:8000/api";
 
 export function resolveBaseUrl(search = window.location.search) {
@@ -54,8 +56,9 @@ async function postJson(path, body = {}) {
   }
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
-    const error = new Error(data?.detail || `${url} returned ${response.status}`);
+    const error = new Error(errorMessage(data) || `${url} returned ${response.status}`);
     error.status = response.status;
+    error.data = data;
     throw error;
   }
   return data;
@@ -218,4 +221,70 @@ export function fetchExplanation(scoreId) {
 /** The situation in words, and the places that stand out, for a view. */
 export function fetchBriefing(params) {
   return getJson(withParams("briefing/", params));
+}
+
+/* ---------------------------------------------------------------- alerts */
+
+/** Every county and sub-county as { id, name, county_name, level }, without shapes. */
+export function fetchRegionNames() {
+  return getJson(withParams("regions/names/"));
+}
+
+/** Alerts, most severe first. With no params, the ones in force. */
+export function fetchAlerts(params) {
+  return getJson(withParams("alerts/", params));
+}
+
+/** The URL of one alert as a CAP 1.2 message, and of the Atom feed. */
+export function alertCapUrl(alertId) {
+  return `${API_BASE_URL}/alerts/${alertId}/cap/`;
+}
+
+export const ALERT_FEED_URL = `${API_BASE_URL}/alerts/feed/`;
+
+/**
+ * Ask for alerts: { email?, phone?, regions: [id], min_level }. Resolves to
+ * { subscription, code_sent_by }; the code sent must be confirmed next.
+ */
+export function subscribeToAlerts(body) {
+  return postJson("alerts/subscribe/", body);
+}
+
+/** Confirm a sign-up with the code sent: { subscription, code }. */
+export function confirmAlerts(body) {
+  return postJson("alerts/confirm/", body);
+}
+
+function adminGet(path) {
+  if (!authToken) {
+    const error = new Error("Sign in as an administrator.");
+    error.status = 401;
+    return Promise.reject(error);
+  }
+  return getJson(`${API_BASE_URL}/${path}`, { Authorization: `Token ${authToken}` });
+}
+
+/** Administrator only: subscriber and delivery counts, and the last run. */
+export function fetchAlertStats() {
+  return adminGet("alerts/stats/");
+}
+
+/** Administrator only: run the alert rules now. */
+export function runAlertRules() {
+  return postJson("alerts/run/");
+}
+
+/** Administrator only: issue an alert by hand: { region, level, description, instruction? }. */
+export function issueAlert(body) {
+  return postJson("alerts/issue/", body);
+}
+
+/** Administrator only: cancel an alert, telling those who were told. */
+export function cancelAlert(alertId) {
+  return postJson(`alerts/${alertId}/cancel/`);
+}
+
+/** Administrator only: send a test message: { email?, phone? }. */
+export function sendTestAlert(body) {
+  return postJson("alerts/test/", body);
 }

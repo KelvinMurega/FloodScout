@@ -158,3 +158,23 @@ class MapLayerHelperTests(TestCase):
         blue_of = rgba[2][0]
         # Deeper water is drawn darker.
         self.assertGreater(int(blue_of[1]), int(blue_of[3]))
+
+
+class RegionNamesTests(APITestCase):
+    def test_every_region_by_name_without_shapes(self):
+        kisumu = county("Kisumu", 34.5, -0.5)
+        Region.objects.create(
+            name="Nyando",
+            county_name="Kisumu",
+            level=Region.Level.SUB_COUNTY,
+            parent=kisumu,
+            geom=kisumu.geom,
+            area_size=1.0,
+        )
+        response = self.client.get("/api/regions/names/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(r["name"], r["level"]) for r in response.data],
+            [("Kisumu", "county"), ("Nyando", "sub_county")],
+        )
+        self.assertNotIn("geom", response.data[0])

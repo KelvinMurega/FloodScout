@@ -34,6 +34,7 @@ import "./style.css";
 
 import {
   API_BASE_URL,
+  fetchAlerts,
   fetchBriefing,
   fetchExplanation,
   fetchFloodEvents,
@@ -53,6 +54,8 @@ import {
   fetchScoreInputs,
 } from "./api.js";
 import { hideAdmin, resetAdmin, showAdmin } from "./admin/admin.js";
+import { hideAlerts, showAlerts } from "./alerts/alerts.js";
+import { LEVEL_LABELS, bannerText, countByLevel } from "./alerts/format.js";
 import { initAuth } from "./auth.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
 import { reportFileName, scoresToCsv, sortByRisk } from "./report.js";
@@ -119,6 +122,7 @@ const els = {
   timelineBar: document.getElementById("timeline-bar"),
   briefing: document.getElementById("briefing"),
   mapWrap: document.querySelector(".map-wrap"),
+  alertBanner: document.getElementById("alert-banner"),
   layerBar: document.getElementById("layer-bar"),
   themeBar: document.getElementById("theme-bar"),
   glance: document.getElementById("glance"),
@@ -160,6 +164,9 @@ const state = {
   forecastDays: [],
   // The Play button's timer while the timeline animates.
   playTimer: null,
+  // The flood alerts in force, most severe first, and by region id.
+  alerts: [],
+  alertsByRegion: new Map(),
   // County scores per period and date, fetched on first use.
   countyCache: new Map(),
   // "region" colours each county or sub-county as one; "grid" colours the
@@ -487,6 +494,7 @@ map.on("zoomend", updateLabelVisibility);
 
 function clearView() {
   clearHotspots();
+  clearAlertBadges();
   for (const layer of state.viewLayers) layer.remove();
   state.viewLayers = [];
   state.layersByRegion.clear();
@@ -1251,6 +1259,118 @@ async function renderBriefing(params) {
   drawHotspots(body.hotspots);
 }
 
+/* --------------------------------------------------------------- alerts */
+
+const LEVEL_RANK = { advisory: 1, watch: 2, warning: 3 };
+
+/** Load the alerts in force and show the banner. A failure shows nothing. */
+async function loadAlerts() {
+  try {
+    state.alerts = await fetchAlerts();
+  } catch (error) {
+    console.error(error);
+    state.alerts = [];
+  }
+  state.alertsByRegion = new Map(state.alerts.map((alert) => [alert.region, alert]));
+  renderAlertBanner();
+}
+
+/** "1 flood warning and 70 watches in force", over the map, coloured by the worst. */
+function renderAlertBanner() {
+  const counts = countByLevel(state.alerts);
+  const text = bannerText(counts);
+  els.alertBanner.hidden = !text;
+  if (!text) return;
+  const worst = ["warning", "watch", "advisory"].find((level) => counts[level] > 0);
+  els.alertBanner.className = `alert-banner alert-banner--${worst}`;
+  const icon = el("span", "alert-banner__icon", "!");
+  icon.setAttribute("aria-hidden", "true");
+  const links = el("span", "alert-banner__links");
+  const see = el("a", "auth__button auth__button--primary", "See the alerts");
+  see.href = "#/alerts";
+  const get = el("a", "auth__button", "Get alerts by SMS or email");
+  get.href = "#/alerts/subscribe/";
+  links.append(see, get);
+  els.alertBanner.replaceChildren(
+    icon,
+    el("span", "alert-banner__text", text),
+    el("span", "alert-banner__hint", "Issued from today's scores and the 7-day forecast."),
+    links,
+  );
+}
+
+let alertLayer = null;
+
+function clearAlertBadges() {
+  alertLayer?.remove();
+  alertLayer = null;
+}
+
+/** A triangle on each place on the map with an alert in force, above its name. */
+function drawAlertBadges() {
+  clearAlertBadges();
+  if (!givesAdvice()) return;
+  alertLayer = L.layerGroup();
+  for (const [regionId, layer] of state.layersByRegion) {
+    const alert = state.alertsByRegion.get(regionId);
+    const point = alert && labelPoint(layer.feature.geometry);
+    if (!point) continue;
+    const marker = L.marker(point, {
+      icon: L.divIcon({
+        className: "",
+        html: `<span class="alert-badge alert-badge--${alert.level}">!</span>`,
+        iconSize: [24, 22],
+        // Above the place's name, which sits on the same point.
+        iconAnchor: [12, 30],
+      }),
+      keyboard: false,
+      title: alert.headline,
+      zIndexOffset: 200 * LEVEL_RANK[alert.level],
+    });
+    marker.on("click", () => select(regionId, { pan: true }));
+    alertLayer.addLayer(marker);
+  }
+  alertLayer.addTo(map);
+}
+
+/** The alert in force for a place, at the top of its details. */
+function renderAlertBox(regionId, container) {
+  const alert = givesAdvice() ? state.alertsByRegion.get(regionId) : null;
+  if (!alert) return;
+  const box = el("div", `detail-alert detail-alert--${alert.level}`);
+  const link = el("a", null, "Full alert, and the CAP message");
+  link.href = `#/alerts/${alert.id}`;
+  const todo = el("p");
+  todo.append(el("strong", null, "What to do: "), alert.instruction);
+  box.append(
+    el("span", `alert-pill alert-pill--${alert.level}`, LEVEL_LABELS[alert.level]),
+    el("p", "detail-alert__title", alert.reasons.map((r) => r.text).join("; ")),
+    todo,
+    link,
+  );
+  container.append(box);
+}
+
+/** The map view that holds an alert's place, with the place selected. */
+function showAlertOnMap(alert) {
+  state.pendingSelect = alert.region;
+  state.period = null;
+  state.scoreDate = null;
+  state.forecastDay = null;
+  let slug = "";
+  if (alert.region_level === "sub_county") {
+    const focus = state.focusRegions.find((f) => f.counties.some((c) => c.name === alert.county_name));
+    // A sub-county outside the focus regions: its county is on the national map.
+    if (focus) slug = focus.slug;
+    else {
+      const county = state.counties?.features.find((f) => nameOf(f) === alert.county_name);
+      state.pendingSelect = county ? regionIdOf(county) : null;
+    }
+  }
+  location.hash = slug ? `#/${slug}` : "#/";
+  if (currentSlug() === slug) route();
+}
+
 let hotspotLayer = null;
 
 function clearHotspots() {
@@ -1267,6 +1387,7 @@ function drawHotspots(spots) {
   hotspotLayer = L.layerGroup();
   for (const spot of spots) {
     if (spot.reasons.every((r) => r.kind === "top")) continue;
+    if (state.alertsByRegion.has(spot.region)) continue;
     const layer = state.layersByRegion.get(spot.region);
     const point = layer && labelPoint(layer.feature.geometry);
     if (!point) continue;
@@ -1802,6 +1923,7 @@ function renderDetail(regionId) {
   badgeSwatch.style.background = colourFor(score?.risk_category, DARK);
   badge.append(badgeSwatch, labelFor(score?.risk_category));
   els.detail.append(badge);
+  renderAlertBox(regionId, els.detail);
 
   const rows = el("dl", "detail__rows");
   let entries;
@@ -1880,6 +2002,10 @@ function renderDetail(regionId) {
   }
   if (stored) renderInputs(regionId, score, els.detail);
   renderPastFloods(regionId, els.detail);
+
+  const getAlerts = el("a", "auth__button get-alerts", `Get flood alerts for ${name}`);
+  getAlerts.href = `#/alerts/subscribe/${regionId}`;
+  els.detail.append(getAlerts);
 
   if (!isRegionView()) {
     const focus = state.focusByCountyId.get(regionId);
@@ -2301,6 +2427,7 @@ async function showOverview() {
   renderTimeline();
   renderGlance(scores);
   renderBriefing({ level: "county" });
+  drawAlertBadges();
   markForecast();
   renderRegionIntro();
   renderRelocation(scores);
@@ -2424,6 +2551,7 @@ async function showRegion(focus) {
   renderTimeline();
   renderGlance(scores);
   renderBriefing({ level: "sub_county", focus_region: focus.slug });
+  drawAlertBadges();
   markForecast();
   renderRegionIntro();
   renderRelocation(scores);
@@ -2453,21 +2581,42 @@ function isAdminSlug(slug) {
   return slug === "admin" || slug.startsWith("admin/");
 }
 
+function isAlertsSlug(slug) {
+  return slug === "alerts" || slug.startsWith("alerts/");
+}
+
+/** A page in place of the map: the analytics (#/admin) or the alerts (#/alerts). */
 function setAdminOpen(open) {
   state.adminOpen = open;
   document.body.classList.toggle("is-admin", open);
-  if (!open) hideAdmin();
+  if (!open) {
+    hideAdmin();
+    hideAlerts();
+  }
 }
 
 async function route() {
   const slug = currentSlug();
   if (isAdminSlug(slug)) {
+    hideAlerts();
     setAdminOpen(true);
     window.scrollTo(0, 0);
     await showAdmin(els.admin, { slug, user: state.user });
     return;
   }
-  if (state.adminOpen) setAdminOpen(false);
+  if (isAlertsSlug(slug)) {
+    hideAdmin();
+    stopPlaying();
+    setAdminOpen(true);
+    window.scrollTo(0, 0);
+    await showAlerts(els.admin, { slug, user: state.user, onShowOnMap: showAlertOnMap });
+    return;
+  }
+  if (state.adminOpen) {
+    setAdminOpen(false);
+    // An administrator may have issued or cancelled some on the alerts page.
+    await loadAlerts();
+  }
   // The map views need the counties; load() routes again once they are in.
   if (!state.counties) return;
   const focus = state.focusRegions.find((f) => f.slug === slug);
@@ -2505,7 +2654,7 @@ async function load() {
     onUserChange: (user) => {
       state.user = user;
       if (!user) resetAdmin();
-      if (isAdminSlug(currentSlug())) route();
+      if (isAdminSlug(currentSlug()) || isAlertsSlug(currentSlug())) route();
     },
   });
 
@@ -2525,6 +2674,8 @@ async function load() {
       ]);
     state.forecastIssued = forecast.issued_on;
     state.forecastDays = forecast.days;
+    // Before the first view, so its badges and detail boxes have them.
+    await loadAlerts();
 
     state.counties = counties;
     state.focusRegions = focusRegions;
