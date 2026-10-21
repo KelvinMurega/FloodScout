@@ -195,3 +195,27 @@ export function fetchMapContext(params) {
 export function fetchFloodEvents(params) {
   return getJson(withParams("flood-events/", params));
 }
+
+/** The newest forecast issue and the days it covers: { issued_on, days: [YYYY-MM-DD] }. */
+export function fetchForecastDays() {
+  return getJson(withParams("risk-forecast/days/"));
+}
+
+/**
+ * Forecast rows, shaped like the latest scores plus `target_date`,
+ * `rain_forecast_mm` and `rain_forecast_max_24h`. `{ target_date }` for one
+ * day of the map, `{ region }` for one region's week; region params apply.
+ */
+export function fetchForecast(params) {
+  return getJson(withParams("risk-forecast/", params));
+}
+
+/** Why the model gave one stored score: its parts, largest first, and a summary. */
+export function fetchExplanation(scoreId) {
+  return getJson(withParams(`risk-scores/${scoreId}/explain/`));
+}
+
+/** The situation in words, and the places that stand out, for a view. */
+export function fetchBriefing(params) {
+  return getJson(withParams("briefing/", params));
+}

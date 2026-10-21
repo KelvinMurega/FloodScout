@@ -98,6 +98,9 @@ test("the 7-day change has no meaning for an outlook or the area grid", () => {
   assert.equal(themeAvailable("change", { outlook: true }), false);
   assert.equal(themeAvailable("change", { grid: true }), false);
   assert.equal(themeAvailable("rain", { outlook: true }), true);
+  assert.equal(themeAvailable("rain", { forecast: true }), false);
+  assert.equal(themeAvailable("change", { forecast: true }), false);
+  assert.equal(themeAvailable("usual", { forecast: true }), true);
 });
 
 test("describeChange and describeRain read as plain English", () => {

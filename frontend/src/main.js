@@ -34,8 +34,12 @@ import "./style.css";
 
 import {
   API_BASE_URL,
+  fetchBriefing,
+  fetchExplanation,
   fetchFloodEvents,
   fetchFocusRegions,
+  fetchForecast,
+  fetchForecastDays,
   fetchGridDates,
   fetchLatestScores,
   fetchLowerRiskNeighbours,
@@ -61,6 +65,7 @@ import {
 } from "./risk.js";
 import { initLayers, overlayLegend } from "./layers.js";
 import { searchRegions } from "./search.js";
+import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
 import {
   THEMES,
   THEME_ORDER,
@@ -111,6 +116,9 @@ const els = {
   provenance: document.getElementById("provenance"),
   regionBar: document.getElementById("region-bar"),
   periodBar: document.getElementById("period-bar"),
+  timelineBar: document.getElementById("timeline-bar"),
+  briefing: document.getElementById("briefing"),
+  mapWrap: document.querySelector(".map-wrap"),
   layerBar: document.getElementById("layer-bar"),
   themeBar: document.getElementById("theme-bar"),
   glance: document.getElementById("glance"),
@@ -145,6 +153,13 @@ const state = {
   // null is the latest scores; otherwise one of scoreDates. Never set
   // together with an outlook period.
   scoreDate: null,
+  // A day of the newest 7-day forecast, or null. Never set with the above.
+  forecastDay: null,
+  // The newest forecast: the day it was issued and the days it covers.
+  forecastIssued: null,
+  forecastDays: [],
+  // The Play button's timer while the timeline animates.
+  playTimer: null,
   // County scores per period and date, fetched on first use.
   countyCache: new Map(),
   // "region" colours each county or sub-county as one; "grid" colours the
@@ -287,22 +302,36 @@ function isPastDate() {
   return state.scoreDate !== null;
 }
 
+function isForecast() {
+  return state.forecastDay !== null;
+}
+
 /**
  * Whether the scores on screen may carry relocation advice. Only the latest
- * ones do: an outlook is a chance months ahead, and an earlier day is over.
+ * ones do: an outlook is a chance months ahead, a forecast day is rain that
+ * has not fallen, and an earlier day is over.
  */
 function givesAdvice() {
-  return !isOutlook() && !isPastDate();
+  return !isOutlook() && !isPastDate() && !isForecast();
 }
 
 /** Names what is on screen, for caches and for spotting a view that changed. */
 function viewKey() {
-  return `${state.period ?? "today"}|${state.scoreDate ?? "latest"}`;
+  return `${state.period ?? "today"}|${state.scoreDate ?? "latest"}|${state.forecastDay ?? "-"}`;
 }
 
-/** Scores for the current period: the latest, one earlier day's, or an outlook month's. */
+/**
+ * Scores for the current period: the latest, one earlier day's, a forecast
+ * day's, or an outlook month's. A forecast row is given the target day as
+ * its `prediction_date`, so it is dated like a score everywhere it is drawn.
+ */
 function fetchScores(params) {
   if (isOutlook()) return fetchOutlook({ ...params, month: state.period });
+  if (isForecast()) {
+    return fetchForecast({ ...params, target_date: state.forecastDay }).then((rows) =>
+      rows.map((row) => ({ ...row, prediction_date: `${row.target_date}T00:00:00` })),
+    );
+  }
   if (isPastDate()) {
     return fetchLatestScores({
       ...params,
@@ -366,7 +395,7 @@ const mapLayers = initLayers(map, {
 
 /** The theme on screen: the one chosen, or "usual" where it means nothing. */
 function currentTheme() {
-  const view = { outlook: isOutlook(), grid: state.gridOn };
+  const view = { outlook: isOutlook(), grid: state.gridOn, forecast: isForecast() };
   return themeAvailable(state.theme, view) ? state.theme : "usual";
 }
 
@@ -457,6 +486,7 @@ new ResizeObserver(() => map.invalidateSize({ animate: false })).observe(map.get
 map.on("zoomend", updateLabelVisibility);
 
 function clearView() {
+  clearHotspots();
   for (const layer of state.viewLayers) layer.remove();
   state.viewLayers = [];
   state.layersByRegion.clear();
@@ -689,6 +719,13 @@ function renderProvenance(scores) {
       label,
       " — a documented placeholder, not a trained model. Not for operational use.",
     );
+  } else if (isForecast()) {
+    els.provenance.append(
+      `Forecast for ${formatDate(latest)}, issued ${formatDate(state.forecastIssued)}: `,
+      label,
+      " run on the rain that has fallen and the rain forecast for the days between. " +
+        "Less certain than today's scores, and never grounds for relocation advice.",
+    );
   } else if (isPastDate()) {
     els.provenance.append(
       `Scores for ${formatDate(latest)}, produced by `,
@@ -741,6 +778,7 @@ function chooseScoreDate(isoDate, note) {
     return;
   }
   state.period = null;
+  state.forecastDay = null;
   // The newest day is what "Today" already shows.
   state.scoreDate = isoDate && isoDate !== state.scoreDates[0] ? isoDate : null;
   route();
@@ -780,20 +818,137 @@ function renderPeriodBar() {
     button.type = "button";
     button.setAttribute(
       "aria-pressed",
-      String(option.period === state.period && !isPastDate()),
+      String(option.period === state.period && !isPastDate() && !isForecast()),
     );
     button.addEventListener("click", () => {
+      stopPlaying();
       state.period = option.period;
       state.scoreDate = null;
+      state.forecastDay = null;
       route();
     });
     els.periodBar.append(button);
+    // The week ahead sits next to today, before the months ahead.
+    if (option.period === null && state.forecastDays.length > 0) {
+      const ahead = el("button", "region-bar__button", "Next 7 days");
+      ahead.type = "button";
+      ahead.title = "The flood risk forecast for each of the coming days";
+      ahead.setAttribute("aria-pressed", String(isForecast()));
+      ahead.addEventListener("click", () => {
+        stopPlaying();
+        state.period = null;
+        state.scoreDate = null;
+        state.forecastDay = state.forecastDays[0];
+        route();
+      });
+      els.periodBar.append(ahead);
+    }
   }
   if (hasEarlierDays) els.periodBar.append(...scoreDatePicker());
 }
 
+/* ------------------------------------------------------------- timeline */
+
+const PLAY_STEP_MS = 1400;
+
+function steps() {
+  return timelineSteps(state.scoreDates, state.forecastDays);
+}
+
+function goToStep(step) {
+  const next = stateForStep(step);
+  state.period = null;
+  state.scoreDate = next.scoreDate;
+  state.forecastDay = next.forecastDay;
+  return route();
+}
+
+function stopPlaying() {
+  if (state.playTimer) clearTimeout(state.playTimer);
+  state.playTimer = null;
+}
+
+/** Play: step the map a day at a time to the end of the forecast. */
+function play() {
+  const all = steps();
+  let index = currentStep(all, state);
+  // From the end, start again at the beginning.
+  if (index < 0 || index >= all.length - 1) index = -1;
+  const advance = async () => {
+    index += 1;
+    await goToStep(all[index]);
+    state.playTimer = index < all.length - 1 ? setTimeout(advance, PLAY_STEP_MS) : null;
+    renderTimeline();
+  };
+  state.playTimer = setTimeout(advance, 0);
+  renderTimeline();
+}
+
+function stepLabel(step) {
+  if (!step) return "";
+  const day = formatDate(`${step.date}T00:00:00`);
+  if (step.kind === "today") return `${day} · latest scores`;
+  if (step.kind === "forecast") return `${day} · forecast`;
+  return `${day} · observed`;
+}
+
+/**
+ * A slider over the stored days and the forecast days, with Play. Hidden
+ * for an outlook, which is a month, not a day.
+ */
+function renderTimeline() {
+  const all = steps();
+  const index = currentStep(all, { ...state, outlook: isOutlook() });
+  els.timelineBar.hidden = all.length < 2 || isOutlook();
+  if (els.timelineBar.hidden) return;
+
+  const playing = state.playTimer !== null;
+  const playButton = el("button", "region-bar__button timeline__play", playing ? "Pause" : "Play");
+  playButton.type = "button";
+  playButton.setAttribute("aria-pressed", String(playing));
+  playButton.title = "Show each day in turn, through the forecast";
+  playButton.addEventListener("click", () => {
+    if (playing) {
+      stopPlaying();
+      renderTimeline();
+    } else {
+      play();
+    }
+  });
+
+  const label = el("span", "timeline__label", stepLabel(all[index]));
+  label.classList.toggle("timeline__label--forecast", all[index]?.kind === "forecast");
+
+  const slider = el("input", "timeline__range");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = String(all.length - 1);
+  slider.value = String(Math.max(index, 0));
+  slider.setAttribute("aria-label", "Day shown on the map");
+  slider.setAttribute("aria-valuetext", stepLabel(all[index]));
+  const firstForecast = all.findIndex((step) => step.kind === "forecast");
+  if (firstForecast > 0) {
+    // Shade the forecast end of the track.
+    slider.style.setProperty("--forecast-from", `${(firstForecast / (all.length - 1)) * 100}%`);
+  }
+  slider.addEventListener("input", () => {
+    stopPlaying();
+    label.textContent = stepLabel(all[Number(slider.value)]);
+  });
+  slider.addEventListener("change", () => goToStep(all[Number(slider.value)]));
+
+  const ends = el("span", "timeline__ends");
+  ends.append(
+    el("span", null, formatDate(`${all[0].date}T00:00:00`)),
+    el("span", null, formatDate(`${all.at(-1).date}T00:00:00`)),
+  );
+  const track = el("div", "timeline__track");
+  track.append(slider, ends);
+  els.timelineBar.replaceChildren(playButton, track, label);
+}
+
 function hasGrid() {
-  return state.gridDates.length > 0 && !isOutlook();
+  return state.gridDates.length > 0 && !isOutlook() && !isForecast();
 }
 
 /** The choice between colouring by region and by area, when there is a grid. */
@@ -825,7 +980,7 @@ function renderLayerBar() {
  * rain. A failure leaves the map coloured by what the scores themselves say.
  */
 async function loadContext(params) {
-  if (isOutlook()) return new Map();
+  if (isOutlook() || isForecast()) return new Map();
   const key = `${viewKey()}|${JSON.stringify(params)}`;
   if (!state.contextCache.has(key)) {
     state.contextCache.set(
@@ -840,6 +995,14 @@ async function loadContext(params) {
     );
   }
   return state.contextCache.get(key);
+}
+
+/** A "Forecast" badge on the map while a forecast day is on screen. */
+function markForecast() {
+  els.mapWrap.classList.toggle("map-wrap--forecast", isForecast());
+  els.mapWrap.dataset.forecast = isForecast()
+    ? `Forecast · ${formatDate(`${state.forecastDay}T00:00:00`)}`
+    : "";
 }
 
 /** Point the NASA satellite layers at the day on screen. */
@@ -866,7 +1029,7 @@ function loadGrid() {
 /** "Show": what the colour on the map means (themes.js). */
 function renderThemeBar() {
   els.themeBar.replaceChildren(el("span", "layer-bar__label", "Show"));
-  const view = { outlook: isOutlook(), grid: state.gridOn };
+  const view = { outlook: isOutlook(), grid: state.gridOn, forecast: isForecast() };
   for (const theme of THEME_ORDER) {
     if (!themeAvailable(theme, view)) continue;
     const button = el("button", "region-bar__button", THEMES[theme].name);
@@ -1036,6 +1199,93 @@ function renderGlance(scores) {
     el("p", "detail__subheading", "Highest against the usual chance"),
     list,
   );
+}
+
+/**
+ * The situation in words (riskengine/briefing.py) and the places that stand
+ * out, each one click from its details. Only for the latest scores: a
+ * briefing is about now.
+ */
+async function renderBriefing(params) {
+  if (!givesAdvice()) {
+    els.briefing.hidden = true;
+    clearHotspots();
+    return;
+  }
+  const key = viewKey() + JSON.stringify(params);
+  let body;
+  try {
+    body = await fetchBriefing(params);
+  } catch (error) {
+    console.error(error);
+    els.briefing.hidden = true;
+    return;
+  }
+  // The view may have changed while this loaded.
+  if (viewKey() + JSON.stringify(params) !== key || !givesAdvice()) return;
+
+  els.briefing.hidden = false;
+  const heading = el("h2", "panel__heading", "Situation");
+  heading.append(el("span", "panel__hint", `written from the data, ${formatDate(`${body.date}T00:00:00`)}`));
+  const text = el("div", "briefing__text");
+  text.append(...body.paragraphs.map((p) => el("p", null, p)));
+
+  const nodes = [heading, el("p", "briefing__headline", body.headline), text];
+  if (body.hotspots.length > 0) {
+    nodes.push(el("p", "detail__subheading", "Watch these places"));
+    const list = el("ul", "hotspots");
+    for (const spot of body.hotspots.slice(0, 8)) {
+      const item = el("li");
+      const button = el("button", "hotspot");
+      button.type = "button";
+      const name = el("span", "hotspot__name");
+      name.append(swatch(spot.category), spot.name);
+      button.append(name, ...spot.reasons.map((r) => el("span", `hotspot__reason hotspot__reason--${r.kind}`, r.text)));
+      button.addEventListener("click", () => select(spot.region, { pan: true }));
+      item.append(button);
+      list.append(item);
+    }
+    nodes.push(list);
+  }
+  els.briefing.replaceChildren(...nodes);
+  drawHotspots(body.hotspots);
+}
+
+let hotspotLayer = null;
+
+function clearHotspots() {
+  hotspotLayer?.remove();
+  hotspotLayer = null;
+}
+
+/**
+ * A pulsing ring on each place the briefing flags for a reason other than
+ * being among the highest (those are already the darkest on the map).
+ */
+function drawHotspots(spots) {
+  clearHotspots();
+  hotspotLayer = L.layerGroup();
+  for (const spot of spots) {
+    if (spot.reasons.every((r) => r.kind === "top")) continue;
+    const layer = state.layersByRegion.get(spot.region);
+    const point = layer && labelPoint(layer.feature.geometry);
+    if (!point) continue;
+    const urgent = spot.reasons.some((r) => r.kind === "heavy_rain");
+    const marker = L.marker(point, {
+      // The ring is an inner element: Leaflet places the icon itself with a
+      // transform, which an animated transform on it would undo.
+      icon: L.divIcon({
+        className: `hotspot-pulse${urgent ? " hotspot-pulse--urgent" : ""}`,
+        html: '<span class="hotspot-pulse__ring"></span>',
+        iconSize: [22, 22],
+      }),
+      keyboard: false,
+      title: `${spot.name}: ${spot.reasons.map((r) => r.text).join("; ")}`,
+    });
+    marker.on("click", () => select(spot.region, { pan: true }));
+    hotspotLayer.addLayer(marker);
+  }
+  hotspotLayer.addTo(map);
 }
 
 function formatTimesShort(times) {
@@ -1390,6 +1640,155 @@ async function renderPastFloods(regionId, container) {
   body.replaceWith(wrap);
 }
 
+/**
+ * "Why this score": the model's own account of the score, as each group of
+ * inputs' share of it in times the usual chance (riskengine/ml/explain.py).
+ * Bars to the right raised the risk, to the left lowered it.
+ */
+async function renderWhy(regionId, score, container) {
+  const heading = el("p", "detail__subheading", "Why this score");
+  const body = el("p", "detail__empty", "Working out what drove this score…");
+  container.append(heading, body);
+
+  let why;
+  try {
+    why = await fetchExplanation(score.id);
+  } catch (error) {
+    // A placeholder score has nothing to explain; say nothing.
+    if (error.status === 404) {
+      heading.remove();
+      body.remove();
+    } else {
+      console.error(error);
+      body.textContent = "Could not work out what drove this score.";
+    }
+    return;
+  }
+  if (state.selectedRegionId !== regionId) return;
+
+  const wrap = el("div", "why");
+  const driver = el(
+    "p",
+    `why__driver why__driver--${why.driven_by}`,
+    why.driven_by === "rain"
+      ? "Driven by rain that has fallen"
+      : "Driven by the season and the oceans, not by rain that has fallen",
+  );
+  wrap.append(driver, el("p", "why__summary", why.summary));
+
+  const factors = why.factors.filter((f) => typeof f.times_usual === "number");
+  const biggest = Math.max(0.1, ...factors.map((f) => Math.abs(f.times_usual)));
+  const chart = el("div", "why__chart");
+  chart.setAttribute("role", "list");
+  chart.append(
+    whyRow("The usual chance", why.baseline_times_usual, biggest, "why__row--base"),
+  );
+  for (const factor of factors) chart.append(whyRow(factor.label, factor.times_usual, biggest));
+  chart.append(whyRow("This score", why.times_usual, biggest, "why__row--total"));
+  wrap.append(
+    chart,
+    el(
+      "p",
+      "relocation__note",
+      "How the model used each input for this score, split exactly from the trees of the " +
+        "forest; the parts add up to the score. It shows what the model relied on, not what " +
+        "causes floods: county size, for one, is how floods were recorded." +
+        (why.same_model ? "" : ` Worked out with ${why.computed_with}.`),
+    ),
+  );
+  body.replaceWith(wrap);
+}
+
+/** One bar of the "why" chart: centred on zero, or from zero for the base and total. */
+function whyRow(label, times, biggest, modifier = "") {
+  const row = el("div", `why__row ${modifier}`);
+  row.setAttribute("role", "listitem");
+  const total = modifier !== "";
+  let value = `${times >= 0 ? "+" : "−"}${Math.abs(times).toFixed(1)}×`;
+  if (total) value = `${times.toFixed(1)}×`;
+  else if (Math.abs(times) < 0.05) value = "0.0×";
+  const bar = el("span", "why__bar");
+  const fill = el("span", `why__fill ${times >= 0 ? "why__fill--up" : "why__fill--down"}`);
+  if (total) {
+    const scale = Math.max(biggest * 2, times);
+    fill.style.left = "0";
+    fill.style.width = `${Math.min(100, (times / scale) * 100)}%`;
+  } else {
+    const half = Math.min(50, (Math.abs(times) / biggest) * 50);
+    fill.style.width = `${half}%`;
+    fill.style.left = times >= 0 ? "50%" : `${50 - half}%`;
+  }
+  bar.append(fill);
+  row.append(el("span", "why__label", label), bar, el("span", "why__value", value));
+  row.setAttribute("aria-label", `${label}: ${value}`);
+  return row;
+}
+
+/** The week ahead for one region: a strip of the 7 forecast days. */
+async function renderWeek(regionId, container) {
+  if (state.forecastDays.length === 0) return;
+  const heading = el("p", "detail__subheading", "Next 7 days (forecast)");
+  const body = el("p", "detail__empty", "Loading the forecast…");
+  container.append(heading, body);
+
+  let week;
+  try {
+    week = await fetchForecast({ region: regionId });
+  } catch (error) {
+    console.error(error);
+    body.textContent = "Could not load the forecast.";
+    return;
+  }
+  if (state.selectedRegionId !== regionId) return;
+  if (week.length === 0) {
+    body.textContent = "No forecast for this area yet.";
+    return;
+  }
+
+  const strip = el("div", "week");
+  for (const day of week) {
+    const date = new Date(`${day.target_date}T00:00:00`);
+    const cell = el("button", "week__day");
+    cell.type = "button";
+    cell.title =
+      `${formatDate(`${day.target_date}T00:00:00`)}: ${labelFor(day.risk_category)}, ` +
+      `${formatTimesUsual(day.times_usual).toLowerCase()}` +
+      (typeof day.rain_forecast_max_24h === "number"
+        ? `; wettest forecast day so far ${Math.round(day.rain_forecast_max_24h)} mm`
+        : "");
+    const colour = el("span", "week__colour");
+    colour.style.background = themeColour("usual", day, null, DARK);
+    cell.append(
+      el("span", "week__name", date.toLocaleDateString(undefined, { weekday: "short" })),
+      colour,
+      el("span", "week__value", formatTimesShort(day.times_usual)),
+      el("span", "week__level", labelFor(day.risk_category)),
+    );
+    cell.addEventListener("click", () => {
+      stopPlaying();
+      state.pendingSelect = regionId;
+      state.period = null;
+      state.scoreDate = null;
+      state.forecastDay = day.target_date;
+      route();
+    });
+    strip.append(cell);
+  }
+  const peak = week.reduce((a, b) => (b.times_usual > a.times_usual ? b : a));
+  const wettest = Math.max(...week.map((d) => d.rain_forecast_max_24h ?? 0));
+  const note = el(
+    "p",
+    "relocation__note",
+    `Highest on ${formatDate(`${peak.target_date}T00:00:00`)} at ${formatTimesShort(peak.times_usual)} ` +
+      `the usual chance. Wettest forecast day: ${Math.round(wettest)} mm` +
+      (wettest >= 50 ? ", above the 50 mm the Kenya Meteorological Department treats as a flood warning sign." : ".") +
+      " Click a day to see the whole map for it.",
+  );
+  const wrap = el("div");
+  wrap.append(strip, note);
+  body.replaceWith(wrap);
+}
+
 function renderDetail(regionId) {
   const score = state.scoresByRegion.get(regionId);
   const layer = state.layersByRegion.get(regionId);
@@ -1427,6 +1826,26 @@ function renderDetail(regionId) {
       ["Outlook for", formatMonth(score.month)],
       ["Model version", score.model_version ?? "—"],
     ];
+  } else if (isForecast()) {
+    entries = [
+      ...(isRegionView() ? [["County", score.county_name]] : []),
+      ["Chance of a large flood", formatTimesUsual(score.times_usual)],
+      [
+        "Forecast rain",
+        typeof score.rain_forecast_mm === "number"
+          ? `${Math.round(score.rain_forecast_mm)} mm between now and this day`
+          : "—",
+      ],
+      [
+        "Wettest forecast day",
+        typeof score.rain_forecast_max_24h === "number"
+          ? `${Math.round(score.rain_forecast_max_24h)} mm`
+          : "—",
+      ],
+      ["Forecast for", formatDate(score.prediction_date)],
+      ["Issued", formatDate(state.forecastIssued)],
+      ["Model version", score.model_version ?? "—"],
+    ];
   } else {
     entries = [
         ...(isRegionView() ? [["County", score.county_name]] : []),
@@ -1449,12 +1868,17 @@ function renderDetail(regionId) {
   }
   els.detail.append(rows);
 
+  // Only a stored score has a model run to explain, a history and inputs:
+  // an outlook or a forecast row is driven by rain that has not fallen.
+  const stored = score && !isOutlook() && !isForecast();
+  if (stored) renderWhy(regionId, score, els.detail);
+  // The week ahead, from today's view.
+  if (score && givesAdvice()) renderWeek(regionId, els.detail);
   // A placeholder score has no multiple of the usual chance to plot.
-  if (score && !isOutlook() && typeof score.times_usual === "number") {
+  if (stored && typeof score.times_usual === "number") {
     renderHistory(regionId, score, els.detail);
   }
-  // An outlook row is not a stored score and is driven by a forecast.
-  if (score && !isOutlook()) renderInputs(regionId, score, els.detail);
+  if (stored) renderInputs(regionId, score, els.detail);
   renderPastFloods(regionId, els.detail);
 
   if (!isRegionView()) {
@@ -1874,7 +2298,10 @@ async function showOverview() {
   renderPeriodBar();
   renderLayerBar();
   renderThemeBar();
+  renderTimeline();
   renderGlance(scores);
+  renderBriefing({ level: "county" });
+  markForecast();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "County";
@@ -1994,7 +2421,10 @@ async function showRegion(focus) {
   renderPeriodBar();
   renderLayerBar();
   renderThemeBar();
+  renderTimeline();
   renderGlance(scores);
+  renderBriefing({ level: "sub_county", focus_region: focus.slug });
+  markForecast();
   renderRegionIntro();
   renderRelocation(scores);
   els.detailHeading.textContent = "Sub-county";
@@ -2082,15 +2512,19 @@ async function load() {
   try {
     setStatus("Loading counties and risk scores…");
 
-    const [counties, focusRegions, outlookMonths, scoreDates, gridDates] = await Promise.all([
-      fetchRegions(),
-      fetchFocusRegions(),
-      // The outlook and the earlier days are extras: without them the
-      // dashboard still shows today.
-      fetchOutlookMonths().catch(() => []),
-      fetchScoreDates().catch(() => []),
-      fetchGridDates().catch(() => []),
-    ]);
+    const [counties, focusRegions, outlookMonths, scoreDates, gridDates, forecast] =
+      await Promise.all([
+        fetchRegions(),
+        fetchFocusRegions(),
+        // The outlook, the earlier days and the forecast are extras: without
+        // them the dashboard still shows today.
+        fetchOutlookMonths().catch(() => []),
+        fetchScoreDates().catch(() => []),
+        fetchGridDates().catch(() => []),
+        fetchForecastDays().catch(() => ({ issued_on: null, days: [] })),
+      ]);
+    state.forecastIssued = forecast.issued_on;
+    state.forecastDays = forecast.days;
 
     state.counties = counties;
     state.focusRegions = focusRegions;

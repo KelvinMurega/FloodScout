@@ -30,6 +30,7 @@
 
       <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
       <nav class="region-bar" id="period-bar" aria-label="Choose today, an earlier day or a month ahead" hidden></nav>
+      <nav class="region-bar timeline" id="timeline-bar" aria-label="Move through the days, observed and forecast" hidden></nav>
       <div class="map-bars">
         <nav class="region-bar" id="theme-bar" aria-label="Choose what the colour shows"></nav>
         <nav class="region-bar" id="layer-bar" aria-label="Colour the map by region or by area" hidden></nav>
@@ -61,6 +62,8 @@
             <ul class="search__results" id="search-results" role="listbox" aria-label="Matching places" hidden></ul>
             <p class="search__empty" id="search-empty" role="status" hidden></p>
           </section>
+
+          <section class="panel__section briefing" id="briefing" aria-live="polite" hidden></section>
 
           <section class="panel__section glance" id="glance" hidden></section>
 

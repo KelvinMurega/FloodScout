@@ -132,9 +132,14 @@ export function legendEntries(theme, rows, dark = false) {
   return entries;
 }
 
-/** Whether `theme` has anything to show for the view described. */
-export function themeAvailable(theme, { outlook = false, grid = false } = {}) {
-  if (theme === "change") return !outlook && !grid;
+/**
+ * Whether `theme` has anything to show for the view described. A forecast
+ * day has no 30-day rain against normal and no week-on-week change; an
+ * outlook and the area grid have no change.
+ */
+export function themeAvailable(theme, { outlook = false, grid = false, forecast = false } = {}) {
+  if (theme === "change") return !outlook && !grid && !forecast;
+  if (theme === "rain") return !forecast;
   return true;
 }
 
