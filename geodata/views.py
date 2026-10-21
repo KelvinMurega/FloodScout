@@ -1,10 +1,11 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from . import focus_regions
 from .filters import filter_by_region_params
-from .models import EnvironmentalData, GeospatialFeature, Region
+from .models import EnvironmentalData, FloodEvent, GeospatialFeature, Region
 from .serializers import (
     EnvironmentalDataSerializer,
     GeospatialFeatureSerializer,
@@ -93,3 +94,48 @@ class GeospatialFeatureViewSet(_RegionFilterMixin, viewsets.ReadOnlyModelViewSet
 class EnvironmentalDataViewSet(_RegionFilterMixin, viewsets.ReadOnlyModelViewSet):
     queryset = EnvironmentalData.objects.select_related("region").all()
     serializer_class = EnvironmentalDataSerializer
+
+
+class FloodEventViewSet(viewsets.ViewSet):
+    """Large floods recorded in Kenya (DFO, 1985 to 2021), for the map.
+
+    `list` is a GeoJSON FeatureCollection of the events' centroids, newest
+    first. `?region=<id>` keeps the events whose footprint reaches that
+    region, which is what the detail panel's "floods recorded here" uses.
+    A footprint is a circle of the recorded area, so "reaches" is rough.
+    """
+
+    def list(self, request):
+        events = FloodEvent.objects.all()
+        region_id = request.query_params.get("region")
+        if region_id:
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            region = get_object_or_404(Region, pk=int(region_id))
+            events = events.filter(footprint__intersects=region.geom)
+        return Response(
+            {
+                "type": "FeatureCollection",
+                "source": "Dartmouth Flood Observatory, Global Active Archive of Large Flood Events",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "id": event.dfo_id,
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [round(event.centroid.x, 4), round(event.centroid.y, 4)],
+                        },
+                        "properties": {
+                            "began": event.began.isoformat(),
+                            "ended": event.ended.isoformat(),
+                            "area_km2": round(event.area_km2),
+                            "severity": event.severity,
+                            "dead": event.dead,
+                            "displaced": event.displaced,
+                            "main_cause": event.main_cause,
+                        },
+                    }
+                    for event in events
+                ],
+            }
+        )

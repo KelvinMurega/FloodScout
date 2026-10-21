@@ -237,6 +237,61 @@ body {
   display: none;
 }
 
+/* How strongly the risk colour covers the basemap. */
+.theme-bar__opacity {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.theme-bar__range {
+  width: 90px;
+  accent-color: var(--accent);
+}
+
+/* The "Show" and "Colour by" bars share one strip. */
+.map-bars {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.map-bars .region-bar {
+  border-bottom: 0;
+}
+
+.map-bars #layer-bar {
+  border-left: 1px solid var(--hairline);
+}
+
+/* Leaflet's own controls, in the dashboard's colours in either theme. */
+.leaflet-control-layers,
+.leaflet-bar a,
+.leaflet-control-scale-line {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border-color: var(--border-ring);
+}
+
+.leaflet-control-layers-expanded {
+  padding: 8px 12px;
+  font: 13px var(--font-sans);
+  line-height: 1.6;
+}
+
+.leaflet-control-layers-separator {
+  border-top-color: var(--hairline);
+}
+
+.leaflet-control-scale-line {
+  background: color-mix(in srgb, var(--surface-1) 80%, transparent);
+}
+
 .region-bar__button {
   flex: none;
   padding: 5px 12px;
@@ -760,6 +815,160 @@ body {
   display: grid;
   gap: 2px;
   font-size: 12.5px;
+}
+
+/* The hover card on a region. */
+.map-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.map-card__badge .legend__swatch {
+  width: 11px;
+  height: 11px;
+}
+
+.map-card__muted {
+  color: #52514e;
+}
+
+.map-card__hint {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #898781;
+}
+
+/* Overlay keys under the theme's classes. */
+.legend__item--overlay {
+  font-size: 12px;
+}
+
+.legend__item--overlay:first-of-type,
+.legend__item:not(.legend__item--overlay) + .legend__item--overlay,
+.legend__note + .legend__item--overlay {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.legend__swatch--line {
+  height: 3px;
+  border: 0;
+  border-radius: 2px;
+}
+
+.legend__swatch--dot {
+  border-radius: 50%;
+  border: 1.5px solid var(--surface-1);
+}
+
+/* --- At a glance ------------------------------------------------------- */
+
+.glance__counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.glance__count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.glance__count .legend__swatch {
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: 2px;
+}
+
+.glance__number {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.glance__line {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.glance__top {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.glance__place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glance__place:hover {
+  background: var(--surface-page);
+}
+
+.glance__place:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.glance__value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* --- Past floods ------------------------------------------------------- */
+
+.past-floods__count {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.flood-popup {
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  max-width: 260px;
+}
+
+.flood-popup__toll {
+  font-weight: 600;
+}
+
+.flood-popup__note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #898781;
 }
 
 /* --- Table (the non-colour route to the same data) --------------------- */

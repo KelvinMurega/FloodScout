@@ -110,6 +110,36 @@ class EnvironmentalData(models.Model):
         return f"{self.region} — {self.record_date}"
 
 
+class FloodEvent(models.Model):
+    """A large flood recorded in Kenya by the Dartmouth Flood Observatory.
+
+    The same archive the model's labels come from (geodata/services/dfo.py),
+    kept here so the map can show where and when floods were recorded and
+    the detail panel can say whether a place has flooded before. Filled by
+    `seed_flood_events`.
+
+    `footprint` is DFO's centroid and area turned into a circle: where the
+    flood roughly was, not its outline. `centroid` is what the map draws.
+    """
+
+    dfo_id = models.PositiveIntegerField(unique=True, help_text="The event's ID in the archive")
+    began = models.DateField()
+    ended = models.DateField()
+    centroid = gis_models.PointField(srid=4326)
+    footprint = gis_models.PolygonField(srid=4326)
+    area_km2 = models.FloatField(help_text="Affected area DFO recorded, km²")
+    severity = models.FloatField(help_text="DFO class: 1 large, 1.5 very large, 2 extreme")
+    dead = models.PositiveIntegerField(default=0)
+    displaced = models.PositiveIntegerField(default=0)
+    main_cause = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["-began"]
+
+    def __str__(self) -> str:
+        return f"DFO {self.dfo_id} ({self.began:%Y-%m-%d})"
+
+
 class GridCell(models.Model):
     """One square of a regular latitude/longitude grid laid over Kenya.
 

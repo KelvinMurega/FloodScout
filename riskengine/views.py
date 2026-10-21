@@ -15,6 +15,7 @@ from geodata.models import Region
 
 from .advisory import CATEGORY_RANK
 from .analytics import satellite_check, system_health
+from .context import CHANGE_DAYS, map_context
 from .inputs import score_inputs
 from .ml import infer as scorer
 from .models import GridRiskScore, RiskOutlook, RiskScore
@@ -131,6 +132,41 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
             key=lambda score: (score.region.county_name, score.region.level, score.region.name),
         )
         return Response(self.get_serializer(scores, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def context(self, request):
+        """What the map's themes colour by, for every region on one day.
+
+        `?date=YYYY-MM-DD`, default the newest day scored, plus the region
+        filters of the rest of the viewset. One row per region: the score
+        as times the usual chance, its change over the week before, and the
+        30-day rain against the county's normal (riskengine/context.py).
+        """
+        qs = self.get_queryset()
+        day = date_param(request.query_params, "date")
+        if day is None:
+            newest = qs.aggregate(newest=Max("prediction_date"))["newest"]
+            if newest is None:
+                return Response({"date": None, "regions": []})
+            day = timezone.localtime(newest).date()
+
+        def on(date):
+            return qs.filter(
+                prediction_date__gte=start_of_day(date),
+                prediction_date__lt=start_of_day(date + dt.timedelta(days=1)),
+            )
+
+        scores = list(on(day))
+        earlier = on(day - dt.timedelta(days=CHANGE_DAYS)).filter(
+            region_id__in=[score.region_id for score in scores]
+        )
+        return Response(
+            {
+                "date": day.isoformat(),
+                "change_days": CHANGE_DAYS,
+                "regions": map_context(scores, earlier, day),
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def inputs(self, request, pk=None):

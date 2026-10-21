@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from accounts.views import ObtainTokenView, RevokeTokenView
 from geodata.views import (
     EnvironmentalDataViewSet,
+    FloodEventViewSet,
     FocusRegionViewSet,
     GeospatialFeatureViewSet,
     RegionViewSet,
@@ -20,6 +21,7 @@ router.register("environmental-data", EnvironmentalDataViewSet, basename="enviro
 router.register("risk-scores", RiskScoreViewSet, basename="risk-score")
 router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
 router.register("risk-grid", RiskGridViewSet, basename="risk-grid")
+router.register("flood-events", FloodEventViewSet, basename="flood-event")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),

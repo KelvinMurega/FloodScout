@@ -479,3 +479,47 @@ of flood water is summed at the 250 m pixel.
   or urban channels. "No water mapped" does not mean "no flood".
 - **Non-commercial licence.** Fine for this project; it would matter if the
   system were ever offered commercially.
+
+---
+
+## 7. Map layers (display only)
+
+What the dashboard draws around the risk colours. None of it is a model
+input or changes a score.
+
+### Built and stored by FloodScout
+
+| Layer | Where | Built by | Source and licence |
+|---|---|---|---|
+| Rivers | `frontend/public/layers/rivers.geojson` (about 250 kB) | `build_map_layers` | OpenStreetMap waterways for Kenya, HOT export (section 4). Only `waterway = river` lines whose name adds up to at least 0.36 degrees (about 40 km), simplified at 0.002 degrees. 107 named rivers on 20 October 2026. ODbL, attribution "OpenStreetMap contributors" |
+| 100-year flood zone | `frontend/public/layers/flood_zone_100yr.png` and `layers.json` (about 780 kB) | `build_map_layers` | Copernicus GloFAS river flood hazard, 100-year return period (section 4), reprojected to Web Mercator at 300 m keeping the deepest 90 m pixel in each, and shaded in four depth bands from 0, 0.5, 1.5 and 3 m. CC BY 4.0 |
+| Past floods | table `geodata_floodevent`, `GET /api/flood-events/` | `seed_flood_events` | The DFO archive of section 3: each event whose circle footprint reaches a county. 84 events, 1988 to 2021, on 20 October 2026 |
+
+`FloodEvent` fields: `dfo_id` (the archive's ID, unique), `began`, `ended`,
+`centroid` (point, EPSG:4326), `footprint` (the circle of section 3),
+`area_km2`, `severity` (1, 1.5 or 2), `dead`, `displaced` and `main_cause`.
+
+### Fetched by the browser, not stored
+
+| Layer | Service | Licence or terms |
+|---|---|---|
+| Map | Esri Light Gray and Dark Gray Canvas, base and reference | Esri terms of use; attribution shown on the map |
+| Satellite | Esri World Imagery, with World Boundaries and Places | Esri terms of use |
+| Satellite today | NASA GIBS, `VIIRS_SNPP_CorrectedReflectance_TrueColor`, daily | NASA open data, no restriction |
+| Terrain | OpenTopoMap | CC-BY-SA |
+| Satellite rain | NASA GIBS, `IMERG_Precipitation_Rate` (GPM IMERG early run), daily | NASA open data, no restriction |
+
+### Caveats
+
+- **The flood zone includes lakes.** The hazard map marks permanent water,
+  so Lake Turkana and Lake Victoria are shaded too.
+- **The flood zone is a hazard, not a forecast.** It is where a once-in-a-
+  century river flood would reach, whatever the weather now, and only for
+  the larger rivers (section 4).
+- **A past flood's marker is DFO's centre for the whole event.** Many events
+  covered several counties, and their deaths and displacement are for all
+  of it.
+- **NASA publishes late.** IMERG is about two days behind and VIIRS about
+  one, so for today's scores the dashboard shows the newest day available.
+- **CARTO was dropped.** Its free basemaps now answer browsers with an "API
+  key required" tile, so the Esri canvases replaced them.
