@@ -472,3 +472,43 @@ export function confirmPasswordReset(body) {
 export function subscribeMe(body) {
   return postJson("alerts/subscribe/me/", body);
 }
+
+/* ------------------------------------------- confirming contacts, home */
+
+/** Send a code to the account's email or phone: { channel }. */
+export function sendContactCode(channel = "email") {
+  return postJson("auth/verify/", { channel });
+}
+
+/** Confirm the account's email or phone with the code: { channel, code }. */
+export function confirmContactCode(channel, code) {
+  return postJson("auth/verify/", { channel, code });
+}
+
+/** Where the signed-in user lives, and whether warnings for it are on. */
+export function fetchHome() {
+  return authedGet("auth/me/home/");
+}
+
+/**
+ * Save where the user lives: { address, lat, lon } or { region } (a
+ * sub-county id), and/or { alerts_on, alert_level }.
+ */
+export function saveHome(body) {
+  return sendJson("PUT", "auth/me/home/", body);
+}
+
+/** Forget where the user lives, which stops the warnings for it. */
+export function clearHome() {
+  return sendJson("DELETE", "auth/me/home/");
+}
+
+/** Places in Kenya matching an address: [{ label, lat, lon, region, region_name, county_name }]. */
+export function searchHome(q) {
+  return authedGet(`auth/me/home/search/?${new URLSearchParams({ q })}`);
+}
+
+/** The sub-county a point is in: { region, region_name, county_name }. */
+export function locateHome(lat, lon) {
+  return postJson("auth/me/home/locate/", { lat, lon });
+}
