@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
@@ -34,6 +35,18 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return qs
 
+    @action(detail=False, methods=["get"])
+    def names(self, request):
+        """Every county and sub-county by id and name, without shapes.
+
+        For pickers such as the alert sign-up form, which need every place
+        but not the megabytes of boundary the list sends.
+        """
+        rows = Region.objects.order_by("county_name", "level", "name").values(
+            "id", "name", "county_name", "level"
+        )
+        return Response(list(rows))
+
 
 class FocusRegionViewSet(viewsets.ViewSet):
     """The flood-prone regions the dashboard can drill into.
@@ -58,9 +71,7 @@ class FocusRegionViewSet(viewsets.ViewSet):
         }
 
     def _county_ids(self):
-        return dict(
-            Region.objects.filter(level=Region.Level.COUNTY).values_list("name", "id")
-        )
+        return dict(Region.objects.filter(level=Region.Level.COUNTY).values_list("name", "id"))
 
     def list(self, request):
         county_ids = self._county_ids()
