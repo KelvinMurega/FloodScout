@@ -27,6 +27,33 @@ below, the bands kept their order but the probabilities ran about twice too
 high, so the ordering is what the evidence supports. `times_usual()` in
 `infer.py` divides by `base_rate` from `metrics.json`.
 
+## Explaining one prediction
+
+`explain.py` splits a single prediction into a part per input, exactly:
+a forest's probability is the mean of its trees' leaf values, and each
+split on the path to a leaf moves the value by an amount charged to the
+input it tested (Saabas, 2014; Palczewska et al., 2014). The base value is
+the forest's before any split, about the share of flood months, so
+
+    probability = base + the sum of the inputs' parts
+
+to floating-point precision, which the tests check against `predict_proba`.
+The parts are summed into seven groups a reader recognises (recent rain,
+the month before, El Niño, the Indian Ocean Dipole, time of year, terrain,
+county size) and served by `GET /api/risk-scores/<id>/explain/` in times the
+usual chance, with a sentence written from them (`riskengine/why.py`).
+
+It says how the model used each input for that prediction, not what causes
+floods. Two cautions: the parts of correlated inputs, such as the four
+rain inputs, are shared out by which one each tree happened to split on, so
+the groups are more reliable than single inputs; and county size is a
+control for how floods were recorded (see below), so its part is about the
+labels, not the land.
+
+In October 2026 it showed that most of the country's High scores came from
+El Niño in the short rains, while the rain that had fallen so far was
+holding them down, and the dashboard now says so for each place.
+
 ## What it learns from
 
 One row per county per month, January 1996 to September 2021. Sources are

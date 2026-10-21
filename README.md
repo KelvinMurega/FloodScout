@@ -43,10 +43,18 @@ Dr. Deperias Kerre.
   drawn over the risk, and a selected place lists the floods recorded there
   before.
 - **Looks back and ahead.** The dashboard keeps the scores of earlier days
-  with a 30-day history chart, and gives a seasonal outlook for the next
-  three months.
-- **Explains each score.** The detail panel lists the inputs the model was
-  given for a region, each against its usual value.
+  with a 30-day history chart, forecasts every region for each of the next
+  seven days from forecast rain, and gives a seasonal outlook for the next
+  three months. A timeline with a Play button moves the map from 30 days
+  ago through to the end of the forecast.
+- **Says what is going on.** A situation briefing, written from the data,
+  says how many places are at each level, where risk is rising, what the
+  forecast brings and whether the risk comes from rain or from the season
+  and the oceans. Places that need watching are listed and pulse on the map.
+- **Explains each score.** "Why this score" splits each prediction exactly
+  into what each group of inputs added or took away, in times the usual
+  chance, with a sentence saying what drove it. The inputs themselves are
+  listed too, each against its usual value.
 - **Reports its own accuracy.** A model performance panel shows how the model
   did on years it was not trained on, including where it is weak.
 - **Exports.** The view on screen can be printed as a report or downloaded
@@ -173,6 +181,12 @@ the map. To refresh by hand:
 ```bash
 docker compose run --rm web python manage.py refresh_scores
 ```
+
+Each refresh also issues the 7-day forecast (`forecast_scores`): the same
+model run on the rain that has fallen joined to the rain forecast for the
+days between. The forecast rain is never stored as rainfall; only the
+forecast scores are, in `RiskForecast`, and earlier issues are kept so a
+forecast can be checked against what the day actually scored.
 
 On Windows, Docker Desktop does not start on its own unless told to, and the
 scheduler runs only while it does. To have the scores refresh without
@@ -336,7 +350,8 @@ As of 19 October 2026.
 | Risk by area | Built (PR #78). A 768-square grid (0.25°, about 28 km) scored daily from each square's own rain; "Colour by: Area" on the map. |
 | Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
 | Model performance panel | Done (PR #79), on the administrator's analytics page. |
-| Map layers | Built on `feat/map-layers`: basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
+| Map layers | Built (PR #81): basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
+| Forecast and explanation | Built on `feat/risk-intelligence`: the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
 | Performance and user testing | Not started. Both need the deployed system. |
