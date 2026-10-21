@@ -68,6 +68,8 @@ Dr. Deperias Kerre.
   as a CSV file.
 - **Lets an administrator rescore.** A System Administrator can sign in and
   score every region again, from the dashboard or the Django admin site.
+- **Has proper sign-in.** Sign-in and sign-up pages, password reset by email,
+  and sign-in with Google, Microsoft or GitHub (OAuth 2.0 and OpenID Connect).
 - **Has accounts and profiles.** Anyone can create an End User account. The
   profile page (`#/profile`) holds a person's details, password, alert
   subscriptions and recent activity. A System Administrator also manages the
@@ -263,6 +265,31 @@ The feeds are open: `GET /api/alerts/` (JSON), `GET /api/alerts/feed/` (Atom)
 and `GET /api/alerts/<id>/cap/` (CAP 1.2). Their CAP status is `Exercise`
 (`CAP_STATUS`), because FloodScout is not a warning authority.
 
+### Signing in
+
+`#/signin` and `#/signup` are full pages. People sign in with a username or
+email and password, or with Google, Microsoft or GitHub; a forgotten
+password is reset by an emailed link (`#/forgot`). The sign-in is kept for
+the browser tab, or on the device with "Keep me signed in".
+
+Social sign-in uses the authorization-code flow with PKCE, and OpenID Connect
+for Google and Microsoft (`accounts/social.py` explains each step). An
+existing account is joined by email only when the provider vouches for the
+address (Google, GitHub); a Microsoft sign-in with an email already in use
+is refused, because Microsoft does not verify that claim for every account.
+A provider's button appears only once its keys are in `.env`:
+
+| Provider | Where to get the keys | Redirect URI to register |
+|---|---|---|
+| Google | Google Cloud console, APIs and Services, Credentials, OAuth client ID, type "Web application" | `<PUBLIC_API_URL>/auth/social/google/callback/` |
+| Microsoft | Microsoft Entra admin centre, App registrations, "Accounts in any organizational directory and personal Microsoft accounts", platform "Web" | `<PUBLIC_API_URL>/auth/social/microsoft/callback/` |
+| GitHub | GitHub, Settings, Developer settings, OAuth Apps | `<PUBLIC_API_URL>/auth/social/github/callback/` |
+
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and the `MICROSOFT_` and
+`GITHUB_` pairs) in `.env`, and restart the web container. With
+`PUBLIC_API_URL=http://127.0.0.1:8010/api`, Google's redirect URI is
+`http://127.0.0.1:8010/api/auth/social/google/callback/`.
+
 ### Where the data comes from
 
 All of it is real and public. Nothing is simulated, and a value that could
@@ -393,7 +420,8 @@ As of 19 October 2026.
 | Map layers | Built (PR #81): basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
 | Forecast and explanation | Built (PR #82): the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
 | Alerts | Built (PR #83): rules, email and SMS delivery with double opt-in, the CAP 1.2 feed, the alerts page and the administrator's controls. |
-| Profile and accounts | Built on `feat/profile`: registration, the profile page, password change, the users table and the activity log. |
+| Profile and accounts | Built (PR #84): registration, the profile page, password change, the users table and the activity log. |
+| Sign-in pages | Built on `feat/auth-pages`: sign-in and sign-up pages, password reset, and Google, Microsoft and GitHub sign-in. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
 | Performance and user testing | Not started. Both need the deployed system. |
