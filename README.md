@@ -253,6 +253,16 @@ and forecast:
 early-warning proxy. High on its own never alerts. An alert is raised
 rather than duplicated when its conditions worsen, and ends when they go.
 
+**Warnings for where you live.** A new account is asked for the code that
+confirms its email straight after sign-up (and at sign-in while it is still
+unconfirmed); a Google sign-in needs none. On the profile, the person says
+where they live, by searching an address (OpenStreetMap's free Nominatim
+geocoder, called by the API, limited to Kenya and to one request a second),
+by sharing their device's location, or by choosing their sub-county. The
+point is kept to about 100 m. From then on every alert for that sub-county or
+its county reaches them by itself, marked "Where you live", with no alerts
+page or form (`accounts/home.py`). They choose the level, and can turn it off.
+
 Signed in, "Get flood alerts" on a place, an alert or the alerts page uses
 the email and phone on the person's profile, with no form. If they are
 verified (by Google, or by a code once) it starts at once and sends any alert
