@@ -29,7 +29,7 @@ from django.utils.html import escape
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -39,7 +39,7 @@ from accounts.permissions import IsAdministrator
 from geodata.models import Region
 
 from . import cap, channels, engine
-from .models import LEVEL_RANK, Alert, AlertRun, Delivery, Level, Subscriber
+from .models import LEVEL_RANK, Alert, AlertRun, Delivery, Level, Subscriber, new_code
 
 MAX_CONFIRM_ATTEMPTS = 5
 CODE_LIFETIME = dt.timedelta(hours=1)
@@ -374,16 +374,119 @@ def confirm(request):
     subscriber.confirmed = True
     subscriber.confirmed_at = timezone.now()
     subscriber.save(update_fields=["confirmed", "confirmed_at"])
+    _mark_verified(subscriber)
     # Anything already active for their places is sent straight away.
-    for alert in Alert.objects.filter(
-        status=Alert.Status.ACTIVE, region__in=subscriber.regions.all()
-    ):
-        if subscriber.wants(alert.level):
-            engine.deliver(alert, subscriber)
+    _send_active(subscriber, subscriber.regions.all())
     return Response(_subscriber_summary(subscriber))
 
 
 confirm.cls.throttle_scope = "alerts"
+
+
+class MeSubscribeSerializer(serializers.Serializer):
+    regions = serializers.ListField(
+        child=serializers.IntegerField(), min_length=1, max_length=MAX_REGIONS
+    )
+    min_level = serializers.ChoiceField(choices=Level.choices, required=False)
+
+
+def _mark_verified(subscriber: Subscriber) -> None:
+    """A confirmed code proves the account's email and phone reach its owner."""
+    user = subscriber.user
+    if user is None:
+        return
+    fields = []
+    if (
+        subscriber.email
+        and subscriber.email.lower() == user.email.lower()
+        and not user.email_verified
+    ):
+        user.email_verified = True
+        fields.append("email_verified")
+    if subscriber.phone and subscriber.phone == user.phone and not user.phone_verified:
+        user.phone_verified = True
+        fields.append("phone_verified")
+    if fields:
+        user.save(update_fields=fields)
+
+
+def _send_active(subscriber: Subscriber, regions) -> int:
+    """Send what is already in force for `regions`; how many alerts that was."""
+    sent = 0
+    for alert in Alert.objects.filter(status=Alert.Status.ACTIVE, region__in=regions):
+        if subscriber.wants(alert.level):
+            engine.deliver(alert, subscriber)
+            sent += 1
+    return sent
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([ScopedRateThrottle])
+def subscribe_me(request):
+    """A signed-in user's "Get alerts": their profile's email and phone, no form.
+
+    The account has one subscription, and each press adds places to it.
+    When its email and phone are verified (by Google or GitHub, or by an
+    earlier code) it starts at once; otherwise a code goes to them first,
+    once, and confirming it marks them verified for every later press. SMS
+    is used only once it is set up on the server.
+    """
+    data = MeSubscribeSerializer(data=request.data)
+    data.is_valid(raise_exception=True)
+    wanted = data.validated_data
+    regions = list(Region.objects.filter(pk__in=wanted["regions"]))
+    if len(regions) != len(set(wanted["regions"])):
+        raise ValidationError({"regions": "One of these places does not exist."})
+
+    user = request.user
+    email = user.email
+    phone = user.phone if channels.sms_configured() else ""
+    if not email and not phone:
+        message = (
+            "Text messages are not set up on this server yet. Add an email to your profile."
+            if user.phone
+            else "Add an email or a phone number to your profile first."
+        )
+        raise ValidationError({"detail": message})
+
+    subscriber = Subscriber.objects.filter(user=user).order_by("-confirmed", "-created_at").first()
+    if subscriber is None:
+        subscriber = Subscriber(user=user)
+    contacts_changed = subscriber.email != email or subscriber.phone != phone
+    subscriber.email, subscriber.phone = email, phone
+    if "min_level" in wanted:
+        subscriber.min_level = wanted["min_level"]
+    trusted = (not email or user.email_verified) and (not phone or user.phone_verified)
+    if trusted:
+        if not subscriber.confirmed:
+            subscriber.confirmed, subscriber.confirmed_at = True, timezone.now()
+    elif contacts_changed or not subscriber.confirmed:
+        subscriber.confirmed = False
+        subscriber.confirm_code = new_code()
+        subscriber.confirm_attempts = 0
+        if subscriber.pk:
+            subscriber.created_at = timezone.now()  # the code's hour starts now
+    subscriber.save()
+    subscriber.regions.add(*regions)
+
+    if subscriber.confirmed:
+        sent = _send_active(subscriber, regions)
+        return Response({**_subscriber_summary(subscriber), "alerts_sent_now": sent})
+
+    sent_by = _send_code(subscriber)
+    if not sent_by:
+        return Response(
+            {"detail": "The code could not be sent. Check the email and phone on your profile."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    return Response(
+        {"confirmed": False, "subscription": subscriber.token, "code_sent_by": sent_by},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+subscribe_me.cls.throttle_scope = "alerts"
 
 
 def _subscriber_summary(subscriber: Subscriber) -> dict:

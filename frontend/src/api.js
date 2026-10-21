@@ -462,3 +462,13 @@ export function requestPasswordReset(email) {
 export function confirmPasswordReset(body) {
   return postJson("auth/password-reset/confirm/", body);
 }
+
+/**
+ * A signed-in user's one-click "Get alerts" for { regions: [id], min_level? }:
+ * their profile's email and phone. Resolves to the subscription summary with
+ * `confirmed` true, or { confirmed: false, subscription, code_sent_by } when a
+ * code has to be entered first (confirmAlerts).
+ */
+export function subscribeMe(body) {
+  return postJson("alerts/subscribe/me/", body);
+}

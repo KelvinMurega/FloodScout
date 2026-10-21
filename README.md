@@ -253,6 +253,12 @@ and forecast:
 early-warning proxy. High on its own never alerts. An alert is raised
 rather than duplicated when its conditions worsen, and ends when they go.
 
+Signed in, "Get flood alerts" on a place, an alert or the alerts page uses
+the email and phone on the person's profile, with no form. If they are
+verified (by Google, or by a code once) it starts at once and sends any alert
+already in force; otherwise a six-digit code is asked for the first time
+only. Changing the email or phone on the profile asks for a code again.
+
 Email is sent through SMTP when `EMAIL_HOST` is set in `.env` (Gmail works
 with an app password) and is otherwise written to `data/outbox/`. SMS goes
 through Africa's Talking: create a free sandbox app, put its key in
@@ -277,7 +283,10 @@ for Google and Microsoft (`accounts/social.py` explains each step). An
 existing account is joined by email only when the provider vouches for the
 address (Google, GitHub); a Microsoft sign-in with an email already in use
 is refused, because Microsoft does not verify that claim for every account.
-A provider's button appears only once its keys are in `.env`:
+A provider's button appears only once its keys are in `.env`. Set up Google
+first: almost everyone has a Google account, and Google vouches for the
+email, so a person who signs in with Google gets alerts in one click with no
+code. Microsoft and GitHub are optional.
 
 | Provider | Where to get the keys | Redirect URI to register |
 |---|---|---|

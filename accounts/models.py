@@ -32,6 +32,12 @@ class User(AbstractUser):
         help_text="The county the person mostly cares about",
     )
 
+    # Whether the email and phone above are known to reach this person:
+    # vouched for by Google or GitHub, or confirmed once with a code. Alerts
+    # go to them in one click only when they are; a change clears the flag.
+    email_verified = models.BooleanField(default=False)
+    phone_verified = models.BooleanField(default=False)
+
     def is_administrator(self) -> bool:
         # A Django superuser (`createsuperuser`) counts as well, so the first
         # account on a new install can administer without a role edit.

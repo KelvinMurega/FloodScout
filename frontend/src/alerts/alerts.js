@@ -40,6 +40,7 @@ import {
   normalisePhone,
   placeOptions,
 } from "./format.js";
+import { channelsText, quickAlertControl } from "./quick.js";
 import "./alerts.css";
 
 let names = null;
@@ -272,9 +273,80 @@ function renderConfirm(card, form, result, body) {
   });
 }
 
+/**
+ * Signed in: choose places, press once. The alerts go to the profile's email
+ * and phone (quick.js); a different address uses the full form.
+ */
+function renderSignedInSignUp(card, { preselect, user }) {
+  const box = el("div", "alerts-form");
+  const contacts = channelsText({ email: user.email, phone: user.phone });
+  box.append(
+    el(
+      "p",
+      "alerts-form__lede",
+      contacts
+        ? `Signed in as ${user.username}: alerts go ${contacts}, as on your profile.`
+        : `Signed in as ${user.username}. Add an email or phone to your profile to get alerts.`,
+    ),
+  );
+  const chosen = new Map();
+  const chips = el("div", "alerts-form__places");
+  const pickerWrap = el("div", "alerts-form__picker");
+  pickerWrap.append(el("span", "alerts-form__hint", "Loading places…"));
+  const action = el("div");
+  const redraw = () => {
+    chips.replaceChildren();
+    for (const [id, label] of chosen) {
+      const chip = el("span", "alerts-chip", label);
+      chip.append(
+        button("×", () => {
+          chosen.delete(id);
+          redraw();
+        }, "alerts-chip__remove"),
+      );
+      chips.append(chip);
+    }
+    action.replaceChildren(
+      chosen.size
+        ? quickAlertControl([...chosen].map(([id, name]) => ({ id, name })), user, {
+            label: `Get alerts for ${chosen.size === 1 ? "this place" : `these ${chosen.size} places`}`,
+          })
+        : el("p", "alerts-form__hint", "Choose at least one place."),
+    );
+  };
+  loadNames()
+    .then((rows) => {
+      const options = placeOptions(rows);
+      const select = placeSelect(options, null);
+      select.setAttribute("aria-label", "Add a place");
+      select.addEventListener("change", () => {
+        const option = options.find((o) => o.id === Number(select.value));
+        if (option && chosen.size < 10) chosen.set(option.id, option.label);
+        select.value = "";
+        redraw();
+      });
+      pickerWrap.replaceChildren(select);
+      const start = options.find((o) => o.id === preselect);
+      if (start) chosen.set(start.id, start.label);
+      redraw();
+    })
+    .catch(() => pickerWrap.replaceChildren(el("span", "alerts-form__hint", "Could not load the places.")));
+
+  const other = el("button", "link-button", "Use a different email or phone");
+  other.type = "button";
+  other.addEventListener("click", () => {
+    box.remove();
+    renderSignUp(card, { preselect });
+  });
+  const field = el("div", "alerts-form__field");
+  field.append(el("span", "alerts-form__label", "Places"), pickerWrap, chips);
+  box.append(field, action, other);
+  card.append(box);
+}
+
 /* --------------------------------------------------------------- alerts */
 
-function alertCard(alert, { admin, highlight, onShowOnMap, onChanged }) {
+function alertCard(alert, { admin, user, highlight, onShowOnMap, onChanged }) {
   const card = el("article", `alert-card alert-card--${alert.level}`);
   card.id = `alert-${alert.id}`;
   if (highlight) card.classList.add("alert-card--highlight");
@@ -302,9 +374,11 @@ function alertCard(alert, { admin, highlight, onShowOnMap, onChanged }) {
   capLink.target = "_blank";
   capLink.rel = "noopener";
   actions.append(capLink);
-  const subscribe = el("a", "auth__button", "Get alerts for this place");
-  subscribe.href = `#/alerts/subscribe/${alert.region}`;
-  actions.append(subscribe);
+  actions.append(
+    quickAlertControl([{ id: alert.region, name: alertPlace(alert) }], user, {
+      label: "Get alerts for this place",
+    }),
+  );
   if (admin) {
     const cancel = button("Cancel this alert", async () => {
       cancel.disabled = true;
@@ -509,7 +583,8 @@ export async function showAlerts(root, { slug, user, onShowOnMap }) {
     el("p", "admin-card__subtitle", "By email, SMS or both, for up to ten places. We send a code first so no one can sign up someone else."),
   );
   signUp.append(signHead);
-  renderSignUp(signUp, { preselect });
+  if (user) renderSignedInSignUp(signUp, { preselect, user });
+  else renderSignUp(signUp, { preselect });
   side.append(signUp);
 
   const levels = el("section", "admin-card");
@@ -591,6 +666,7 @@ export async function showAlerts(root, { slug, user, onShowOnMap }) {
         section.append(
           alertCard(alert, {
             admin,
+            user,
             highlight: alert.id === focusId,
             onShowOnMap,
             onChanged: () => showAlerts(root, lastRender),

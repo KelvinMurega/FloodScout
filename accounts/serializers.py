@@ -31,10 +31,20 @@ class MeSerializer(serializers.ModelSerializer):
             "county_name",
             "role",
             "is_administrator",
+            "email_verified",
+            "phone_verified",
             "date_joined",
             "last_login",
         ]
-        read_only_fields = ["id", "username", "role", "date_joined", "last_login"]
+        read_only_fields = [
+            "id",
+            "username",
+            "role",
+            "email_verified",
+            "phone_verified",
+            "date_joined",
+            "last_login",
+        ]
 
     def validate_email(self, value):
         taken = User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk)

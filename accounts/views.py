@@ -45,6 +45,7 @@ def signed_in(user, token) -> dict:
         "first_name": user.first_name,
         "last_name": user.last_name,
         "email": user.email,
+        "phone": user.phone,
         "role": user.role,
         "is_administrator": user.is_administrator(),
     }
@@ -124,7 +125,13 @@ class MeView(APIView):
             for name, value in data.validated_data.items()
             if getattr(request.user, name) != value
         ]
-        data.save()
+        # A new email or phone has to be confirmed again before alerts use it.
+        extra = {}
+        if "email" in changed:
+            extra["email_verified"] = False
+        if "phone" in changed:
+            extra["phone_verified"] = False
+        data.save(**extra)
         if changed:
             record(request, ActivityLog.Action.PROFILE_UPDATE, fields=changed)
         return Response(data.data)
