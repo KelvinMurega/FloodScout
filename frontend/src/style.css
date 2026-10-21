@@ -1542,3 +1542,10 @@ body {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* "Create an account" beside the sign-in form. */
+.auth__link {
+  align-self: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
