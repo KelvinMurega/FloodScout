@@ -21,12 +21,16 @@
         <p class="provenance" id="provenance" role="status" tabindex="0" hidden></p>
         <!-- The view on screen as a printed report or a CSV file (wireframe 4.10). -->
         <div class="report-actions">
+          <a class="auth__button auth__button--primary" href="#/alerts">Flood alerts</a>
           <button class="auth__button" id="print-report" type="button" disabled>Print report</button>
           <button class="auth__button" id="download-csv" type="button" disabled>Download CSV</button>
         </div>
         <!-- Sign-in for the System Administrator; the map itself needs no account. -->
         <div class="auth" id="auth"></div>
       </header>
+
+      <!-- The flood alerts in force (src/alerts/), over everything else. -->
+      <div class="alert-banner" id="alert-banner" role="region" aria-label="Flood alerts in force" hidden></div>
 
       <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
       <nav class="region-bar" id="period-bar" aria-label="Choose today, an earlier day or a month ahead" hidden></nav>
