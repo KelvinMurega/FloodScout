@@ -5,20 +5,21 @@
  *   #/profile/users      System Administrator: every account, role and on/off
  *   #/profile/activity   System Administrator: what everyone has done
  *
- * Signed out, it offers sign-in (the header button) and a form to create an
- * End User account, which is what lets someone keep their alerts in one
- * place. What it shows is what the API returns; the API checks every change.
+ * Signed out, it sends the person to the sign-in page and back. What it
+ * shows is what the API returns; the API checks every change.
  */
 
 import {
   changePassword,
+  fetchSocialAccounts,
+  startSocialSignIn,
+  unlinkSocialAccount,
   fetchActivity,
   fetchMe,
   fetchMyActivity,
   fetchMySubscriptions,
   fetchRegionNames,
   fetchUsers,
-  register,
   removeMySubscription,
   updateMe,
   updateUser,
@@ -88,60 +89,6 @@ function loadCounties() {
   return countyNames;
 }
 
-/* ------------------------------------------------------------ signed out */
-
-function renderSignedOut(root, { onSignedIn }) {
-  const page = el("div", "admin-page profile-page");
-  const head = el("header", "admin-head");
-  const titles = el("div");
-  titles.append(
-    el("p", "admin-head__eyebrow", "Your account"),
-    el("h2", "admin-head__title", "Profile"),
-    el(
-      "p",
-      "admin-head__lede",
-      "Sign in with the button at the top right, or create an account to keep your flood alerts and details in one place. " +
-        "The map and the alerts work without one.",
-    ),
-  );
-  const back = el("a", "auth__button auth__button--primary", "Back to the map");
-  back.href = "#/";
-  head.append(titles, back);
-  page.append(head);
-
-  const body = el("div", "admin-body profile-narrow");
-  const box = card(body, "Create an account", "An End User account. A System Administrator can give it more.");
-  const form = el("form", "alerts-form");
-  const username = input("text", "", { autocomplete: "username", required: true });
-  const email = input("email", "", { autocomplete: "email" });
-  const password = input("password", "", { autocomplete: "new-password", required: true });
-  const message = note();
-  const submit = el("button", "auth__button auth__button--primary", "Create account");
-  submit.type = "submit";
-  form.append(
-    field("Username", username),
-    field("Email", email, "Optional. Used for alerts and nothing else."),
-    field("Password", password, "At least 8 characters, not all numbers, not a common one."),
-    submit,
-    message,
-  );
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    submit.disabled = true;
-    try {
-      const user = await register({ username: username.value.trim(), email: email.value.trim(), password: password.value });
-      onSignedIn(user);
-    } catch (error) {
-      password.value = "";
-      say(message, error.message, true);
-      submit.disabled = false;
-    }
-  });
-  box.append(form);
-  page.append(body);
-  root.replaceChildren(page);
-}
-
 /* ------------------------------------------------------------ my profile */
 
 function renderDetails(parent, me, onSaved) {
@@ -196,10 +143,21 @@ function renderDetails(parent, me, onSaved) {
   box.append(form);
 }
 
-function renderPassword(parent) {
+function renderPassword(parent, methods) {
   const box = card(parent, "Password", "Changing it signs you out everywhere else.");
   const form = el("form", "alerts-form");
   const current = input("password", "", { autocomplete: "current-password" });
+  // An account made through Google, Microsoft or GitHub has no password to
+  // give: it sets one instead of changing it.
+  methods.then((info) => {
+    if (info && !info.has_password) {
+      box.querySelector(".admin-card__title").textContent = "Set a password";
+      box.querySelector(".admin-card__subtitle").textContent =
+        "You signed up with another account. A password lets you sign in without it.";
+      current.closest("label").remove();
+      submit.textContent = "Set password";
+    }
+  });
   const next = input("password", "", { autocomplete: "new-password" });
   const again = input("password", "", { autocomplete: "new-password" });
   const message = note();
@@ -224,6 +182,64 @@ function renderPassword(parent) {
     }
   });
   box.append(form);
+}
+
+/** Google, Microsoft and GitHub: which are linked, link or unlink them. */
+async function renderSignInMethods(parent, methods) {
+  const box = card(parent, "Sign-in methods", "Google, Microsoft and GitHub accounts you can sign in with.");
+  const list = el("div", "profile-list");
+  list.append(el("p", "alerts-form__hint", "Loading…"));
+  box.append(list);
+  const info = await methods;
+  if (!info) {
+    list.replaceChildren(el("p", "alerts-form__hint", "Could not load them."));
+    return;
+  }
+  list.replaceChildren();
+  const linkedCount = info.providers.filter((p) => p.linked).length;
+  for (const provider of info.providers) {
+    if (!provider.linked && !provider.available) continue;
+    const item = el("div", "profile-list__item");
+    const text = el("div");
+    text.append(
+      el("strong", null, provider.name),
+      el(
+        "span",
+        "alerts-form__hint",
+        provider.linked ? `Linked${provider.email ? ` as ${provider.email}` : ""}` : "Not linked",
+      ),
+    );
+    const note = el("span", "alerts-form__hint");
+    const action = el("button", "auth__button", provider.linked ? "Unlink" : "Link");
+    action.type = "button";
+    const lastWayIn = provider.linked && linkedCount === 1 && !info.has_password;
+    if (lastWayIn) {
+      action.disabled = true;
+      action.title = "Your only way to sign in. Set a password first.";
+    }
+    action.addEventListener("click", async () => {
+      action.disabled = true;
+      try {
+        if (provider.linked) {
+          await unlinkSocialAccount(provider.id);
+          item.remove();
+        } else {
+          window.location.assign(await startSocialSignIn(provider.key, { next: "#/profile" }));
+        }
+      } catch (error) {
+        note.textContent = error.message;
+        action.disabled = false;
+      }
+    });
+    text.append(note);
+    item.append(text, action);
+    list.append(item);
+  }
+  if (!list.children.length) {
+    list.append(
+      el("p", "alerts-form__hint", "Sign-in with Google, Microsoft or GitHub is not set up on this server yet."),
+    );
+  }
 }
 
 async function renderSubscriptions(parent) {
@@ -404,14 +420,13 @@ async function renderActivity(body) {
 
 /**
  * Draw the page into `root` for the hash slug `profile[/tab]`. `user` is who
- * is signed in, as auth.js holds them, or null. `onSignedIn(user)` is called
- * after an account is created here; `onUserChange(user)` after the details
- * change, so the header can show the new name.
+ * is signed in, as auth.js holds them, or null. `onUserChange(user)` is
+ * called after the details change, so the header can show the new name.
  */
-export async function showProfile(root, { slug, user, onSignedIn, onUserChange }) {
+export async function showProfile(root, { slug, user, onUserChange }) {
   lastRender = { root, slug, user };
   if (!user) {
-    renderSignedOut(root, { onSignedIn });
+    location.hash = `#/signin?next=${encodeURIComponent(`#/${slug}`)}`;
     return;
   }
   const tab = slug.split("/")[1] ?? "";
@@ -474,12 +489,14 @@ export async function showProfile(root, { slug, user, onSignedIn, onUserChange }
   const right = el("div", "profile-column");
   columns.append(left, right);
   body.append(columns);
+  const methods = fetchSocialAccounts().catch(() => null);
   renderDetails(left, me, (saved) => {
     name.textContent = displayName(saved);
     avatar.textContent = initials(saved);
     onUserChange?.({ ...user, ...saved });
   });
-  renderPassword(left);
+  renderPassword(left, methods);
+  renderSignInMethods(right, methods);
   renderSubscriptions(right);
   renderMyActivity(right);
 }

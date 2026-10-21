@@ -35,6 +35,7 @@ import "./style.css";
 import {
   API_BASE_URL,
   fetchAlerts,
+  restoreSession,
   fetchBriefing,
   fetchExplanation,
   fetchFloodEvents,
@@ -57,6 +58,8 @@ import { hideAdmin, resetAdmin, showAdmin } from "./admin/admin.js";
 import { hideAlerts, showAlerts } from "./alerts/alerts.js";
 import { LEVEL_LABELS, bannerText, countByLevel } from "./alerts/format.js";
 import { initAuth } from "./auth.js";
+import { isAuthSlug } from "./auth/format.js";
+import { showAuthPage } from "./auth/pages.js";
 import { hideProfile, showProfile } from "./profile/profile.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
 import { reportFileName, scoresToCsv, sortByRisk } from "./report.js";
@@ -2591,7 +2594,7 @@ function isProfileSlug(slug) {
 }
 
 function isPageSlug(slug) {
-  return isAdminSlug(slug) || isAlertsSlug(slug) || isProfileSlug(slug);
+  return isAdminSlug(slug) || isAlertsSlug(slug) || isProfileSlug(slug) || isAuthSlug(slug);
 }
 
 let auth = null;
@@ -2609,6 +2612,25 @@ function setAdminOpen(open) {
 
 async function route() {
   const slug = currentSlug();
+  document.body.classList.toggle("is-auth", isAuthSlug(slug));
+  if (isAuthSlug(slug)) {
+    hideAdmin();
+    hideAlerts();
+    hideProfile();
+    stopPlaying();
+    setAdminOpen(true);
+    window.scrollTo(0, 0);
+    showAuthPage(els.admin, {
+      slug,
+      user: state.user,
+      onSignedIn: (user, next) => {
+        // The page first, so the sign-in does not redraw the form it left.
+        location.hash = next || "#/";
+        auth.setUser(user);
+      },
+    });
+    return;
+  }
   if (isAdminSlug(slug)) {
     hideAlerts();
     hideProfile();
@@ -2626,7 +2648,6 @@ async function route() {
     await showProfile(els.admin, {
       slug,
       user: state.user,
-      onSignedIn: (user) => auth.setUser(user),
       onUserChange: (user) => {
         state.user = user;
         auth.refresh(user);
@@ -2684,10 +2705,21 @@ async function load() {
     },
     onUserChange: (user) => {
       state.user = user;
+      if (!user && isProfileSlug(currentSlug())) location.hash = "#/";
       if (!user) resetAdmin();
       if (isPageSlug(currentSlug())) route();
     },
   });
+
+  // A sign-in from an earlier visit, or from before the trip to Google and
+  // back, is checked with the API before the header shows it.
+  restoreSession().then((user) => {
+    if (user) auth.setUser(user);
+  });
+
+  // A page shown in place of the map (sign-in, alerts, profile, analytics)
+  // needs none of the map's data, so it does not wait for the counties.
+  if (isPageSlug(currentSlug())) route();
 
   try {
     setStatus("Loading counties and risk scores…");
@@ -2723,7 +2755,9 @@ async function load() {
 
     initSearch();
     initReport();
-    await route();
+    // A page already on screen is left alone: redrawing a form would wipe
+    // what has been typed into it. The map draws when the page is left.
+    if (!isPageSlug(currentSlug())) await route();
   } catch (error) {
     console.error(error);
     setStatus(error.message, true);
