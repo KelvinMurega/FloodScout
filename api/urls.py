@@ -21,7 +21,7 @@ from accounts.views import (
     SocialStartView,
     UserAdminViewSet,
 )
-from alerts.views import AlertViewSet, confirm, subscribe, unsubscribe
+from alerts.views import AlertViewSet, confirm, subscribe, subscribe_me, unsubscribe
 from geodata.views import (
     EnvironmentalDataViewSet,
     FloodEventViewSet,
@@ -88,6 +88,7 @@ urlpatterns = [
     path("briefing/", situation_briefing, name="briefing"),
     # Before the router, whose alerts/<pk>/ would otherwise take these names.
     path("alerts/subscribe/", subscribe, name="alerts-subscribe"),
+    path("alerts/subscribe/me/", subscribe_me, name="alerts-subscribe-me"),
     path("alerts/confirm/", confirm, name="alerts-confirm"),
     path("alerts/unsubscribe/<str:token>/", unsubscribe, name="alerts-unsubscribe"),
     path("", include(router.urls)),

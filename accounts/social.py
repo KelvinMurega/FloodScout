@@ -338,6 +338,9 @@ def match_user(provider: Provider, person: Identity, link_user=None) -> Outcome:
             SocialAccount.objects.create(
                 user=same_email, provider=provider.key, subject=person.subject, email=person.email
             )
+            if not same_email.email_verified:
+                same_email.email_verified = True
+                same_email.save(update_fields=["email_verified"])
             return Outcome(user=same_email, linked=provider.key)
 
     with transaction.atomic():
@@ -346,6 +349,7 @@ def match_user(provider: Provider, person: Identity, link_user=None) -> Outcome:
             email=person.email,
             first_name=person.first_name[:150],
             last_name=person.last_name[:150],
+            email_verified=bool(person.email) and person.email_verified,
         )
         user.set_unusable_password()
         user.save()
