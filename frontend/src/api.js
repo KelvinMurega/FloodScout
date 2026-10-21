@@ -43,14 +43,19 @@ async function getJson(url, headers = {}) {
 // page later cannot read it from storage.
 let authToken = null;
 
-async function postJson(path, body = {}) {
+/** Send JSON with `method`, signed in when there is a token; the reply's JSON. */
+async function sendJson(method, path, body) {
   const url = `${API_BASE_URL}/${path}`;
   const headers = { "Content-Type": "application/json" };
   if (authToken) headers.Authorization = `Token ${authToken}`;
 
   let response;
   try {
-    response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
   } catch (cause) {
     throw new Error(`Could not reach ${url}. Is the API running?`, { cause });
   }
@@ -62,6 +67,10 @@ async function postJson(path, body = {}) {
     throw error;
   }
   return data;
+}
+
+function postJson(path, body = {}) {
+  return sendJson("POST", path, body);
 }
 
 /** Sign in. Resolves to { username, role, is_administrator }; keeps the token here. */
@@ -287,4 +296,71 @@ export function cancelAlert(alertId) {
 /** Administrator only: send a test message: { email?, phone? }. */
 export function sendTestAlert(body) {
   return postJson("alerts/test/", body);
+}
+
+/* -------------------------------------------------------------- accounts */
+
+function authedGet(path) {
+  if (!authToken) {
+    const error = new Error("Sign in first.");
+    error.status = 401;
+    return Promise.reject(error);
+  }
+  return getJson(`${API_BASE_URL}/${path}`, { Authorization: `Token ${authToken}` });
+}
+
+/** Create an End User account and sign in to it. Resolves like signIn. */
+export async function register(body) {
+  const { token, ...user } = await postJson("auth/register/", body);
+  authToken = token;
+  return user;
+}
+
+/** The signed-in user's profile. */
+export function fetchMe() {
+  return authedGet("auth/me/");
+}
+
+/** Change the signed-in user's own details: { first_name, email, phone, ... }. */
+export function updateMe(body) {
+  return sendJson("PATCH", "auth/me/", body);
+}
+
+/**
+ * Change the password: { current_password, new_password }. Every other
+ * session is signed out; this one carries on with the new token.
+ */
+export async function changePassword(body) {
+  const { token } = await postJson("auth/password/", body);
+  authToken = token;
+}
+
+/** What the signed-in user has done, newest first. */
+export function fetchMyActivity() {
+  return authedGet("auth/me/activity/");
+}
+
+/** The signed-in user's alert subscriptions. */
+export function fetchMySubscriptions() {
+  return authedGet("auth/me/subscriptions/");
+}
+
+/** Stop one of the signed-in user's alert subscriptions. */
+export function removeMySubscription(id) {
+  return sendJson("DELETE", `auth/me/subscriptions/${id}/`);
+}
+
+/** Administrator only: every account. */
+export function fetchUsers() {
+  return authedGet("admin/users/");
+}
+
+/** Administrator only: change an account's role or switch it off: { role?, is_active? }. */
+export function updateUser(id, body) {
+  return sendJson("PATCH", `admin/users/${id}/`, body);
+}
+
+/** Administrator only: what everyone has done, newest first. */
+export function fetchActivity() {
+  return authedGet("admin/activity/");
 }

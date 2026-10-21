@@ -68,6 +68,11 @@ Dr. Deperias Kerre.
   as a CSV file.
 - **Lets an administrator rescore.** A System Administrator can sign in and
   score every region again, from the dashboard or the Django admin site.
+- **Has accounts and profiles.** Anyone can create an End User account. The
+  profile page (`#/profile`) holds a person's details, password, alert
+  subscriptions and recent activity. A System Administrator also manages the
+  users (role, on or off) and reads the activity log of sign-ins, rescores,
+  alerts issued and cancelled, and account changes.
 
 ## How it is built
 
@@ -387,7 +392,8 @@ As of 19 October 2026.
 | Model performance panel | Done (PR #79), on the administrator's analytics page. |
 | Map layers | Built (PR #81): basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
 | Forecast and explanation | Built (PR #82): the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
-| Alerts | Built on `feat/alerts`: rules, email and SMS delivery with double opt-in, the CAP 1.2 feed, the alerts page and the administrator's controls. |
+| Alerts | Built (PR #83): rules, email and SMS delivery with double opt-in, the CAP 1.2 feed, the alerts page and the administrator's controls. |
+| Profile and accounts | Built on `feat/profile`: registration, the profile page, password change, the users table and the activity log. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
 | Performance and user testing | Not started. Both need the deployed system. |

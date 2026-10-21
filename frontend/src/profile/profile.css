@@ -1,0 +1,199 @@
+/* The account page (#/profile). It shares the analytics page's shell
+   (admin.css) and the alerts page's form styles (alerts.css). */
+
+.profile-head__who {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1f78d1, #5b2c83);
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.profile-avatar--small {
+  width: 28px;
+  height: 28px;
+  font-size: 11.5px;
+}
+
+.profile-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .profile-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-column {
+  display: grid;
+  gap: 20px;
+}
+
+.profile-narrow {
+  max-width: 460px;
+}
+
+.profile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.profile-page .alerts-form > button {
+  justify-self: start;
+}
+
+.profile-grid > button,
+.profile-grid > .alerts-form__message {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 560px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.profile-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.profile-list__item > div {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.profile-activity {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.profile-activity li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+}
+
+.profile-activity__when {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.profile-table-wrap {
+  overflow-x: auto;
+}
+
+.profile-table td {
+  vertical-align: middle;
+}
+
+.profile-table__select {
+  width: auto;
+  padding: 4px 8px;
+}
+
+.profile-table__note {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.profile-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+/* The account menu in the header. */
+.auth__menu {
+  position: relative;
+}
+
+.auth__menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth__menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 1000;
+  min-width: 220px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-ring);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.auth__menu-list[hidden] {
+  display: none;
+}
+
+.auth__menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.auth__menu-item:hover,
+.auth__menu-item:focus-visible {
+  background: var(--surface-page);
+}
+
+.auth__menu-who {
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

@@ -57,6 +57,7 @@ import { hideAdmin, resetAdmin, showAdmin } from "./admin/admin.js";
 import { hideAlerts, showAlerts } from "./alerts/alerts.js";
 import { LEVEL_LABELS, bannerText, countByLevel } from "./alerts/format.js";
 import { initAuth } from "./auth.js";
+import { hideProfile, showProfile } from "./profile/profile.js";
 import { daysBefore, historySeries, sparkline } from "./history.js";
 import { reportFileName, scoresToCsv, sortByRisk } from "./report.js";
 import {
@@ -2585,6 +2586,16 @@ function isAlertsSlug(slug) {
   return slug === "alerts" || slug.startsWith("alerts/");
 }
 
+function isProfileSlug(slug) {
+  return slug === "profile" || slug.startsWith("profile/");
+}
+
+function isPageSlug(slug) {
+  return isAdminSlug(slug) || isAlertsSlug(slug) || isProfileSlug(slug);
+}
+
+let auth = null;
+
 /** A page in place of the map: the analytics (#/admin) or the alerts (#/alerts). */
 function setAdminOpen(open) {
   state.adminOpen = open;
@@ -2592,6 +2603,7 @@ function setAdminOpen(open) {
   if (!open) {
     hideAdmin();
     hideAlerts();
+    hideProfile();
   }
 }
 
@@ -2599,13 +2611,32 @@ async function route() {
   const slug = currentSlug();
   if (isAdminSlug(slug)) {
     hideAlerts();
+    hideProfile();
     setAdminOpen(true);
     window.scrollTo(0, 0);
     await showAdmin(els.admin, { slug, user: state.user });
     return;
   }
+  if (isProfileSlug(slug)) {
+    hideAdmin();
+    hideAlerts();
+    stopPlaying();
+    setAdminOpen(true);
+    window.scrollTo(0, 0);
+    await showProfile(els.admin, {
+      slug,
+      user: state.user,
+      onSignedIn: (user) => auth.setUser(user),
+      onUserChange: (user) => {
+        state.user = user;
+        auth.refresh(user);
+      },
+    });
+    return;
+  }
   if (isAlertsSlug(slug)) {
     hideAdmin();
+    hideProfile();
     stopPlaying();
     setAdminOpen(true);
     window.scrollTo(0, 0);
@@ -2639,7 +2670,7 @@ async function load() {
 
   // Before the data, so an administrator can still sign in and rescore when
   // there are no scores to show yet.
-  initAuth(document.getElementById("auth"), {
+  auth = initAuth(document.getElementById("auth"), {
     // Scores are cached per view; drop them so the redraw fetches the new ones.
     onRescored: async () => {
       resetAdmin();
@@ -2654,7 +2685,7 @@ async function load() {
     onUserChange: (user) => {
       state.user = user;
       if (!user) resetAdmin();
-      if (isAdminSlug(currentSlug()) || isAlertsSlug(currentSlug())) route();
+      if (isPageSlug(currentSlug())) route();
     },
   });
 

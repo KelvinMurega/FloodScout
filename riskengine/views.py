@@ -9,6 +9,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from accounts.activity import record
+from accounts.models import ActivityLog
 from accounts.permissions import IsAdministrator
 from geodata import focus_regions
 from geodata.filters import filter_by_region_params
@@ -281,6 +283,12 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
             result = score_regions(target_date)
         except NoRegionsError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        record(
+            request,
+            ActivityLog.Action.RESCORE,
+            date=result.date.isoformat(),
+            regions=result.regions,
+        )
         return Response(
             {
                 "date": result.date.isoformat(),

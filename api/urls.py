@@ -1,7 +1,18 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from accounts.views import ObtainTokenView, RevokeTokenView
+from accounts.views import (
+    ActivityAdminView,
+    MeView,
+    MyActivityView,
+    MySubscriptionsView,
+    MySubscriptionView,
+    ObtainTokenView,
+    PasswordView,
+    RegisterView,
+    RevokeTokenView,
+    UserAdminViewSet,
+)
 from alerts.views import AlertViewSet, confirm, subscribe, unsubscribe
 from geodata.views import (
     EnvironmentalDataViewSet,
@@ -31,12 +42,24 @@ router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
 router.register("risk-grid", RiskGridViewSet, basename="risk-grid")
 router.register("risk-forecast", RiskForecastViewSet, basename="risk-forecast")
 router.register("alerts", AlertViewSet, basename="alert")
+router.register("admin/users", UserAdminViewSet, basename="admin-user")
 router.register("flood-events", FloodEventViewSet, basename="flood-event")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),
     path("auth/token/", ObtainTokenView.as_view(), name="auth-token"),
     path("auth/logout/", RevokeTokenView.as_view(), name="auth-logout"),
+    path("auth/register/", RegisterView.as_view(), name="auth-register"),
+    path("auth/me/", MeView.as_view(), name="auth-me"),
+    path("auth/password/", PasswordView.as_view(), name="auth-password"),
+    path("auth/me/activity/", MyActivityView.as_view(), name="auth-my-activity"),
+    path("auth/me/subscriptions/", MySubscriptionsView.as_view(), name="auth-my-subscriptions"),
+    path(
+        "auth/me/subscriptions/<int:pk>/",
+        MySubscriptionView.as_view(),
+        name="auth-my-subscription",
+    ),
+    path("admin/activity/", ActivityAdminView.as_view(), name="admin-activity"),
     path("admin/analytics/", admin_analytics, name="admin-analytics"),
     path("briefing/", situation_briefing, name="briefing"),
     # Before the router, whose alerts/<pk>/ would otherwise take these names.
