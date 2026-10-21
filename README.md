@@ -51,6 +51,13 @@ Dr. Deperias Kerre.
   says how many places are at each level, where risk is rising, what the
   forecast brings and whether the risk comes from rain or from the season
   and the oceans. Places that need watching are listed and pulse on the map.
+- **Warns people.** Every morning fixed rules read the scores and the
+  forecast and issue, raise or end a flood advisory, watch or warning for
+  each county and sub-county. Anyone can ask for alerts for up to ten places
+  by email or SMS (Africa's Talking), confirmed with a code. Every alert is
+  also published as a Common Alerting Protocol (CAP 1.2) feed that other
+  warning systems can read. A banner and badges on the map show what is in
+  force, and an administrator can issue or cancel alerts by hand.
 - **Explains each score.** "Why this score" splits each prediction exactly
   into what each group of inputs added or took away, in times the usual
   chance, with a sentence saying what drove it. The inputs themselves are
@@ -182,7 +189,8 @@ the map. To refresh by hand:
 docker compose run --rm web python manage.py refresh_scores
 ```
 
-Each refresh also issues the 7-day forecast (`forecast_scores`): the same
+Each refresh also issues the 7-day forecast (`forecast_scores`) and then
+brings the alerts up to date and sends them (`issue_alerts`). The forecast is the same
 model run on the rain that has fallen joined to the rain forecast for the
 days between. The forecast rain is never stored as rainfall; only the
 forecast scores are, in `RiskForecast`, and earlier issues are kept so a
@@ -222,6 +230,33 @@ the chance of a large flood for a county that had received that square's
 rain. It shows where the dangerous rain fell, not the outline of a flood.
 `seed_grid --cell-deg 0.1` gives finer squares, but about 4,700 of them,
 which is more daily rainfall requests than Open-Meteo's free tier allows.
+
+### Alerts
+
+`issue_alerts` applies the rules in `alerts/rules.py` to the newest scores
+and forecast:
+
+| Level | When |
+|---|---|
+| Warning | Very High and rising, or forecast Very High within 3 days with a day of 50 mm or more in those days |
+| Watch | Very High today, or forecast Very High within 7 days |
+| Advisory | High and rising, or a day of 50 mm or more in the forecast |
+
+50 mm in a day is the Kenya Meteorological Department's flood
+early-warning proxy. High on its own never alerts. An alert is raised
+rather than duplicated when its conditions worsen, and ends when they go.
+
+Email is sent through SMTP when `EMAIL_HOST` is set in `.env` (Gmail works
+with an app password) and is otherwise written to `data/outbox/`. SMS goes
+through Africa's Talking: create a free sandbox app, put its key in
+`AT_API_KEY` and leave `AT_USERNAME=sandbox`, and the messages appear in the
+Africa's Talking simulator. Without a key, SMS is skipped and recorded as
+skipped. Set `PUBLIC_API_URL` and `DASHBOARD_URL` to where the API and the
+dashboard are reached, for the links in messages.
+
+The feeds are open: `GET /api/alerts/` (JSON), `GET /api/alerts/feed/` (Atom)
+and `GET /api/alerts/<id>/cap/` (CAP 1.2). Their CAP status is `Exercise`
+(`CAP_STATUS`), because FloodScout is not a warning authority.
 
 ### Where the data comes from
 
@@ -351,7 +386,8 @@ As of 19 October 2026.
 | Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
 | Model performance panel | Done (PR #79), on the administrator's analytics page. |
 | Map layers | Built (PR #81): basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
-| Forecast and explanation | Built on `feat/risk-intelligence`: the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
+| Forecast and explanation | Built (PR #82): the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
+| Alerts | Built on `feat/alerts`: rules, email and SMS delivery with double opt-in, the CAP 1.2 feed, the alerts page and the administrator's controls. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 | Deployment | Not started. The system runs locally only. |
 | Performance and user testing | Not started. Both need the deployed system. |
