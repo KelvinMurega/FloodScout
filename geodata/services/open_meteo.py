@@ -23,6 +23,10 @@ Sources, both free for non-commercial use and both citable:
               from 2017 on, which is how the training sets up to October
               2026 were built. See docs/DATA_DICTIONARY.md, section 3.
               The training record.
+  Forecast    https://api.open-meteo.com/v1/forecast  with `forecast_days`
+              Daily `precipitation_sum` for the days ahead. A forecast,
+              used only by the 7-day risk forecast and never stored as
+              rainfall that fell.
   Outlook     https://seasonal-api.open-meteo.com/v1/seasonal
               ECMWF seasonal ensemble, daily `precipitation_sum` per member
               for the months ahead. A forecast, and used only as one.
@@ -196,6 +200,20 @@ def fetch_daily_rainfall(
     series: list[dict[dt.date, float]] = []
     for batch in _chunks(points, MAX_FORECAST_LOCATIONS):
         params = {"past_days": str(past_days), "forecast_days": "0"}
+        series.extend(_series(daily) for daily in _daily_locations(FORECAST_URL, batch, params))
+    return series
+
+
+def fetch_forecast_rainfall(points: list[Point], days: int) -> list[dict[dt.date, float]]:
+    """Forecast daily rainfall in mm per point, for today and the `days` after.
+
+    Predictions, from the same ECMWF-led forecast the observed series comes
+    from. They feed `forecast_scores` only and are never stored as
+    EnvironmentalData, so nothing observed is ever overwritten by a forecast.
+    """
+    series: list[dict[dt.date, float]] = []
+    for batch in _chunks(points, MAX_FORECAST_LOCATIONS):
+        params = {"past_days": "0", "forecast_days": str(days + 1)}
         series.extend(_series(daily) for daily in _daily_locations(FORECAST_URL, batch, params))
     return series
 

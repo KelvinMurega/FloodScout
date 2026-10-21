@@ -10,18 +10,23 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from accounts.permissions import IsAdministrator
+from geodata import focus_regions
 from geodata.filters import filter_by_region_params
 from geodata.models import Region
+from geodata.services.climate_indices import oni_for
 
 from .advisory import CATEGORY_RANK
 from .analytics import satellite_check, system_health
+from .briefing import Place, briefing
 from .context import CHANGE_DAYS, map_context
+from .forecast import latest_issue
 from .inputs import score_inputs
 from .ml import infer as scorer
-from .models import GridRiskScore, RiskOutlook, RiskScore
+from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
 from .performance import load_performance
 from .scoring import NoRegionsError, score_regions, start_of_day
-from .serializers import RiskOutlookSerializer, RiskScoreSerializer
+from .serializers import RiskForecastSerializer, RiskOutlookSerializer, RiskScoreSerializer
+from .why import explain_score
 
 # How close two regions' boundaries must come to count as neighbours, in
 # degrees (~220 m). Not zero: the ADM2 boundaries do not always share
@@ -194,6 +199,34 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
         }
         return Response(body)
 
+    @action(detail=True, methods=["get"])
+    def explain(self, request, pk=None):
+        """Why the model gave this score: each group of inputs' share of it.
+
+        An exact split of the Random Forest's probability (riskengine/ml/
+        explain.py), worked out again from the stored rainfall with the
+        model loaded now, like `inputs/`. A placeholder score has no model
+        to explain and gets 404.
+        """
+        score = self.get_object()
+        model = scorer._MODEL
+        if model is None:
+            return Response(
+                {"detail": "This score came from the placeholder rule, which has no model."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        date = timezone.localtime(score.prediction_date).date()
+        body = {
+            "score": score.id,
+            "region": score.region_id,
+            "date": date.isoformat(),
+            "model_version": score.model_version,
+            "computed_with": model["version"],
+            "same_model": model["version"] == score.model_version,
+            **explain_score(model, score.region, date),
+        }
+        return Response(body)
+
     @action(detail=False, methods=["get"], url_path="lower-risk-neighbours")
     def lower_risk_neighbours(self, request):
         """Neighbouring regions at the same level whose latest score is lower
@@ -257,6 +290,66 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
                 "categories": dict(result.categories),
             }
         )
+
+
+@api_view(["GET"])
+def situation_briefing(request):
+    """Today's situation in words, and the places that stand out.
+
+    `?level=county` (the default) or `sub_county`, and `?focus_region=<slug>`,
+    as on the other endpoints. Built from the newest day's scores, their
+    change over the week, the rain against normal, the newest 7-day forecast
+    and the El Niño index (riskengine/briefing.py).
+    """
+    params = request.query_params.copy()
+    params.setdefault("level", Region.Level.COUNTY)
+    scores_qs = filter_by_region_params(
+        RiskScore.objects.select_related("region"), params, prefix="region__"
+    )
+    newest = scores_qs.aggregate(newest=Max("prediction_date"))["newest"]
+    focus = focus_regions.get(params.get("focus_region") or "")
+    area = f"the {focus.name} region" if focus else "Kenya"
+    unit = "county" if params["level"] == Region.Level.COUNTY else "sub-county"
+    if newest is None:
+        return Response(briefing([], date=timezone.localdate(), area=area, unit=unit, oni=None))
+
+    day = timezone.localtime(newest).date()
+    scores = list(scores_qs.filter(prediction_date=newest))
+    earlier = scores_qs.filter(prediction_date=start_of_day(day - dt.timedelta(days=CHANGE_DAYS)))
+    context = {row["region"]: row for row in map_context(scores, earlier, day)}
+
+    week: dict[int, list] = {}
+    issued = latest_issue()
+    if issued:
+        for row in RiskForecast.objects.filter(
+            issued_on=issued, region_id__in=[s.region_id for s in scores]
+        ).order_by("target_date"):
+            week.setdefault(row.region_id, []).append(
+                (
+                    row.target_date,
+                    row.risk_category,
+                    scorer.times_usual(row.predicted_value),
+                    row.rain_forecast_max_24h,
+                )
+            )
+
+    places = [
+        Place(
+            region=score.region_id,
+            name=score.region.name,
+            category=score.risk_category,
+            times_usual=scorer.times_usual(score.predicted_value),
+            change_7d=context[score.region_id]["change_7d"],
+            rain_ratio=context[score.region_id]["rain_30d_ratio"],
+            week=week.get(score.region_id, []),
+        )
+        for score in scores
+    ]
+    model = scorer._MODEL
+    oni = oni_for(day, model["oni"]) if model else None
+    body = briefing(places, date=day, area=area, unit=unit, oni=oni)
+    body["forecast_issued_on"] = issued.isoformat() if issued else None
+    return Response(body)
 
 
 @api_view(["GET"])
@@ -360,3 +453,45 @@ class RiskGridViewSet(viewsets.ViewSet):
     def dates(self, request):
         days = GridRiskScore.objects.order_by("-date").values_list("date", flat=True).distinct()
         return Response([day.isoformat() for day in days])
+
+
+class RiskForecastViewSet(viewsets.ReadOnlyModelViewSet):
+    """The flood risk forecast for the coming days (riskengine/forecast.py).
+
+    Read-only. From the newest issue unless `?issued_on=YYYY-MM-DD` names
+    another. `?target_date=YYYY-MM-DD` keeps one day, and the region filters
+    of the other endpoints apply, so `?region=<id>` gives one region's week.
+    `days/` lists the newest issue and the days it covers.
+    """
+
+    serializer_class = RiskForecastSerializer
+
+    def get_queryset(self):
+        params = self.request.query_params
+        issued = date_param(params, "issued_on") or latest_issue()
+        qs = RiskForecast.objects.select_related("region").filter(issued_on=issued)
+        target = date_param(params, "target_date")
+        if target:
+            qs = qs.filter(target_date=target)
+        region_id = params.get("region")
+        if region_id:
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            qs = qs.filter(region_id=int(region_id))
+        return filter_by_region_params(qs, params, prefix="region__")
+
+    @action(detail=False, methods=["get"])
+    def days(self, request):
+        issued = latest_issue()
+        days = (
+            RiskForecast.objects.filter(issued_on=issued)
+            .order_by("target_date")
+            .values_list("target_date", flat=True)
+            .distinct()
+        )
+        return Response(
+            {
+                "issued_on": issued.isoformat() if issued else None,
+                "days": [day.isoformat() for day in days],
+            }
+        )

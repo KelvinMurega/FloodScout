@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from .advisory import relocation_advisory
 from .ml.infer import times_usual
-from .models import RiskOutlook, RiskScore
+from .models import RiskForecast, RiskOutlook, RiskScore
 
 
 class RiskScoreSerializer(serializers.ModelSerializer):
@@ -84,3 +84,36 @@ class RiskOutlookSerializer(serializers.ModelSerializer):
 
     def get_times_usual_high(self, outlook) -> float | None:
         return times_usual(outlook.probability_high)
+
+
+class RiskForecastSerializer(serializers.ModelSerializer):
+    """Shaped like RiskScoreSerializer, so the dashboard draws a forecast day
+    the way it draws today. There is no relocation advisory: a forecast is
+    grounds to prepare, which the alerts say, not to move people.
+    """
+
+    county_name = serializers.CharField(source="region.county_name", read_only=True)
+    region_name = serializers.CharField(source="region.name", read_only=True)
+    region_level = serializers.CharField(source="region.level", read_only=True)
+    times_usual = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RiskForecast
+        fields = [
+            "id",
+            "region",
+            "region_name",
+            "region_level",
+            "county_name",
+            "issued_on",
+            "target_date",
+            "predicted_value",
+            "times_usual",
+            "risk_category",
+            "rain_forecast_mm",
+            "rain_forecast_max_24h",
+            "model_version",
+        ]
+
+    def get_times_usual(self, forecast) -> float | None:
+        return times_usual(forecast.predicted_value)

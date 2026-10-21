@@ -1226,3 +1226,319 @@ body {
     border-top: 1px solid var(--hairline);
   }
 }
+
+/* --- Timeline (observed days, then the forecast) ----------------------- */
+
+.timeline {
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline__play {
+  min-width: 64px;
+}
+
+.timeline__track {
+  flex: 1 1 240px;
+  display: grid;
+  gap: 2px;
+  min-width: 180px;
+  max-width: 640px;
+}
+
+.timeline__range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  /* The forecast end of the track is shaded, so the line between what has
+     happened and what is forecast is visible before the slider gets there. */
+  background: linear-gradient(
+    90deg,
+    transparent var(--forecast-from, 100%),
+    rgba(91, 44, 131, 0.18) var(--forecast-from, 100%)
+  );
+  border-radius: 999px;
+}
+
+.timeline__ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.timeline__label {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.timeline__label--forecast {
+  color: #7b3fb0;
+}
+
+/* The map says it is showing a forecast. */
+.map-wrap--forecast::after {
+  content: attr(data-forecast);
+  position: absolute;
+  left: 56px;
+  top: 12px;
+  z-index: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #5b2c83;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* --- Situation briefing ------------------------------------------------ */
+
+.briefing__headline {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.briefing__text p {
+  margin: 0 0 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.hotspots {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.hotspot {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hotspot:hover {
+  background: var(--surface-page);
+}
+
+.hotspot:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.hotspot__name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hotspot__reason {
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hotspot__reason--heavy_rain {
+  color: #c2410c;
+  font-weight: 600;
+}
+
+/* A ring that grows and fades on each place the briefing flags. */
+.hotspot-pulse__ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2.5px solid #7b3fb0;
+  background: rgba(123, 63, 176, 0.25);
+  animation: hotspot-pulse 1.8s ease-out infinite;
+}
+
+.hotspot-pulse--urgent .hotspot-pulse__ring {
+  border-color: #c2410c;
+  background: rgba(194, 65, 12, 0.3);
+}
+
+@keyframes hotspot-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-pulse__ring {
+    animation: none;
+  }
+}
+
+/* --- Why this score ---------------------------------------------------- */
+
+.why__driver {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.why__driver--rain {
+  background: rgba(1, 102, 94, 0.14);
+  color: #01665e;
+}
+
+.why__driver--conditions {
+  background: rgba(91, 44, 131, 0.12);
+  color: #5b2c83;
+}
+
+.why__summary {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.why__chart {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.why__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.why__label {
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+
+.why__bar {
+  position: relative;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface-page);
+  /* The zero line, for the bars that go up or down from it. */
+  background-image: linear-gradient(var(--border-ring), var(--border-ring));
+  background-size: 1px 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.why__row--base .why__bar,
+.why__row--total .why__bar {
+  background-image: none;
+}
+
+.why__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+
+.why__fill--up {
+  background: #e34a33;
+}
+
+.why__fill--down {
+  background: #4393c3;
+}
+
+.why__row--base .why__fill {
+  background: var(--text-muted);
+}
+
+.why__row--total .why__fill {
+  background: var(--text-primary);
+}
+
+.why__row--total {
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+  font-weight: 600;
+}
+
+.why__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* --- The week ahead ---------------------------------------------------- */
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.week__day {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.week__day:hover {
+  background: var(--surface-page);
+}
+
+.week__day:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.week__name,
+.week__level {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.week__colour {
+  width: 70%;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.week__value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

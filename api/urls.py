@@ -9,7 +9,14 @@ from geodata.views import (
     GeospatialFeatureViewSet,
     RegionViewSet,
 )
-from riskengine.views import RiskGridViewSet, RiskOutlookViewSet, RiskScoreViewSet, admin_analytics
+from riskengine.views import (
+    RiskForecastViewSet,
+    RiskGridViewSet,
+    RiskOutlookViewSet,
+    RiskScoreViewSet,
+    admin_analytics,
+    situation_briefing,
+)
 
 from . import views
 
@@ -21,6 +28,7 @@ router.register("environmental-data", EnvironmentalDataViewSet, basename="enviro
 router.register("risk-scores", RiskScoreViewSet, basename="risk-score")
 router.register("risk-outlook", RiskOutlookViewSet, basename="risk-outlook")
 router.register("risk-grid", RiskGridViewSet, basename="risk-grid")
+router.register("risk-forecast", RiskForecastViewSet, basename="risk-forecast")
 router.register("flood-events", FloodEventViewSet, basename="flood-event")
 
 urlpatterns = [
@@ -28,5 +36,6 @@ urlpatterns = [
     path("auth/token/", ObtainTokenView.as_view(), name="auth-token"),
     path("auth/logout/", RevokeTokenView.as_view(), name="auth-logout"),
     path("admin/analytics/", admin_analytics, name="admin-analytics"),
+    path("briefing/", situation_briefing, name="briefing"),
     path("", include(router.urls)),
 ]

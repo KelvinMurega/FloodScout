@@ -14,8 +14,9 @@ last MAX_CATCH_UP_DAYS that has no scores, not only today. So a computer
 that was off over a weekend has Saturday and Sunday on the map once it is
 back on, scored from the rain that actually fell on them.
 
-When `seed_grid` has laid an area grid, its cells are scored too, with the
-same catching up.
+After the scores, the next seven days are forecast from forecast rain
+(`forecast_scores`). When `seed_grid` has laid an area grid, its cells are
+scored too, with the same catching up.
 
 The seasonal outlook is not refreshed here. The forecast behind it is issued
 monthly and takes much longer to fetch; run `flood_outlook` when a new one
@@ -144,6 +145,14 @@ class Command(BaseCommand):
             call_command(
                 "score_regions", "--date", day.isoformat(), stdout=self.stdout, stderr=self.stderr
             )
+
+        # The week ahead, from forecast rain. A failed forecast is reported
+        # but does not fail the refresh: today's scores are already written,
+        # and yesterday's forecast stays on the map until the next run.
+        try:
+            call_command("forecast_scores", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:
+            self.stderr.write(self.style.WARNING(f"Forecast skipped: {exc}"))
 
         # The area grid, once `seed_grid` has laid one. It fetches its own
         # rainfall, at the cells' centres.
