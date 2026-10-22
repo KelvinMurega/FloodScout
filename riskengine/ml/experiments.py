@@ -6,9 +6,10 @@ the same model and the same seeds. Nothing here writes a model. The shipped
 one in artifacts/ changes only when a kept input is moved into
 FEATURE_NAMES and the model is retrained on Colab.
 
-The inputs under trial (CANDIDATE_FEATURES) are worked out from the cached
-daily rainfall `build_training_set` downloaded, so the training set itself
-is not rebuilt for a trial. Another measurement of rainfall (the mean over
+The inputs under trial (CANDIDATE_FEATURES) are worked out from cached daily
+series: the rainfall `build_training_set` downloaded, the river discharge
+`build_discharge` downloaded and the soil moisture read from Earth Engine.
+The training set itself is not rebuilt for a trial. Another measurement of rainfall (the mean over
 the county in place of one point) is tried the same way, by working the
 rainfall inputs out again and leaving every other column and the labels as
 they are.
@@ -41,7 +42,15 @@ from sklearn.metrics import average_precision_score
 from sklearn.model_selection import GroupKFold
 
 from riskengine.ml import train
-from riskengine.ml.features import CANDIDATE_FEATURES, rainfall_features
+from riskengine.ml.features import (
+    CANDIDATE_FEATURES,
+    DISCHARGE_CANDIDATES,
+    RAIN_CANDIDATES,
+    SOIL_CANDIDATES,
+    discharge_features,
+    rainfall_features,
+    soil_features,
+)
 
 MODEL = "random-forest"
 
@@ -84,10 +93,16 @@ def cached_rainfall(cache_dir: Path, counties) -> dict[str, dict[dt.date, float]
 
 
 def with_candidates(
-    data: train.TrainingSet, rainfall: dict[str, dict[dt.date, float]], names
+    data: train.TrainingSet,
+    rainfall: dict[str, dict[dt.date, float]],
+    names,
+    discharge: dict[str, dict[dt.date, float]] | None = None,
+    soil: dict[str, dict[dt.date, float]] | None = None,
 ) -> train.TrainingSet:
-    """`data` with the trial inputs `names` added as columns, from `rainfall`.
+    """`data` with the trial inputs `names` added as columns.
 
+    Rain inputs are worked out from `rainfall`, river inputs from
+    `discharge` and soil inputs from `soil`, each {county: {date: value}}.
     Raises when the cached rainfall does not reproduce the `rain_30d` the
     training set already holds, since the trial columns would then describe
     different rain from the rest of the row.
@@ -95,16 +110,29 @@ def with_candidates(
     unknown = [name for name in names if name not in CANDIDATE_FEATURES]
     if unknown:
         raise ValueError(f"Not inputs under trial: {', '.join(unknown)}")
+    sources = (
+        (RAIN_CANDIDATES, rainfall, rainfall_features, "rainfall"),
+        (DISCHARGE_CANDIDATES, discharge, discharge_features, "river discharge"),
+        (SOIL_CANDIDATES, soil, soil_features, "soil moisture"),
+    )
+    for group, series, _, what in sources:
+        if series is None and set(names) & set(group):
+            raise ValueError(f"No {what} given for {', '.join(n for n in names if n in group)}.")
 
-    computed = [
-        rainfall_features(rainfall[county], dt.date.fromisoformat(date))
-        for county, date in zip(data.counties, data.dates)
-    ]
-    stored = data.X[:, data.column("rain_30d")]
-    recomputed = np.array([row["rain_30d"] for row in computed])
-    known = ~np.isnan(stored) & ~np.isnan(recomputed)
-    if not np.allclose(stored[known], recomputed[known], atol=0.01):
-        raise ValueError("The cached rainfall does not match the training set's rain_30d.")
+    keys = list(zip(data.counties, (dt.date.fromisoformat(date) for date in data.dates)))
+    computed = [{} for _ in keys]
+    for group, series, features, _ in sources:
+        if not set(names) & set(group):
+            continue
+        for row, (county, end) in zip(computed, keys):
+            row.update(features(series.get(county, {}), end))
+
+    if set(names) & set(RAIN_CANDIDATES):
+        stored = data.X[:, data.column("rain_30d")]
+        recomputed = np.array([row["rain_30d"] for row in computed])
+        known = ~np.isnan(stored) & ~np.isnan(recomputed)
+        if not np.allclose(stored[known], recomputed[known], atol=0.01):
+            raise ValueError("The cached rainfall does not match the training set's rain_30d.")
 
     extra = np.array([[row[name] for name in names] for row in computed], dtype=float)
     return train.TrainingSet(
@@ -224,20 +252,27 @@ def evaluate(data: train.TrainingSet, seeds=train.SEEDS, truth: np.ndarray | Non
 
 
 def compare(
-    data: train.TrainingSet, rainfall, names=(), seeds=train.SEEDS, other_rainfall=None
+    data: train.TrainingSet,
+    rainfall,
+    names=(),
+    seeds=train.SEEDS,
+    other_rainfall=None,
+    discharge=None,
+    soil=None,
 ) -> dict:
     """The current model against one with `names` added, on `other_rainfall` if given.
 
     `rainfall` is the rainfall `data` was built on. With `other_rainfall`,
     the changed model's rainfall inputs, the trial inputs included, are
-    worked out from it instead.
+    worked out from it instead. River and soil inputs are worked out from
+    `discharge` and `soil`.
     """
     before = evaluate(data, seeds)
     changed = data
     if other_rainfall is not None:
         changed = with_rainfall(changed, other_rainfall)
     if names:
-        changed = with_candidates(changed, other_rainfall or rainfall, names)
+        changed = with_candidates(changed, other_rainfall or rainfall, names, discharge, soil)
     after = evaluate(changed, seeds)
     change = round(after["average_precision"]["mean"] - before["average_precision"]["mean"], 4)
     return {

@@ -78,12 +78,34 @@ FEATURE_NAMES = (
 # All four were tried on 9 October 2026 and none raised held-out average
 # precision. They stay here so they can be tried again once the labels say
 # where the water was.
-CANDIDATE_FEATURES = (
+RAIN_CANDIDATES = (
     "rain_60d",  # mm over this window and the one before: rain_30d + rain_prev_30d
     "rain_90d",  # mm over the 90 days ending on the date, so June still sees April
     "rain_3d_max",  # wettest 3 consecutive days in the window, mm
     "heavy_days",  # days in the window with HEAVY_DAY_MM or more
 )
+
+# What the rain above cannot see. Garissa, Tana River and Turkana flood from
+# rain that fell in the highlands days before, and ground that is already
+# wet floods sooner. Read from river discharge (GloFAS) on the county's
+# largest river and from soil moisture (ERA5-Land) over the county; see
+# `discharge_features` and `soil_features`. Under trial from October 2026.
+DISCHARGE_CANDIDATES = (
+    "discharge_30d_max",  # highest daily river flow in the window, m³/s
+    "discharge_30d_mean",  # mean daily river flow in the window, m³/s
+    # log((discharge_30d_max + 1) / (mean flow over the year before the window + 1)):
+    # how far above its own usual level the river rose. Measured against the
+    # river's own past, so it needs no normal fitted per fold.
+    "discharge_rise",
+)
+SOIL_CANDIDATES = (
+    "soil_moisture_start",  # water in the top 28 cm the day before the window, m³/m³
+    "soil_moisture_max",  # the wettest day's value inside the window, m³/m³
+)
+CANDIDATE_FEATURES = (*RAIN_CANDIDATES, *DISCHARGE_CANDIDATES, *SOIL_CANDIDATES)
+
+# The year of river flow `discharge_rise` compares against.
+DISCHARGE_YEAR_DAYS = 365
 
 NAN = float("nan")
 
@@ -122,6 +144,42 @@ def rainfall_features(rain: Mapping[dt.date, float], end: dt.date) -> dict[str, 
         "rain_90d": sum(long) if long else NAN,
         "rain_3d_max": _wettest(current, SHORT_PEAK_DAYS) if current else NAN,
         "heavy_days": float(sum(mm >= HEAVY_DAY_MM for mm in current)) if current else NAN,
+    }
+
+
+def _present(series: Mapping[dt.date, float], end: dt.date, days: int) -> list[float] | None:
+    """The values of the `days` ending on `end` that exist, or None if too many are missing.
+
+    Unlike rain, a missing day of river flow or soil moisture is not zero:
+    it is left out.
+    """
+    values = [series.get(end - dt.timedelta(days=offset)) for offset in range(days)]
+    present = [value for value in values if value is not None]
+    if len(values) - len(present) > MAX_MISSING_DAYS * days // WINDOW_DAYS:
+        return None
+    return present
+
+
+def discharge_features(discharge: Mapping[dt.date, float], end: dt.date) -> dict[str, float]:
+    """DISCHARGE_CANDIDATES for the window ending on `end`, from daily m³/s."""
+    current = _present(discharge, end, WINDOW_DAYS)
+    year = _present(discharge, end - dt.timedelta(days=WINDOW_DAYS), DISCHARGE_YEAR_DAYS)
+    peak = max(current) if current else NAN
+    usual = sum(year) / len(year) if year else NAN
+    return {
+        "discharge_30d_max": peak,
+        "discharge_30d_mean": sum(current) / len(current) if current else NAN,
+        "discharge_rise": math.log((peak + 1) / (usual + 1)) if current and year else NAN,
+    }
+
+
+def soil_features(soil: Mapping[dt.date, float], end: dt.date) -> dict[str, float]:
+    """SOIL_CANDIDATES for the window ending on `end`, from daily m³/m³."""
+    before = soil.get(end - dt.timedelta(days=WINDOW_DAYS))
+    current = _present(soil, end, WINDOW_DAYS)
+    return {
+        "soil_moisture_start": NAN if before is None else before,
+        "soil_moisture_max": max(current) if current else NAN,
     }
 
 

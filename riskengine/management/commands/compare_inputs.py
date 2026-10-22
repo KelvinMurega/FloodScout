@@ -2,6 +2,8 @@
 
     manage.py compare_inputs rain_60d rain_90d
     manage.py compare_inputs --county-mean-rain
+    manage.py compare_inputs discharge_30d_max discharge_rise
+    manage.py compare_inputs soil_moisture_start
 
 The first compares the current inputs with the current inputs plus the ones
 named. The second works the rainfall inputs out from rainfall averaged over
@@ -17,6 +19,10 @@ cached for it. The trial inputs are worked out from the rainfall the
 training set was built on, point or county mean. --county-mean-rain is for a
 training set built on point rainfall, and needs Earth Engine the first time
 (see geodata/services/earth_engine_rain.py).
+
+River inputs need every county-year `manage.py build_discharge` downloads.
+Soil inputs read county-mean soil moisture from Earth Engine the first time
+and from data/raw/soil_moisture_ee/ after that.
 """
 
 from __future__ import annotations
@@ -28,15 +34,25 @@ from django.core.management.base import BaseCommand, CommandError
 from geodata.models import Region
 from geodata.services import earth_engine_rain
 from riskengine.ml import experiments, train
-from riskengine.ml.features import CANDIDATE_FEATURES, HISTORY_DAYS
+from riskengine.ml.features import (
+    CANDIDATE_FEATURES,
+    DISCHARGE_CANDIDATES,
+    HISTORY_DAYS,
+    SOIL_CANDIDATES,
+    WINDOW_DAYS,
+)
 
+from .build_discharge import DISCHARGE_DIR, cached_discharge, load_points, missing_years
 from .build_training_set import (
+    DATA_DIR,
     EE_RAINFALL_DIR,
     RAINFALL_DIR,
     TRAINING_SET_PATH,
     rain_model_of,
     rainfall_cache_dir,
 )
+
+EE_SOIL_DIR = DATA_DIR / "raw" / "soil_moisture_ee"
 
 MEASURES = (
     ("average_precision", "Average precision, pooled", None),
@@ -96,8 +112,17 @@ class Command(BaseCommand):
                 )
             )
             county_mean = self._county_mean_rainfall(data) if options["county_mean_rain"] else None
+            names = set(options["inputs"])
+            discharge = self._discharge(data) if names & set(DISCHARGE_CANDIDATES) else None
+            soil = self._soil_moisture(data) if names & set(SOIL_CANDIDATES) else None
             result = experiments.compare(
-                data, rainfall, options["inputs"], options["seeds"], other_rainfall=county_mean
+                data,
+                rainfall,
+                options["inputs"],
+                options["seeds"],
+                other_rainfall=county_mean,
+                discharge=discharge,
+                soil=soil,
             )
         except (FileNotFoundError, ValueError, earth_engine_rain.EarthEngineError) as exc:
             raise CommandError(str(exc)) from exc
@@ -136,4 +161,24 @@ class Command(BaseCommand):
         first, last = (dt.date.fromisoformat(date) for date in (min(data.dates), max(data.dates)))
         return earth_engine_rain.fetch_county_rainfall(
             counties, first - dt.timedelta(days=HISTORY_DAYS), last, EE_RAINFALL_DIR, log=self.stdout.write
+        )
+
+    def _discharge(self, data):
+        """Daily river discharge per county, refusing a download that is not finished."""
+        counties = sorted(set(data.counties))
+        left = missing_years([county for county in counties if county in load_points()])
+        unplaced = [county for county in counties if county not in load_points()]
+        if left or unplaced:
+            raise ValueError(
+                f"River discharge is not all downloaded ({len(left)} county-years left, "
+                f"{len(unplaced)} counties without a river point): run `manage.py build_discharge`."
+            )
+        return cached_discharge(counties, DISCHARGE_DIR)
+
+    def _soil_moisture(self, data):
+        """Daily county-mean soil moisture over the span the training set covers."""
+        counties = list(Region.objects.filter(level=Region.Level.COUNTY).order_by("name"))
+        first, last = (dt.date.fromisoformat(date) for date in (min(data.dates), max(data.dates)))
+        return earth_engine_rain.fetch_county_soil_moisture(
+            counties, first - dt.timedelta(days=WINDOW_DAYS), last, EE_SOIL_DIR, log=self.stdout.write
         )
