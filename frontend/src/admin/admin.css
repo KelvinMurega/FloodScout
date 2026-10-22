@@ -42,6 +42,7 @@
   background: var(--surface-page);
 }
 
+.is-admin .controls,
 .is-admin .region-bar,
 .is-admin .app__main,
 .is-admin .report-actions,
