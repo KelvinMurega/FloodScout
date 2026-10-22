@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from pathlib import Path
 
 from riskengine.briefing import Place
 
@@ -34,6 +35,9 @@ from .models import LEVEL_RANK, Level
 HEAVY_RAIN_MM = 50.0
 RISING = 0.2
 SOON_DAYS = 3
+
+# Each county's heavy-rain line for a week, by month: `manage.py backtest_alerts --save-thresholds`.
+HEAVY_RAIN_7D_PATH = Path(__file__).resolve().parent / "heavy_rain_7d.json"
 
 INSTRUCTIONS = {
     Level.ADVISORY: (
