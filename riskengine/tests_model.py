@@ -20,6 +20,8 @@ import numpy as np
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
+from sklearn.base import clone
+from sklearn.model_selection import GroupKFold
 
 from geodata.models import Region
 from geodata.services import earth_engine_rain
@@ -1075,3 +1077,86 @@ class LabelCheckTests(SimpleTestCase):
 
         self.assertEqual(mapped, {7: {"A": 12.0}})
 
+
+
+class MappedLabelTests(SimpleTestCase):
+    """Labels from mapped flood water where it exists (riskengine/ml/labels.py)."""
+
+    WINDOW = dt.date(2006, 11, 30)
+
+    def _event(self, event_id, began, ended):
+        from geodata.services.dfo import FloodEvent
+
+        return FloodEvent(event_id, "Kenya", began, ended, 37.0, 0.0, 1000.0, 1.0, 0, 0, "Heavy rain")
+
+    def _labels(self, keys, min_km2=5.0):
+        from riskengine.management.commands.build_training_set import in_window
+        from riskengine.ml import labels
+
+        mapped_flood = self._event(7, dt.date(2006, 11, 10), dt.date(2006, 11, 20))
+        circle_flood = self._event(8, dt.date(2006, 11, 12), dt.date(2006, 11, 14))
+        # The mapped flood's circle covers A and B; the other flood's covers C.
+        placed = {"A": [mapped_flood], "B": [mapped_flood], "C": [circle_flood]}
+        mapped = {7: {"A": 12.0, "B": 0.4, "D": 6.0}}
+        return labels.mapped_labels(keys, placed, {7: mapped_flood}, mapped, in_window, min_km2)
+
+    def test_a_mapped_flood_labels_where_the_water_was(self):
+        from riskengine.ml.labels import CIRCLE, MAPPED, NONE
+
+        keys = [(county, self.WINDOW) for county in ("A", "B", "C", "D", "E")]
+
+        flooded, sources = self._labels(keys)
+
+        # A: under the circle and wet. B: under the circle, dry on the map.
+        # C: an unmapped flood's circle. D: wet outside any circle. E: nothing.
+        self.assertEqual(list(flooded), [1, 0, 1, 1, 0])
+        self.assertEqual(list(sources), [MAPPED, MAPPED, CIRCLE, MAPPED, NONE])
+
+    def test_a_window_without_the_flood_is_not_labelled_by_it(self):
+        from riskengine.ml.labels import NONE
+
+        flooded, sources = self._labels([("A", dt.date(2006, 9, 30)), ("D", dt.date(2006, 9, 30))])
+
+        self.assertEqual(list(flooded), [0, 0])
+        self.assertEqual(list(sources), [NONE, NONE])
+
+    def test_the_threshold_decides_how_much_water_is_a_flood(self):
+        flooded, _sources = self._labels([("D", self.WINDOW)], min_km2=10.0)
+
+        self.assertEqual(list(flooded), [0])
+
+    def test_only_circle_labels_are_weighted_down(self):
+        from riskengine.ml.labels import CIRCLE, MAPPED, NONE, weights
+
+        row_weights = weights(np.array([MAPPED, CIRCLE, NONE], dtype=object), 0.5)
+
+        self.assertEqual(list(row_weights), [1.0, 0.5, 1.0])
+
+    def test_weights_of_one_change_nothing(self):
+        data, _rainfall = _trial_data()
+        folds = list(GroupKFold(train.CV_FOLDS).split(data.X, data.y, groups=data.years))
+        model = train.candidates()["logreg"]
+        columns = list(range(len(data.features)))
+
+        plain = train.held_out_probabilities(data, lambda: clone(model), columns, folds)
+        weighted = train.held_out_probabilities(
+            data, lambda: clone(model), columns, folds, np.ones(len(data.y))
+        )
+
+        np.testing.assert_allclose(plain, weighted)
+
+    def test_labels_are_also_scored_on_the_rows_they_are_surest_of(self):
+        data, _rainfall = _trial_data()
+        sure = np.zeros(len(data.y), dtype=bool)
+        sure[::3] = True
+
+        result = experiments.compare_labels(
+            data, data.y, seeds=(0,), weights=np.full(len(data.y), 0.5), sure_rows=sure
+        )
+
+        self.assertEqual(result["current"]["rows"], len(data.y))
+        for key in ("current_on_sure", "new_on_sure", "new_weighted_on_sure"):
+            self.assertEqual(result[key]["rows"], int(sure.sum()))
+            self.assertEqual(result[key]["floods"], int(data.y[sure].sum()))
+        # The same labels and no weights: trained alike, scored alike.
+        self.assertEqual(result["current_on_sure"]["average_precision"], result["new_on_sure"]["average_precision"])
