@@ -29,7 +29,7 @@ LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 
 
 def week(*days):
-    """Forecast days from (category, times, wettest mm), from tomorrow."""
+    """Forecast days from (category, times, wettest mm[, rain to that day mm]), from tomorrow."""
     return [(TODAY + dt.timedelta(days=n + 1), *day) for n, day in enumerate(days)]
 
 
@@ -47,6 +47,11 @@ def place(category="high", change=0.0, days=(), **kw):
     )
 
 
+# Kisumu's heavy-rain line for a week in October, in place of alerts/heavy_rain_7d.json.
+KISUMU_LINE = 100.0
+
+
+@mock.patch("alerts.rules.heavy_week_lines", lambda: {"Kisumu": {"10": KISUMU_LINE}})
 class RuleTests(SimpleTestCase):
     def level(self, p):
         return decide(p, TODAY).level
@@ -58,16 +63,39 @@ class RuleTests(SimpleTestCase):
         d = decide(place("very_high", 0.0), TODAY)
         self.assertEqual((d.level, d.basis), (Level.WATCH, "observed"))
 
-    def test_very_high_and_rising_is_a_warning(self):
-        self.assertEqual(self.level(place("very_high", 0.3)), Level.WARNING)
+    def test_very_high_and_rising_with_heavy_rain_for_the_county_is_a_warning(self):
+        rain = week(("very_high", 2.4, 30, 60), ("very_high", 2.5, 40, 120))
+        d = decide(place("very_high", 0.3, rain), TODAY)
+        self.assertEqual((d.level, d.basis), (Level.WARNING, "observed"))
+        self.assertIn("heavy for Kisumu in October", d.reasons[1]["text"])
 
-    def test_forecast_very_high_soon_with_heavy_rain_is_a_warning(self):
-        d = decide(
-            place("high", 0.0, week(("high", 1.7, 20), ("very_high", 2.2, HEAVY_RAIN_MM))), TODAY
-        )
+    def test_very_high_and_rising_without_local_rain_is_a_watch(self):
+        self.assertEqual(self.level(place("very_high", 0.3)), Level.WATCH)
+        light = week(("very_high", 2.4, 20, 40), ("very_high", 2.5, 20, KISUMU_LINE))
+        self.assertEqual(self.level(place("very_high", 0.3, light)), Level.WATCH)
+
+    def test_forecast_very_high_soon_with_heavy_rain_for_the_county_is_a_warning(self):
+        days = week(("high", 1.7, 20, 20), ("very_high", 2.2, HEAVY_RAIN_MM, 110))
+        d = decide(place("high", 0.0, days), TODAY)
         self.assertEqual((d.level, d.basis), (Level.WARNING, "forecast"))
         self.assertEqual(d.onset, TODAY + dt.timedelta(days=2))
-        self.assertEqual([r["kind"] for r in d.reasons], ["forecast_very_high", "heavy_rain"])
+        self.assertEqual(
+            [r["kind"] for r in d.reasons], ["forecast_very_high", "heavy_rain_local", "heavy_rain"]
+        )
+
+    def test_a_50_mm_day_that_is_ordinary_for_the_county_is_not_a_warning(self):
+        days = week(("high", 1.7, 20, 20), ("very_high", 2.2, HEAVY_RAIN_MM, 70))
+        self.assertEqual(self.level(place("high", 0.0, days)), Level.WATCH)
+
+    def test_no_line_on_file_means_no_warning(self):
+        days = week(("very_high", 2.2, 80, 500))
+        p = place("high", 0.0, days)
+        p.county = "Nowhere"
+        self.assertEqual(self.level(p), Level.WATCH)
+
+    def test_heavy_rain_too_late_is_no_warning_from_the_forecast(self):
+        days = week(("very_high", 2.0, 5, 5), *[("high", 1.6, 5, 10)] * 3, ("high", 1.6, 60, 150))
+        self.assertEqual(self.level(place("high", 0.0, days)), Level.WATCH)
 
     def test_forecast_very_high_later_in_the_week_is_a_watch(self):
         days = week(*[("high", 1.6, 5)] * 5, ("very_high", 2.1, 12))
@@ -83,8 +111,8 @@ class RuleTests(SimpleTestCase):
         self.assertIn("64 mm of rain forecast", d.reasons[0]["text"])
 
     def test_heavy_rain_is_mentioned_under_a_higher_level(self):
-        d = decide(place("very_high", 0.0, week(("very_high", 2.0, 70))), TODAY)
-        self.assertEqual(d.level, Level.WARNING)  # very high soon with heavy rain soon
+        d = decide(place("very_high", 0.0, week(("very_high", 2.0, 70, 120))), TODAY)
+        self.assertEqual(d.level, Level.WARNING)  # very high soon with heavy rain for Kisumu soon
         d = decide(
             place("very_high", 0.0, week(*[("very_high", 2.0, 5)] * 4, ("very_high", 2.0, 70))),
             TODAY,
@@ -208,6 +236,7 @@ class EngineTests(TestCase):
             {"email": "sent", "sms": "skipped"},
         )
 
+    @mock.patch("alerts.rules.heavy_week_lines", lambda: {"Alpha": {"10": 100.0}})
     def test_a_stronger_condition_upgrades_and_tells_again(self):
         score(self.region, RiskScore.RiskCategory.VERY_HIGH)
         engine.run_alerts()
@@ -218,6 +247,7 @@ class EngineTests(TestCase):
             predicted_value=0.31,
             risk_category=RiskScore.RiskCategory.VERY_HIGH,
             rain_forecast_max_24h=80.0,
+            rain_forecast_mm=120.0,
             model_version="t",
         )
         run = engine.run_alerts()
