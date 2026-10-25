@@ -188,19 +188,28 @@ def with_labels(data: train.TrainingSet, labels: np.ndarray) -> train.TrainingSe
     )
 
 
-def evaluate(data: train.TrainingSet, seeds=train.SEEDS, truth: np.ndarray | None = None) -> dict:
+def evaluate(
+    data: train.TrainingSet,
+    seeds=train.SEEDS,
+    truth: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+    score_rows: np.ndarray | None = None,
+) -> dict:
     """The selected model's held-out scores on `data`, averaged over `seeds`.
 
     The same folds as `train.select` makes, so two calls on training sets
     that differ only in their columns or labels are compared row for row.
-    The model always learns from `data.y`. With `truth`, its held-out
-    probabilities are scored against those labels instead.
+    The model always learns from `data.y`, each row counted by `weights` if
+    given. With `truth`, its held-out probabilities are scored against those
+    labels instead. With `score_rows`, a boolean mask, only those rows are
+    scored; the model still learns from every row.
     """
     folds = list(GroupKFold(train.CV_FOLDS).split(data.X, data.y, groups=data.years))
     columns = list(range(len(data.features)))
     pipeline = train.candidates()[MODEL]
     seed_steps = train._random_steps(pipeline)
     truth = data.y if truth is None else np.asarray(truth, dtype=int)
+    scored = np.ones(len(truth), dtype=bool) if score_rows is None else np.asarray(score_rows, dtype=bool)
     flooded = truth == 1
     june = data.months == JUNE
     intense = np.isin(data.counties, INTENSE_RAIN_COUNTIES)
@@ -208,21 +217,22 @@ def evaluate(data: train.TrainingSet, seeds=train.SEEDS, truth: np.ndarray | Non
     runs = []
     for seed in seeds:
         seeded = clone(pipeline).set_params(**{step: seed for step in seed_steps})
-        held_out = train.held_out_probabilities(data, lambda: clone(seeded), columns, folds)
+        held_out = train.held_out_probabilities(data, lambda: clone(seeded), columns, folds, weights)
         warned = held_out > train.WARNING_THRESHOLD
         fold_precision = [
-            average_precision_score(truth[test_rows], held_out[test_rows])
+            average_precision_score(truth[rows], held_out[rows])
             for _train_rows, test_rows in folds
-            if 0 < truth[test_rows].sum() < len(test_rows)
+            for rows in [test_rows[scored[test_rows]]]
+            if 0 < truth[rows].sum() < len(rows)
         ]
         runs.append(
             {
-                **train._scores(truth, held_out),
+                **train._scores(truth[scored], held_out[scored]),
                 "average_precision_fold_mean": float(np.mean(fold_precision)),
-                "floods_missed": _missed(flooded, warned, np.ones(len(truth), dtype=bool))[0],
-                "false_alarms": int((~flooded & warned).sum()),
-                "june_missed": _missed(flooded, warned, june)[0],
-                "intense_rain_missed": _missed(flooded, warned, intense)[0],
+                "floods_missed": _missed(flooded, warned, scored)[0],
+                "false_alarms": int((~flooded & warned & scored).sum()),
+                "june_missed": _missed(flooded, warned, june & scored)[0],
+                "intense_rain_missed": _missed(flooded, warned, intense & scored)[0],
             }
         )
 
@@ -231,16 +241,17 @@ def evaluate(data: train.TrainingSet, seeds=train.SEEDS, truth: np.ndarray | Non
     season_columns = [data.column(name) for name in train.SEASON_FEATURES if name in data.features]
     season_precision = None
     if season_columns:
-        season = train.held_out_probabilities(data, train.season_baseline, season_columns, folds)
-        season_precision = round(float(average_precision_score(truth, season)), 4)
+        season = train.held_out_probabilities(data, train.season_baseline, season_columns, folds, weights)
+        season_precision = round(float(average_precision_score(truth[scored], season[scored])), 4)
     out = {
         "features": list(data.features),
         "seeds": [int(seed) for seed in seeds],
-        "base_rate": round(float(flooded.mean()), 4),
+        "rows": int(scored.sum()),
+        "base_rate": round(float(flooded[scored].mean()), 4),
         "season_only_average_precision": season_precision,
-        "floods": int(flooded.sum()),
-        "june_floods": int((flooded & june).sum()),
-        "intense_rain_floods": int((flooded & intense).sum()),
+        "floods": int((flooded & scored).sum()),
+        "june_floods": int((flooded & june & scored).sum()),
+        "intense_rain_floods": int((flooded & intense & scored).sum()),
     }
     for measure in runs[0]:
         values = [run[measure] for run in runs]
@@ -284,15 +295,36 @@ def compare(
     }
 
 
-def compare_labels(data: train.TrainingSet, labels: np.ndarray, seeds=train.SEEDS) -> dict:
+def compare_labels(
+    data: train.TrainingSet,
+    labels: np.ndarray,
+    seeds=train.SEEDS,
+    weights: np.ndarray | None = None,
+    sure_rows: np.ndarray | None = None,
+) -> dict:
     """The current labels against `labels`, for the same rows and inputs.
 
     `current` and `new` are each trained and scored on their own labels.
     `current_on_new` is trained on the current labels and scored against
-    the new ones.
+    the new ones. With `weights`, `new_weighted` is trained on the new
+    labels with those row weights.
+
+    With `sure_rows`, a boolean mask, every model is also scored on the new
+    labels of those rows alone (the `*_on_sure` entries): the rows where the
+    new labels are best evidence of where the water was. A model trained on
+    the new labels has to beat the current one there to be worth adopting.
     """
-    return {
+    new = with_labels(data, labels)
+    out = {
         "current": evaluate(data, seeds),
-        "new": evaluate(with_labels(data, labels), seeds),
+        "new": evaluate(new, seeds),
         "current_on_new": evaluate(data, seeds, truth=labels),
     }
+    if weights is not None:
+        out["new_weighted"] = evaluate(new, seeds, weights=weights)
+    if sure_rows is not None:
+        out["current_on_sure"] = evaluate(data, seeds, truth=labels, score_rows=sure_rows)
+        out["new_on_sure"] = evaluate(new, seeds, score_rows=sure_rows)
+        if weights is not None:
+            out["new_weighted_on_sure"] = evaluate(new, seeds, weights=weights, score_rows=sure_rows)
+    return out

@@ -620,6 +620,7 @@ measure the change targets beside it.
 | 15 Oct 2026 | Point rainfall asked for as ERA5 every year (`models=era5`), in place of the service's choice of ERA5 to 2016 and IFS from 2017; labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2579; 3,636 false alarms, 415.8 floods missed | Kept: the record is one dataset. Final test waits for the Colab retrain: see "One rainfall record" |
 | 21 Oct 2026 | Added `soil_moisture_start`: water in the top 28 cm of soil the day before the window, ERA5-Land averaged over the county (Earth Engine) | 0.2579; 415.8 floods missed, 3,636 false alarms | 0.2678; 376.2 floods missed, 3,705 false alarms | Kept in cross-validation; waits for the retrain with the river inputs: see "Soil moisture" |
 | 21 Oct 2026 | Added `soil_moisture_max` as well, the wettest day inside the window | 0.2678 (`soil_moisture_start` alone) | 0.2689; 370.0 floods missed, 3,722 false alarms | Dropped: +0.0011 over `soil_moisture_start` alone, within the noise |
+| 21 Oct 2026 | Labels: a flood the Global Flood Database mapped labels the counties that held 5 km² or more of its water, not its circle; other floods keep the circle (on point ERA5 rainfall) | 0.2579 on the current labels | 0.2229 on the new labels. On the 322 mapped rows: trained on current 0.4383, on new 0.4580, on new with circle labels at half weight 0.4832; every ROC AUC there below 0.5 | Not adopted: see "Labels from mapped flood water" |
 
 #### County-mean rainfall (kept)
 
@@ -1017,6 +1018,73 @@ docker compose run --rm web python manage.py check_labels_gfd
 - **What it leaves.** Labels that say where the water was have to be made
   for the events that matter, from satellite images, which is practical for
   a few regions and not for the country.
+
+### Labels from mapped flood water (not adopted)
+
+Phase 3, steps 1 and 4 of `docs/MODEL_IMPROVEMENT_PLAN.md`. For the 17
+floods the Global Flood Database mapped, a county is labelled from the map:
+flooded if it held at least 5 km² of mapped flood water, whether the circle
+touched it or not, and not flooded if the circle touched it and no water was
+mapped. Every other flood keeps its circle (`riskengine/ml/labels.py`). Each
+row also records where its label came from, and a second model is trained
+with the labels that rest on a circle alone at half weight. Run on 21
+October 2026 on the point ERA5 training set, mean over seeds 0 to 4:
+
+```bash
+docker compose run --rm web python manage.py check_labels_gfd   # once, for the mapped water
+docker compose run --rm web python manage.py compare_labels --mapped-where-available --circle-weight 0.5
+```
+
+| | Current labels | New labels | Current, scored on new | New, circle labels at 0.5 |
+|---|---|---|---|---|
+| County-months with a flood | 1,406 | 1,327 | 1,327 | 1,327 |
+| Base rate | 0.0968 | 0.0914 | 0.0914 | 0.0914 |
+| Average precision, pooled | 0.2579 | 0.2229 | 0.2377 | 0.2222 |
+| ROC AUC, pooled | 0.7863 | 0.7645 | 0.7737 | 0.7709 |
+| Floods missed | 415.8 | 462 | 421 | 656.6 |
+| False alarms | 3,636 | 3,625 | 3,720 | 2,307 |
+
+158 county-months stop being flooded and 79 become flooded. 322 rows are
+labelled from a map, 164 of them flooded; 1,163 flooded rows rest on a
+circle alone.
+
+The test the plan sets is the next table: every model scored on the
+labels of the 322 mapped rows only, the surest labels there are.
+
+| On the 322 mapped rows | Trained on current | Trained on new | Trained on new, circles at 0.5 |
+|---|---|---|---|
+| Base rate | 0.5093 | 0.5093 | 0.5093 |
+| Season-only average precision | 0.4837 | 0.4552 | 0.4546 |
+| Average precision | 0.4383 | 0.4580 | 0.4832 |
+| ROC AUC | 0.3796 | 0.3985 | 0.4210 |
+| Floods missed, of 164 | 60.8 | 63.2 | 81.8 |
+| False alarms | 126 | 121.4 | 98.2 |
+
+- **On the mapped rows every model ranks counties worse than chance.**
+  ROC AUC is 0.38 to 0.42, and average precision is below the base rate.
+  Within a mapped flood, the counties where the water was are given lower
+  scores than the counties under the same circle that stayed dry. This is
+  the April 2024 result in "Checking against satellite floods" again, now
+  on 17 floods from 2000 to 2018 and not one event.
+- **Training on the mapped labels helps there, a little.** Average precision
+  rises by 0.020, and by 0.045 with the circle labels at half weight, and
+  ROC AUC by 0.02 and 0.04. That is beyond the 0.005 used for the whole
+  set, but it is measured on 322 rows from 17 floods, and none of the
+  three reaches chance.
+- **Over all rows it does worse.** The model trained on the current labels
+  predicts the new labels better than the model trained on them (0.2377
+  against 0.2229), as it did for "Assigning a flood to a month". Half
+  weight for circle labels lowers every probability, so the same 10%
+  threshold misses 657 floods of 1,327 in place of 421.
+- **So the labels are not adopted.** The flood archive and the rules are
+  unchanged.
+
+What it says about the model is the useful part. The water a satellite
+mapped is often in a county whose own rainfall does not explain it, and a
+model that reads only that rainfall ranks those counties low. That is what
+the river and soil inputs of Phase 2 add. The comparison should be rerun
+with them in the model: the mapped labels may help once the model has an
+input that can tell the wet counties from the dry ones.
 
 ## Running it
 

@@ -716,6 +716,7 @@ function renderProvenance(scores) {
   const latest = scores.map((s) => s.prediction_date).filter(Boolean).sort().at(-1);
   els.provenance.hidden = false;
   els.provenance.replaceChildren();
+  els.provenance.classList.toggle("provenance--placeholder", looksLikePlaceholder && !isOutlook());
 
   const label = el("strong", null, versions.join(", "));
   if (isOutlook()) {
@@ -769,7 +770,8 @@ function daysSince(isoString) {
 }
 
 function renderRegionBar() {
-  els.regionBar.replaceChildren();
+  const group = el("div", "segmented");
+  els.regionBar.replaceChildren(el("span", "layer-bar__label", "Region"), group);
   const current = state.focus?.slug ?? "";
 
   const options = [{ slug: "", name: "All Kenya" }, ...state.focusRegions];
@@ -780,7 +782,7 @@ function renderRegionBar() {
     button.addEventListener("click", () => {
       location.hash = option.slug ? `#/${option.slug}` : "";
     });
-    els.regionBar.append(button);
+    group.append(button);
   }
 }
 
@@ -817,7 +819,8 @@ function renderPeriodBar() {
   // or a second day of scores to be worth showing.
   const hasEarlierDays = state.scoreDates.length > 1;
   els.periodBar.hidden = state.outlookMonths.length === 0 && !hasEarlierDays;
-  els.periodBar.replaceChildren();
+  const group = el("div", "segmented");
+  els.periodBar.replaceChildren(el("span", "layer-bar__label", "When"), group);
 
   const options = [
     { period: null, name: "Today" },
@@ -840,7 +843,7 @@ function renderPeriodBar() {
       state.forecastDay = null;
       route();
     });
-    els.periodBar.append(button);
+    group.append(button);
     // The week ahead sits next to today, before the months ahead.
     if (option.period === null && state.forecastDays.length > 0) {
       const ahead = el("button", "region-bar__button", "Next 7 days");
@@ -854,7 +857,7 @@ function renderPeriodBar() {
         state.forecastDay = state.forecastDays[0];
         route();
       });
-      els.periodBar.append(ahead);
+      group.append(ahead);
     }
   }
   if (hasEarlierDays) els.periodBar.append(...scoreDatePicker());
@@ -957,7 +960,7 @@ function renderTimeline() {
   );
   const track = el("div", "timeline__track");
   track.append(slider, ends);
-  els.timelineBar.replaceChildren(playButton, track, label);
+  els.timelineBar.replaceChildren(el("span", "layer-bar__label", "Day"), playButton, track, label);
 }
 
 function hasGrid() {
@@ -970,7 +973,8 @@ function renderLayerBar() {
   els.layerBar.replaceChildren();
   if (!hasGrid()) return;
 
-  els.layerBar.append(el("span", "layer-bar__label", "Colour by"));
+  const group = el("div", "segmented");
+  els.layerBar.append(el("span", "layer-bar__label", "Colour by"), group);
   const options = [
     { mapBy: "region", name: isRegionView() ? "Sub-county" : "County" },
     { mapBy: "grid", name: "Area" },
@@ -983,7 +987,7 @@ function renderLayerBar() {
       state.mapBy = option.mapBy;
       route();
     });
-    els.layerBar.append(button);
+    group.append(button);
   }
 }
 
@@ -1041,7 +1045,8 @@ function loadGrid() {
 
 /** "Show": what the colour on the map means (themes.js). */
 function renderThemeBar() {
-  els.themeBar.replaceChildren(el("span", "layer-bar__label", "Show"));
+  const group = el("div", "segmented");
+  els.themeBar.replaceChildren(el("span", "layer-bar__label", "Show"), group);
   const view = { outlook: isOutlook(), grid: state.gridOn, forecast: isForecast() };
   for (const theme of THEME_ORDER) {
     if (!themeAvailable(theme, view)) continue;
@@ -1053,7 +1058,7 @@ function renderThemeBar() {
       state.theme = theme;
       recolour();
     });
-    els.themeBar.append(button);
+    group.append(button);
   }
   els.themeBar.append(opacitySlider());
 }
@@ -2083,11 +2088,15 @@ function renderTable(features) {
       el("td", "table__num", formatValue(score?.predicted_value)),
     );
 
-    row.addEventListener("click", () => select(regionId, { pan: true }));
+    row.addEventListener("click", () => {
+      select(regionId, { pan: true });
+      showDetail();
+    });
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         select(regionId, { pan: true });
+        showDetail();
       }
     });
 
@@ -2117,6 +2126,19 @@ function select(regionId, { pan = false } = {}) {
   if (pan && layer) {
     map.fitBounds(layer.getBounds(), { padding: [24, 24], maxZoom: isRegionView() ? 11 : 8 });
   }
+}
+
+/**
+ * Bring the details of the selected area into view. The table sits below
+ * them, far down the page on a phone, so a pick from it would otherwise
+ * change something the reader cannot see. Focus follows, for keyboard and
+ * screen-reader users.
+ */
+function showDetail() {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  els.detailHeading.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  els.detailHeading.tabIndex = -1;
+  els.detailHeading.focus({ preventScroll: true });
 }
 
 /* --------------------------------------------------------------- report */
@@ -2768,4 +2790,6 @@ async function load() {
   }
 }
 
+// The stylesheets above are in by now: swap the splash in index.html for the app.
+document.documentElement.classList.add("is-ready");
 load();
