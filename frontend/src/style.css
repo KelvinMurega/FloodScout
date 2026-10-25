@@ -15,6 +15,8 @@
   --county-line: #52514e;
   --context-fill: #ecebe6;
   --accent: #0b0b0b;
+  --surface-2: #efeee9;
+  --brand: #1f78d1;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -35,6 +37,8 @@
     --county-line: #c3c2b7;
     --context-fill: #262625;
     --accent: #ffffff;
+    --surface-2: #242423;
+    --brand: #4c9be8;
   }
 }
 
@@ -53,6 +57,8 @@
   --county-line: #c3c2b7;
   --context-fill: #262625;
   --accent: #ffffff;
+  --surface-2: #242423;
+  --brand: #4c9be8;
 }
 
 * {
@@ -96,41 +102,95 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 12px 24px;
+  padding: 12px 20px;
   background: var(--surface-1);
   border-bottom: 1px solid var(--hairline);
 }
 
+.app__brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app__brand:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.app__mark {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  fill: var(--brand);
+}
+
+.app__mark-wave {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.app__titles {
+  display: grid;
+  gap: 1px;
+}
+
 .app__title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 
 .app__subtitle {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* Alerts, print, CSV and sign-in, pushed to the right edge. */
+.app__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: auto;
+}
+
+.app__actions .auth {
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline);
+}
+
+.button-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* The placeholder-scorer banner. Deliberately loud: a stub score must never
    pass for a trained-model result. */
 .provenance {
   margin: 0;
-  padding: 7px 12px;
-  border: 1px solid var(--border-ring);
-  border-left: 3px solid currentColor;
-  border-radius: 6px;
+  padding: 2px 0 2px 16px;
+  border-left: 1px solid var(--hairline);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text-secondary);
-  background: var(--surface-page);
   /* Take the width the titles leave, so the long outlook note wraps to two
      lines at most; anything longer scrolls instead of growing the header. */
-  flex: 1 1 46ch;
+  flex: 1 1 24ch;
   max-width: 120ch;
   box-sizing: content-box;
   max-height: calc(2 * 1.45em);
@@ -140,7 +200,17 @@ body {
 
 .provenance strong {
   color: var(--text-primary);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* A stub score must never pass for a trained-model result. */
+.provenance--placeholder {
+  padding: 6px 12px;
+  border: 1px solid #d03b3b;
+  border-left-width: 3px;
+  border-radius: 6px;
+  color: #d03b3b;
 }
 
 /* --- Region bar -------------------------------------------------------- */
@@ -171,8 +241,20 @@ body {
 }
 
 .auth__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
   text-decoration: none;
+}
+
+/* Secondary header actions: an icon and text, outlined only on hover. */
+.auth__button--quiet {
+  border-color: transparent;
+}
+
+.auth__button--quiet:hover {
+  border-color: var(--border-ring);
 }
 
 .auth__button:hover {
@@ -221,16 +303,45 @@ body {
 .report-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 2px;
+}
+
+/* --- Map controls ------------------------------------------------------ */
+
+/* Where, when and what the colour shows, in one panel. Each group is a
+   small label and a segmented control, and the groups flow into as few
+   rows as the width allows. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 32px;
+  padding: 10px 20px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .region-bar {
   display: flex;
-  gap: 6px;
-  padding: 8px 16px;
+  align-items: center;
+  gap: 10px;
   overflow-x: auto;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--hairline);
+}
+
+/* One choice out of several: buttons sharing a recessed track. */
+.segmented {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.segmented .region-bar__button {
+  border-color: transparent;
+  border-radius: 7px;
 }
 
 .region-bar[hidden] {
@@ -243,7 +354,6 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 6px;
   font-size: 13px;
   color: var(--text-secondary);
 }
@@ -253,20 +363,12 @@ body {
   accent-color: var(--accent);
 }
 
-/* The "Show" and "Colour by" bars share one strip. */
+/* The "Show" and "Colour by" groups stay together. */
 .map-bars {
   display: flex;
   flex-wrap: wrap;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--hairline);
-}
-
-.map-bars .region-bar {
-  border-bottom: 0;
-}
-
-.map-bars #layer-bar {
-  border-left: 1px solid var(--hairline);
+  align-items: center;
+  gap: 10px 32px;
 }
 
 /* Leaflet's own controls, in the dashboard's colours in either theme. */
@@ -306,7 +408,7 @@ body {
 
 .region-bar__button:hover {
   color: var(--text-primary);
-  background: var(--surface-page);
+  background: var(--surface-1);
 }
 
 .region-bar__button[aria-pressed="true"] {
@@ -324,12 +426,21 @@ body {
   outline-offset: 2px;
 }
 
-/* "Colour by" ahead of the region-or-area choice. */
+/* The name of each control group: "Region", "When", "Show", "Colour by". */
 .layer-bar__label {
   flex: none;
   align-self: center;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The labels that start a row share a width, so the tracks line up. */
+.controls > .region-bar > .layer-bar__label,
+#theme-bar > .layer-bar__label {
+  min-width: 5em;
 }
 
 /* The earlier-day picker, at the end of the period bar. */
@@ -338,13 +449,12 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 10px;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
 .period-bar__input {
-  padding: 4px 8px;
+  padding: 5px 10px;
   border: 1px solid var(--border-ring);
   border-radius: 999px;
   background: var(--surface-page);
@@ -371,16 +481,23 @@ body {
 
 /* --- Layout ------------------------------------------------------------ */
 
+/* The map across the full width with the panel under it, and the page
+   scrolling as a whole. A panel beside the map was a narrow strip that
+   scrolled on its own, most of it out of sight. The admin page keeps the
+   fixed height: it scrolls inside its own box. */
+body:not(.is-admin) .app {
+  height: auto;
+  min-height: 100vh;
+}
+
 .app__main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 330px;
-  min-height: 0;
+  flex: none;
 }
 
 .map-wrap {
   position: relative;
-  min-height: 0;
+  height: 70vh;
+  min-height: 420px;
 }
 
 #map {
@@ -417,18 +534,45 @@ body {
 
 /* --- Side panel -------------------------------------------------------- */
 
+/* Three columns under the map: the picture as a whole, the chosen area,
+   and the list. Two on a narrower screen, with the list across the bottom. */
 .panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
   background: var(--surface-1);
+  border-top: 1px solid var(--hairline);
+}
+
+.panel__col {
+  min-width: 0;
+}
+
+.panel__col + .panel__col {
   border-left: 1px solid var(--hairline);
+}
+
+@media (max-width: 1199px) {
+  .panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel__col:last-child {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+  }
 }
 
 .panel__section {
   padding: 14px 16px;
   border-bottom: 1px solid var(--hairline);
+}
+
+/* Focused by the page, after a pick from the table, not by the reader:
+   no ring, since it is not something to click. */
+.panel__heading[tabindex="-1"]:focus {
+  outline: none;
 }
 
 .panel__section--grow {
@@ -1114,6 +1258,8 @@ body {
   }
 
   /* Controls have no use on paper. */
+  .controls,
+  .app__mark,
   .region-bar,
   .auth,
   .report-actions,
@@ -1216,26 +1362,119 @@ body {
 }
 
 @media (max-width: 860px) {
-  .app__main {
-    grid-template-columns: 1fr;
-    grid-template-rows: 55vh auto;
+  .map-wrap {
+    height: 55vh;
+    min-height: 0;
   }
 
   .panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel__col + .panel__col {
     border-left: 0;
     border-top: 1px solid var(--hairline);
+  }
+
+  .app__header {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .app__subtitle {
+    font-size: 12px;
+  }
+
+  .provenance {
+    flex-basis: 100%;
+    max-height: none;
+    padding-left: 10px;
+  }
+
+  .app__actions {
+    margin-left: 0;
+  }
+
+  .app__actions .auth {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .controls,
+  .map-bars {
+    gap: 8px;
+  }
+
+  .controls {
+    padding: 8px 12px;
+  }
+
+  /* Each group takes a row and swipes sideways, without a scrollbar
+     taking up room under every row. */
+  .region-bar,
+  .map-bars {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .region-bar {
+    scrollbar-width: none;
+  }
+
+  .region-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .layer-bar__label {
+    min-width: 5.5em;
+  }
+
+  .timeline {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+
+  /* Scoped to .timeline to beat the base rules, which come later. */
+  .timeline .timeline__track {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .timeline .timeline__label {
+    flex-basis: 100%;
   }
 }
 
 /* --- Timeline (observed days, then the forecast) ----------------------- */
 
 .timeline {
-  align-items: center;
+  flex: 1 1 480px;
   gap: 12px;
 }
 
 .timeline__play {
-  min-width: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
+}
+
+/* A play triangle, or two pause bars while playing. */
+.timeline__play::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.timeline__play[aria-pressed="true"]::before {
+  width: 8px;
+  height: 10px;
+  border-width: 0 3px;
+  border-color: currentColor;
 }
 
 .timeline__track {

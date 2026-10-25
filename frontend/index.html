@@ -8,36 +8,97 @@
       name="description"
       content="Flood risk across Kenya's counties and sub-counties, on basemaps with rivers, flood zones, past floods and satellite rain."
     />
+    <!-- The stylesheet arrives with main.js, so until then the page would
+         show unstyled, its icons drawn at full size. The splash below is
+         styled here instead, and the app stays hidden until main.js marks
+         the page ready. -->
+    <style>
+      html:not(.is-ready) .app { visibility: hidden; }
+      html.is-ready .splash { display: none; }
+      .splash {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #f9f9f7;
+        color: #0b0b0b;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .splash__mark { width: 56px; height: 56px; animation: splash-pulse 1.4s ease-in-out infinite; }
+      .splash__mark path { fill: #1f78d1; }
+      .splash__mark .splash__wave { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+      .splash__title { margin: 0; font-size: 20px; font-weight: 650; }
+      .splash__text { margin: 0; font-size: 14px; opacity: 0.65; }
+      @keyframes splash-pulse { 50% { transform: scale(0.88); opacity: 0.7; } }
+      @media (prefers-reduced-motion: reduce) { .splash__mark { animation: none; } }
+      @media (prefers-color-scheme: dark) {
+        .splash { background: #0d0d0d; color: #fff; }
+        .splash__mark path { fill: #4c9be8; }
+      }
+    </style>
   </head>
   <body>
+    <div class="splash" role="status">
+      <svg class="splash__mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 3c4.8 6 9 11 9 16a9 9 0 0 1-18 0c0-5 4.2-10 9-16z" />
+        <path class="splash__wave" d="M10.5 20.5c1.8 1.4 3.6 1.4 5.5 0s3.7-1.4 5.5 0" />
+      </svg>
+      <p class="splash__title">FloodScout</p>
+      <p class="splash__text">Loading flood risk&hellip;</p>
+    </div>
+
     <div class="app">
       <header class="app__header">
-        <div class="app__titles">
-          <h1 class="app__title">FloodScout</h1>
-          <p class="app__subtitle">Flood risk across Kenya&rsquo;s counties and sub-counties</p>
-        </div>
+        <a class="app__brand" href="#/" aria-label="FloodScout, back to the map">
+          <svg class="app__mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 3c4.8 6 9 11 9 16a9 9 0 0 1-18 0c0-5 4.2-10 9-16z" />
+            <path class="app__mark-wave" d="M10.5 20.5c1.8 1.4 3.6 1.4 5.5 0s3.7-1.4 5.5 0" />
+          </svg>
+          <span class="app__titles">
+            <span class="app__title" role="heading" aria-level="1">FloodScout</span>
+            <span class="app__subtitle">Flood risk across Kenya&rsquo;s counties and sub-counties</span>
+          </span>
+        </a>
         <!-- Filled from the model_version actually present in the data, never
              hardcoded, so it cannot drift from what the API returned. -->
         <p class="provenance" id="provenance" role="status" tabindex="0" hidden></p>
-        <!-- The view on screen as a printed report or a CSV file (wireframe 4.10). -->
-        <div class="report-actions">
-          <a class="auth__button auth__button--primary" href="#/alerts">Flood alerts</a>
-          <button class="auth__button" id="print-report" type="button" disabled>Print report</button>
-          <button class="auth__button" id="download-csv" type="button" disabled>Download CSV</button>
+        <div class="app__actions">
+          <!-- The view on screen as a printed report or a CSV file (wireframe 4.10). -->
+          <div class="report-actions">
+            <a class="auth__button auth__button--quiet" href="#/alerts">
+              <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3a5 5 0 0 0-5 5v3l-1.5 2.5h13L15 11V8a5 5 0 0 0-5-5zM8 15.5a2 2 0 0 0 4 0" /></svg>
+              Flood alerts
+            </a>
+            <button class="auth__button auth__button--quiet" id="print-report" type="button" disabled>
+              <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 7V3h8v4M6 14H4V8h12v6h-2M6 11h8v6H6z" /></svg>
+              Print report
+            </button>
+            <button class="auth__button auth__button--quiet" id="download-csv" type="button" disabled>
+              <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-3.5-3.5L10 12l3.5-3.5M4 14v3h12v-3" /></svg>
+              Download CSV
+            </button>
+          </div>
+          <!-- Sign-in for the System Administrator; the map itself needs no account. -->
+          <div class="auth" id="auth"></div>
         </div>
-        <!-- Sign-in for the System Administrator; the map itself needs no account. -->
-        <div class="auth" id="auth"></div>
       </header>
 
       <!-- The flood alerts in force (src/alerts/), over everything else. -->
       <div class="alert-banner" id="alert-banner" role="region" aria-label="Flood alerts in force" hidden></div>
 
-      <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
-      <nav class="region-bar" id="period-bar" aria-label="Choose today, an earlier day or a month ahead" hidden></nav>
-      <nav class="region-bar timeline" id="timeline-bar" aria-label="Move through the days, observed and forecast" hidden></nav>
-      <div class="map-bars">
-        <nav class="region-bar" id="theme-bar" aria-label="Choose what the colour shows"></nav>
-        <nav class="region-bar" id="layer-bar" aria-label="Colour the map by region or by area" hidden></nav>
+      <!-- What the map shows: where, when, and what the colour means. -->
+      <div class="controls">
+        <nav class="region-bar" id="region-bar" aria-label="Choose a region"></nav>
+        <nav class="region-bar" id="period-bar" aria-label="Choose today, an earlier day or a month ahead" hidden></nav>
+        <nav class="region-bar timeline" id="timeline-bar" aria-label="Move through the days, observed and forecast" hidden></nav>
+        <div class="map-bars">
+          <nav class="region-bar" id="theme-bar" aria-label="Choose what the colour shows"></nav>
+          <nav class="region-bar" id="layer-bar" aria-label="Colour the map by region or by area" hidden></nav>
+        </div>
       </div>
 
       <main class="app__main">
@@ -46,7 +107,10 @@
           <div class="status" id="status">Loading counties&hellip;</div>
         </div>
 
+        <!-- Under the map, in columns: the picture as a whole, the chosen
+             area, and every area in a list. They stack on a phone. -->
         <aside class="panel" aria-label="Area details">
+          <div class="panel__col">
           <section class="panel__section search">
             <label class="panel__heading" for="search-input">
               Find a place <span class="panel__hint">county or sub-county</span>
@@ -74,14 +138,18 @@
           <section class="panel__section region-intro" id="region-intro" hidden></section>
 
           <section class="panel__section" id="relocation" hidden></section>
+          </div>
 
+          <div class="panel__col">
           <section class="panel__section">
             <h2 class="panel__heading" id="detail-heading">County</h2>
             <div id="detail" class="detail">
               <p class="detail__empty">Select a county on the map.</p>
             </div>
           </section>
+          </div>
 
+          <div class="panel__col">
           <section class="panel__section">
             <h2 class="panel__heading" id="legend-heading">Legend</h2>
             <ul class="legend" id="legend"></ul>
@@ -97,6 +165,7 @@
               <tbody id="table-body"></tbody>
             </table>
           </section>
+          </div>
         </aside>
       </main>
 

@@ -37,16 +37,19 @@
 
 /* --- Banner over the map ----------------------------------------------- */
 
+/* A tinted strip with a stripe of the worst level's colour down its left
+   edge: loud enough to notice, slim enough to leave the map the room. */
 .alert-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  padding: 8px 16px;
+  gap: 6px 12px;
+  padding: 7px 20px;
   background: var(--alert-warning-bg);
   border-bottom: 1px solid var(--hairline);
+  box-shadow: inset 4px 0 0 var(--alert-warning);
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .alert-banner[hidden] {
@@ -55,21 +58,32 @@
 
 .alert-banner--watch {
   background: var(--alert-watch-bg);
+  box-shadow: inset 4px 0 0 var(--alert-watch);
 }
 
 .alert-banner--advisory {
   background: var(--alert-advisory-bg);
+  box-shadow: inset 4px 0 0 var(--alert-advisory);
 }
 
 .alert-banner__text {
-  font-weight: 600;
+  font-weight: 650;
+}
+
+.alert-banner__hint {
+  color: var(--text-secondary);
+}
+
+.alert-banner .auth__button {
+  padding: 4px 12px;
+  font-size: 12.5px;
 }
 
 .alert-banner__icon {
   display: inline-grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--alert-warning);
   color: var(--surface-1);
