@@ -252,12 +252,24 @@ def with_normals(data: TrainingSet, normals: dict[str, dict[int, float]]) -> np.
     return X
 
 
-def held_out_probabilities(data: TrainingSet, make_model, columns, folds) -> np.ndarray:
-    """Each row's flood probability from a model that never saw its year."""
+def fit_weighted(model, X, y, weights=None):
+    """`model.fit(X, y)`, with `weights` as the last step's sample weights if given."""
+    if weights is None:
+        return model.fit(X, y)
+    return model.fit(X, y, **{f"{model.steps[-1][0]}__sample_weight": weights})
+
+
+def held_out_probabilities(data: TrainingSet, make_model, columns, folds, weights=None) -> np.ndarray:
+    """Each row's flood probability from a model that never saw its year.
+
+    `weights`, one per row, make some labels count for more in training than
+    others; scoring is unweighted.
+    """
     out = np.empty(len(data.y))
     for train_rows, test_rows in folds:
         X = with_normals(data, county_normals(data, train_rows))[:, columns]
-        model = make_model().fit(X[train_rows], data.y[train_rows])
+        row_weights = None if weights is None else weights[train_rows]
+        model = fit_weighted(make_model(), X[train_rows], data.y[train_rows], row_weights)
         out[test_rows] = model.predict_proba(X[test_rows])[:, 1]
     return out
 
