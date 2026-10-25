@@ -618,6 +618,8 @@ measure the change targets beside it.
 | 9 Oct 2026 | Rainfall measured as the mean over the county (ERA5-Land, Earth Engine) in place of one point (Open-Meteo); labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2713; 3,598 false alarms, 385.8 floods missed | Kept in cross-validation, then retrained on Colab and **not shipped**: see "The Colab retrain" |
 | 9 Oct 2026 | Labels: a flood counts for the window it began in, and for a later one only with seven days in it (on county-mean rainfall) | 0.2713 on the current labels; lift over season only 2.20 | 0.2566 on the new labels; lift 2.36. Trained on the current labels and scored on the new: 0.2672 | Not adopted |
 | 15 Oct 2026 | Point rainfall asked for as ERA5 every year (`models=era5`), in place of the service's choice of ERA5 to 2016 and IFS from 2017; labels and other inputs unchanged | 0.2516; 3,686 false alarms, 412.8 floods missed | 0.2579; 3,636 false alarms, 415.8 floods missed | Kept: the record is one dataset. Final test waits for the Colab retrain: see "One rainfall record" |
+| 21 Oct 2026 | Added `soil_moisture_start`: water in the top 28 cm of soil the day before the window, ERA5-Land averaged over the county (Earth Engine) | 0.2579; 415.8 floods missed, 3,636 false alarms | 0.2678; 376.2 floods missed, 3,705 false alarms | Kept in cross-validation; waits for the retrain with the river inputs: see "Soil moisture" |
+| 21 Oct 2026 | Added `soil_moisture_max` as well, the wettest day inside the window | 0.2678 (`soil_moisture_start` alone) | 0.2689; 370.0 floods missed, 3,722 false alarms | Dropped: +0.0011 over `soil_moisture_start` alone, within the noise |
 | 21 Oct 2026 | Labels: a flood the Global Flood Database mapped labels the counties that held 5 km² or more of its water, not its circle; other floods keep the circle (on point ERA5 rainfall) | 0.2579 on the current labels | 0.2229 on the new labels. On the 322 mapped rows: trained on current 0.4383, on new 0.4580, on new with circle labels at half weight 0.4832; every ROC AUC there below 0.5 | Not adopted: see "Labels from mapped flood water" |
 
 #### County-mean rainfall (kept)
@@ -851,6 +853,77 @@ What the first two results show:
 The four inputs are still worked out by `rainfall_features` and listed as
 `CANDIDATE_FEATURES` in `features.py`, so they can be tried again against
 better labels.
+
+### Soil moisture (kept in cross-validation)
+
+Phase 2, step 3 of `docs/MODEL_IMPROVEMENT_PLAN.md`. Ground that is already
+wet floods sooner, and the rain inputs say how much fell, not how much the
+ground still held. `soil_moisture_start` is the water in the top 28 cm of
+soil (ERA5-Land layers 1 and 2, 0 to 7 and 7 to 28 cm, weighted by depth)
+on the day before the window, averaged over the county by Earth Engine.
+`soil_moisture_max` is the wettest day's value inside the window. Run on 21
+October 2026 on the point ERA5 training set:
+
+```bash
+docker compose run --rm web python manage.py compare_inputs soil_moisture_start
+docker compose run --rm web python manage.py compare_inputs soil_moisture_start soil_moisture_max
+```
+
+| Measure | Current inputs | + `soil_moisture_start` | + both |
+|---|---|---|---|
+| Average precision, pooled | 0.2579 (0.0028) | 0.2678 (0.0022) | 0.2689 (0.0035) |
+| Average precision, mean of six folds | 0.2930 (0.0039) | 0.3025 (0.0026) | 0.3045 (0.0048) |
+| ROC AUC, pooled | 0.7863 (0.0017) | 0.7936 (0.0019) | 0.7957 (0.0018) |
+| Brier score, pooled | 0.0798 (0.0002) | 0.0790 (0.0002) | 0.0789 (0.0002) |
+| Floods missed, of 1,406 | 415.8 | 376.2 | 370.0 |
+| False alarms | 3,636 | 3,705 | 3,722 |
+| June floods missed, of 88 | 86.4 | 86.4 | 85.4 |
+| Floods missed in Nairobi, Kilifi, Lamu and Kwale, of 71 | 29.0 | 28.2 | 27.2 |
+
+Mean (standard deviation) over seeds 0 to 4.
+
+- **`soil_moisture_start` is the first input since county-mean rainfall to
+  pass the threshold.** Pooled average precision rises by 0.0099, about
+  twice the 0.005 used, and the mean of folds by 0.0095, so the gain is
+  within years as well as across them. It catches about 40 more floods
+  for about 70 more false alarms.
+- **The wettest day inside the window adds nothing beyond it** (+0.0011),
+  as expected: most of what it says is already in `rain_30d`. Dropped.
+- **Not yet in the model.** Adopting it needs the daily refresh, the
+  forecast and the outlook to read soil moisture as well, and a retrain on
+  Colab. The plan does that once for every input kept in Phase 2, after
+  the river inputs have been tried (Phase 5).
+
+### River discharge (download running)
+
+Phase 2, step 1. GloFAS river discharge (v4, 5 km, through Open-Meteo's
+flood service, from 1 January 1997) at a point on each county's largest
+river: the HydroRIVERS reach inside the county with the highest long-term
+mean discharge, not in a lake, moved onto the GloFAS cell whose flow best
+matches that reach (`geodata/services/river_points.py`,
+`open_meteo.river_cell`). The points are in
+`data/raw/discharge/river_points_county.json`. Garissa reads the Tana,
+Busia and Siaya the Nzoia, Kisumu the Nyando.
+
+Two compromises are recorded here so the result is read with them:
+
+- Baringo's river cell carries Lake Baringo, whose rise from 2020 was
+  itself a flood, and Nairobi's carries the Athi just below the city.
+- Turkana and Marsabit share one point, on the Kerio near Lake Turkana,
+  because the county boundary runs through the lake.
+
+The download is about 30,000 Open-Meteo calls, three days of the free
+quota, so `manage.py build_discharge --budget 4500 --every-hours 24` takes
+it a day's budget at a time and leaves the rest for the daily refresh.
+Started on 21 October 2026. The three inputs under trial are
+`discharge_30d_max`, `discharge_30d_mean` and `discharge_rise` (the
+window's peak against the river's mean over the year before, which needs no
+normal fitted per fold). Then:
+
+```bash
+docker compose run --rm web python manage.py compare_inputs discharge_30d_max discharge_rise
+docker compose run --rm web python manage.py compare_inputs soil_moisture_start discharge_30d_max discharge_rise
+```
 
 ### Assigning a flood to a month (not adopted)
 
