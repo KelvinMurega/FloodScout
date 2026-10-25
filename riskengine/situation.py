@@ -49,6 +49,7 @@ def newest_places(scores_qs) -> tuple[dt.date | None, list[Place], dt.date | Non
                     row.risk_category,
                     scorer.times_usual(row.predicted_value),
                     row.rain_forecast_max_24h,
+                    row.rain_forecast_mm,
                 )
             )
 
