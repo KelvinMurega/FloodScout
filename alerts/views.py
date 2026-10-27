@@ -28,7 +28,7 @@ from django.utils import timezone
 from django.utils.html import escape
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -44,6 +44,9 @@ from .models import LEVEL_RANK, Alert, AlertRun, Delivery, Level, Subscriber, ne
 MAX_CONFIRM_ATTEMPTS = 5
 CODE_LIFETIME = dt.timedelta(hours=1)
 MAX_REGIONS = 10
+CODES_USED_UP = (
+    "This email or phone has been sent all the codes it can get today. Try again tomorrow."
+)
 
 
 class AlertSerializer(serializers.ModelSerializer):
@@ -297,7 +300,14 @@ class SubscribeSerializer(serializers.Serializer):
 
 
 def _send_code(subscriber: Subscriber) -> list[str]:
-    """Send the confirmation code by every channel given; the channels it went by."""
+    """Send the confirmation code by every channel given; the channels it went by.
+
+    Raises Throttled, sending nothing, when the email or phone has already
+    had its codes for the day.
+    """
+    for to in (subscriber.email, subscriber.phone):
+        if to and not channels.take_code_allowance(to):
+            raise Throttled(detail=CODES_USED_UP)
     sent = []
     if subscriber.email:
         result = channels.send_email(
@@ -334,7 +344,11 @@ def subscribe(request):
         user=request.user if request.user.is_authenticated else None,
     )
     subscriber.regions.set(values["region_objects"])
-    sent = _send_code(subscriber)
+    try:
+        sent = _send_code(subscriber)
+    except Throttled:
+        subscriber.delete()
+        raise
     if not sent:
         subscriber.delete()
         return Response(

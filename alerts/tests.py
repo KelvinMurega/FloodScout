@@ -7,6 +7,7 @@ from unittest import mock
 from xml.etree import ElementTree as ET
 
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -382,6 +383,7 @@ class CapTests(TestCase):
 @override_settings(EMAIL_BACKEND=LOCMEM, AT_API_KEY="")
 class AlertAPITests(APITestCase):
     def setUp(self):
+        cache.clear()  # the alerts throttle and the daily code limit count across tests
         self.region = make_region("Alpha")
         self.alert = Alert.objects.create(
             region=self.region,
@@ -448,6 +450,19 @@ class AlertAPITests(APITestCase):
         self.assertContains(page, "no more FloodScout alerts")
         self.assertFalse(Subscriber.objects.exists())
         self.assertContains(self.client.get(url), "already been used")
+
+    def test_one_address_gets_at_most_five_codes_a_day(self):
+        codes = [
+            self.client.post(
+                "/api/alerts/subscribe/",
+                {"email": "victim@example.com", "regions": [self.region.id]},
+                format="json",
+            ).status_code
+            for _ in range(6)
+        ]
+        self.assertEqual(codes, [status.HTTP_201_CREATED] * 5 + [status.HTTP_429_TOO_MANY_REQUESTS])
+        self.assertEqual(len(mail.outbox), 5)
+        self.assertEqual(Subscriber.objects.count(), 5)  # the refused one is not kept
 
     def test_too_many_wrong_codes_end_the_sign_up(self):
         subscriber = Subscriber.objects.create(email="me@example.com", confirm_attempts=5)

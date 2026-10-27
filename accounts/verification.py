@@ -12,8 +12,9 @@ alerts reach that contact without any further code, including the warnings
 for where they live (accounts/home.py). An email Google or GitHub vouch for
 is verified at sign-in and gets no code at all.
 
-A new code is not sent more than once a minute, a code lasts an hour, and
-five wrong tries void it.
+A new code is not sent more than once a minute (or five times a day to one
+address, alerts.channels.CODES_PER_DAY), a code lasts an hour, and five
+wrong tries void it; asking for a new code does not reset them.
 """
 
 from __future__ import annotations
@@ -71,9 +72,21 @@ def send_code(user: User, channel: str = ContactCode.Channel.EMAIL, *, force: bo
         and not force
     ):
         return "recent"
+    if not channels.take_code_allowance(to):
+        raise VerificationError(
+            "This email or phone has been sent all the codes it can get today. Try again tomorrow."
+        )
+    # A new code to the same place keeps the wrong tries already used, so
+    # asking again does not buy five more guesses. A used-up code starts
+    # afresh; the daily limit above bounds the guesses to 25 a day.
+    attempts = 0
+    if existing and existing.destination == to and existing.attempts < MAX_ATTEMPTS:
+        attempts = existing.attempts
     if existing:
         existing.delete()
-    code = ContactCode.objects.create(user=user, channel=channel, destination=to, code=new_code())
+    code = ContactCode.objects.create(
+        user=user, channel=channel, destination=to, code=new_code(), attempts=attempts
+    )
 
     if channel == ContactCode.Channel.EMAIL:
         result = channels.send_email(

@@ -19,6 +19,7 @@ AT_API_KEY, SMS is skipped and the reason recorded; it never fails a run.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import urllib.error
@@ -27,10 +28,18 @@ import urllib.request
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import send_mail
 
 SMS_TIMEOUT_SECONDS = 30
 SMS_MAX_CHARS = 160
+
+# Confirmation codes one email or phone can be sent in a day, by every route
+# (alert sign-up, the profile's "Get alerts", confirming a contact). The
+# per-address rate limits stop one sender; this stops many senders, or one
+# with many addresses, from flooding a stranger's inbox or running up SMS.
+CODES_PER_DAY = 5
+CODE_DAY_SECONDS = 24 * 60 * 60
 
 
 @dataclass
@@ -58,6 +67,18 @@ def normalise_phone(raw: str) -> str:
     if not re.fullmatch(r"[17]\d{8}", digits):
         raise PhoneError("Enter a Kenyan mobile number, for example 0712 345 678.")
     return f"+254{digits}"
+
+
+def take_code_allowance(to: str) -> bool:
+    """Count one code to `to`; False once it has had CODES_PER_DAY in a day."""
+    key = "codes-sent:" + hashlib.sha256(to.strip().lower().encode()).hexdigest()
+    cache.add(key, 0, CODE_DAY_SECONDS)
+    try:
+        sent = cache.incr(key)
+    except ValueError:  # expired between add and incr
+        cache.set(key, 1, CODE_DAY_SECONDS)
+        sent = 1
+    return sent <= CODES_PER_DAY
 
 
 def send_email(to: str, subject: str, body: str) -> Result:
