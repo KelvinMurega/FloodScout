@@ -34,6 +34,10 @@ if not DEBUG and SECRET_KEY.startswith(("change-me", "django-insecure")):
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+# Where the Django admin lives. Set it to something not guessable in
+# production, so the sign-in page is not where every scanner looks first.
+ADMIN_PATH = env("DJANGO_ADMIN_PATH", default="admin/").strip("/") + "/"
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
