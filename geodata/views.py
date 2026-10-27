@@ -24,6 +24,9 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
     filtered, so any region is reachable by id.
     """
 
+    # The 47 counties by default; every sub-county at most (about 300).
+    pagination_class = None
+
     queryset = Region.objects.order_by("county_name", "level", "name")
     serializer_class = RegionSerializer
 

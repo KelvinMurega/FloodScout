@@ -98,6 +98,9 @@ def _sorted(alerts):
 
 class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertSerializer
+    # The ones in force by default, at most one per region; the history
+    # (?status=all) grows by a few a day.
+    pagination_class = None
 
     def get_queryset(self):
         qs = Alert.objects.select_related("region", "issued_by")

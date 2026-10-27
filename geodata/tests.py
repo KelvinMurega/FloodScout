@@ -269,13 +269,19 @@ class GeospatialFeatureAPITests(APITestCase):
     def test_filter_by_region(self):
         response = self.client.get(f"/api/geospatial-features/?region={self.region.id}")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["region"], self.region.id)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["region"], self.region.id)
 
     def test_unfiltered_returns_all(self):
         response = self.client.get("/api/geospatial-features/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_the_list_comes_in_pages(self):
+        one = self.client.get("/api/geospatial-features/", {"page_size": 1})
+        self.assertEqual((one.data["count"], len(one.data["results"])), (2, 1))
+        self.assertIsNotNone(one.data["next"])
 
     def test_a_region_that_is_not_a_number_is_a_400_not_a_500(self):
         for url in ("/api/geospatial-features/", "/api/environmental-data/"):
@@ -292,8 +298,8 @@ class EnvironmentalDataAPITests(APITestCase):
         )
         response = self.client.get("/api/environmental-data/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["rainfall_intensity"], 12.5)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["rainfall_intensity"], 12.5)
 
 
 # --- Ingesting real terrain and rainfall (Open-Meteo) ---

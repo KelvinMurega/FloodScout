@@ -9,6 +9,7 @@ for both the System Administrator and End User actors from the Use Case and
 Class Diagrams (Sections 4.3.1 and 4.3.4) — see accounts/models.py.
 """
 
+import sys
 from pathlib import Path
 
 import environ
@@ -20,6 +21,7 @@ env = environ.Env(DJANGO_DEBUG=(bool, False))
 environ.Env.read_env(BASE_DIR / ".env")
 
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
+TESTING = sys.argv[1:2] == ["test"]
 
 # No fallback: a key everyone can read in this file signs nothing safely.
 # Outside DEBUG, the placeholder from .env.example is refused as well.
@@ -165,9 +167,24 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
+    # Every list is paged unless its view opts out (api/pagination.py).
+    "DEFAULT_PAGINATION_CLASS": "api.pagination.Pages",
+    # Every request counts against its client: by address when anonymous,
+    # by account when signed in. One dashboard load is about 15 requests.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
     # Sign-in attempts per client address (accounts/views.py), and alert
     # sign-ups and code entries (alerts/views.py), which send messages.
-    "DEFAULT_THROTTLE_RATES": {"login": "10/min", "alerts": "20/hour"},
+    # The test suite makes hundreds of requests a minute from one address,
+    # so it runs without the two general limits (a test turns them back on).
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": None if TESTING else "120/min",
+        "user": None if TESTING else "240/min",
+        "login": "10/min",
+        "alerts": "20/hour",
+    },
     # How many proxies sit in front of the API. With the DRF default (None)
     # the client's own X-Forwarded-For header names its address, so a new
     # made-up address per request escapes every limit above. 0 means the

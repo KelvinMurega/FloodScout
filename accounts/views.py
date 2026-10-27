@@ -276,6 +276,8 @@ class UserAdminViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.
     permission_classes = [IsAdministrator]
     serializer_class = UserAdminSerializer
     http_method_names = ["get", "patch"]
+    # Administrators only, and the admin page lists every account.
+    pagination_class = None
 
     def get_queryset(self):
         return User.objects.annotate(subscriptions=Count("alert_subscriptions")).order_by(
