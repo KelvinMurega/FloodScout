@@ -142,10 +142,11 @@ leaves it.
   rendered by `L.geoJSON` as-is.
 - `GET /risk-scores/latest-by-region/?level=county`: the latest score for
   every county in **one** request.
-- `GET /focus-regions/`: the flood-prone regions (Coast, Lake Basin, Rift
-  Valley, North Eastern, Nairobi) and the county ids in each.
+- `GET /focus-regions/`: the flood-prone regions (Coast, Lake Victoria Basin,
+  Rift Valley, Northern rivers, Nairobi metro), the county ids in each, their
+  sources, and any former slugs (`#/nairobi` still opens Nairobi metro).
 
-**A region** (Coast, Nairobi, ...) adds two requests the first time it is
+**A region** (Coast, Nairobi metro, ...) adds two requests the first time it is
 opened, then caches them:
 
 - `GET /regions/?level=sub_county&focus_region=<slug>`

@@ -709,7 +709,7 @@ class SubCountyScoreAPITests(APITestCase):
     def test_latest_by_region_filters_by_focus_region(self):
         response = self.client.get(
             reverse("risk-score-latest-by-region"),
-            {"level": "sub_county", "focus_region": "nairobi"},
+            {"level": "sub_county", "focus_region": "nairobi-metro"},
         )
 
         self.assertEqual(
@@ -720,7 +720,7 @@ class SubCountyScoreAPITests(APITestCase):
         with self.assertNumQueries(1):
             self.client.get(
                 reverse("risk-score-latest-by-region"),
-                {"level": "sub_county", "focus_region": "nairobi"},
+                {"level": "sub_county", "focus_region": "nairobi-metro"},
             )
 
     def test_lower_risk_neighbours_are_adjacent_and_lower_least_risky_first(self):
@@ -788,7 +788,7 @@ class RiskOutlookAPITests(APITestCase):
     def test_filters_by_focus_region(self):
         response = self.client.get(
             reverse("risk-outlook-list"),
-            {"month": "2026-11-01", "level": "sub_county", "focus_region": "nairobi"},
+            {"month": "2026-11-01", "level": "sub_county", "focus_region": "nairobi-metro"},
         )
 
         self.assertEqual([row["region_name"] for row in response.data], ["Kibra"])

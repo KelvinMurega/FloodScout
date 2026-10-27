@@ -2696,6 +2696,13 @@ async function route() {
   // The map views need the counties; load() routes again once they are in.
   if (!state.counties) return;
   const focus = state.focusRegions.find((f) => f.slug === slug);
+  // A link saved before a region was renamed: swap in its new slug, without
+  // a second history entry. The hashchange routes again.
+  const renamed = !focus && state.focusRegions.find((f) => f.former_slugs?.includes(slug));
+  if (renamed) {
+    location.replace(`#/${renamed.slug}`);
+    return;
+  }
   try {
     if (focus) {
       await showRegion(focus);
