@@ -29,7 +29,7 @@ from geodata.services.climate_indices import dmi_for, parse_dmi
 from riskengine.ml import experiments, train
 from riskengine.ml.calibration import CalibratedModel, Calibrator
 from riskengine.ml.features import CANDIDATE_FEATURES, FEATURE_NAMES, feature_row, rainfall_features
-from riskengine.ml.infer import load_model, model_infer, region_row
+from riskengine.ml.infer import ModelIntegrityError, load_model, model_infer, region_row
 
 WINDOW_END = dt.date(2019, 11, 30)
 
@@ -498,6 +498,49 @@ class DmiTests(SimpleTestCase):
         table = parse_dmi(self.TEXT)
         self.assertEqual(dmi_for(dt.date(2019, 12, 31), table), 1.0)  # October's value
         self.assertEqual(dmi_for(dt.date(2020, 9, 30), table), 0.0)  # newest available
+
+
+class ModelIntegrityTests(SimpleTestCase):
+    """A model file is unpickled only when its recorded SHA-256 matches."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+        self.model = self.folder / "flood_model.joblib"
+        self.metrics = self.folder / "metrics.json"
+
+    def save(self):
+        with (
+            mock.patch.object(train, "ARTIFACT_DIR", self.folder),
+            mock.patch.object(train, "ARTIFACT_PATH", self.model),
+            mock.patch.object(train, "METRICS_PATH", self.metrics),
+        ):
+            train.save({"version": "test-model"}, {"base_rate": 0.1})
+
+    def test_a_saved_model_records_its_hash_and_loads(self):
+        self.save()
+        recorded = json.loads(self.metrics.read_text())["model_sha256"]
+        self.assertEqual(recorded, hashlib.sha256(self.model.read_bytes()).hexdigest())
+        self.assertEqual(load_model(self.model)["version"], "test-model")
+
+    def test_a_swapped_model_file_is_refused(self):
+        self.save()
+        self.model.write_bytes(self.model.read_bytes() + b"\0")
+        with self.assertRaises(ModelIntegrityError):
+            load_model(self.model)
+
+    def test_a_model_with_no_recorded_hash_is_refused(self):
+        self.save()
+        self.metrics.write_text(json.dumps({"version": "test-model"}))
+        with self.assertRaises(ModelIntegrityError):
+            load_model(self.model)
+
+    def test_the_shipped_metrics_match_the_shipped_model(self):
+        shipped = train.ARTIFACT_PATH
+        if not shipped.exists():
+            self.skipTest("No model artifact on disk")
+        self.assertIsNotNone(load_model(shipped))
 
 
 class ModelCompatibilityTests(TestCase):

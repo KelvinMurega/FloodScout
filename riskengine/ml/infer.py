@@ -35,6 +35,7 @@ result, in the database or in the API.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 
@@ -52,9 +53,29 @@ HEURISTIC_VERSION = "heuristic-stub-v0"
 ARTIFACT_PATH = Path(__file__).resolve().parent / "artifacts" / "flood_model.joblib"
 
 
+class ModelIntegrityError(RuntimeError):
+    """The model file is not the one its training run recorded."""
+
+
 def load_model(path: Path = ARTIFACT_PATH) -> dict | None:
-    """The trained model package, or None when none has been trained yet."""
-    return joblib.load(path) if path.exists() else None
+    """The trained model package, or None when none has been trained yet.
+
+    The file is a pickle, and loading a pickle runs whatever code is in it.
+    So it is loaded only when its SHA-256 matches `model_sha256` in the
+    metrics.json beside it, which the training run wrote and git tracks: a
+    swapped file, or one with no recorded hash, is refused, not run.
+    """
+    if not path.exists():
+        return None
+    metrics = path.with_name("metrics.json")
+    expected = json.loads(metrics.read_text()).get("model_sha256") if metrics.exists() else None
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if expected != actual:
+        raise ModelIntegrityError(
+            f"{path.name} has SHA-256 {actual}, but {metrics.name} records {expected}. "
+            "Copy both files from the same training run."
+        )
+    return joblib.load(path)
 
 
 # Loaded once at import. It is all-or-nothing on purpose: either every score
