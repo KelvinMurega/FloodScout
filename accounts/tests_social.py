@@ -180,7 +180,7 @@ class SocialFlowTests(APITestCase):
 
     def test_a_verified_google_email_joins_the_existing_account(self):
         existing = User.objects.create_user(
-            "wanjiku_k", email="Wanjiku@gmail.com", password=PASSWORD
+            "wanjiku_k", email="Wanjiku@gmail.com", password=PASSWORD, email_verified=True
         )
         params = self.begin()
         ticket = self.ticket_from(
@@ -190,6 +190,20 @@ class SocialFlowTests(APITestCase):
         self.assertEqual(response.data["username"], "wanjiku_k")
         self.assertEqual(response.data["linked"], "google")
         self.assertEqual(SocialAccount.objects.get().user, existing)
+
+    def test_an_account_that_never_confirmed_the_email_is_not_joined(self):
+        # Someone registers with Wanjiku's address before she ever signs in.
+        # Her Google sign-in must not land in their account.
+        register = self.client.post(
+            "/api/auth/register/",
+            {"username": "squatter", "email": "wanjiku@gmail.com", "password": PASSWORD},
+        )
+        self.assertEqual(register.status_code, status.HTTP_201_CREATED)
+        params = self.begin()
+        response = self.callback("google", params, FakeProvider(claims=self.google_claims(params)))
+        self.assertIn("#/signin?error=", response["Location"])
+        self.assertFalse(SocialAccount.objects.exists())
+        self.assertFalse(User.objects.get(username="squatter").email_verified)
 
     def test_an_unverified_email_never_joins_an_existing_account(self):
         User.objects.create_user("wanjiku_k", email="wanjiku@gmail.com", password=PASSWORD)

@@ -24,9 +24,12 @@ Account matching is where social sign-in usually goes wrong, so the rules
 are strict:
 
   - A link is found by (provider, the provider's subject id), never by email.
-  - A new link may join an existing account by email only when the provider
-    says the email is verified: Google's `email_verified`, or a primary
-    verified address from GitHub. Microsoft's email claim is not verified
+  - A new link may join an existing account by email only when both sides
+    have proved the address: the provider says it is verified (Google's
+    `email_verified`, or a primary verified address from GitHub), and the
+    account confirmed it too. Otherwise anyone could register with someone
+    else's address, wait for them to sign in with Google, and share their
+    account with the password they chose ("pre-account hijacking"). Microsoft's email claim is not verified
     by Microsoft for every account type and has been used to take over
     accounts ("nOAuth"), so Microsoft never joins an existing account by
     email; the person signs in with their password and links Microsoft from
@@ -328,7 +331,7 @@ def match_user(provider: Provider, person: Identity, link_user=None) -> Outcome:
     if person.email:
         same_email = User.objects.filter(email__iexact=person.email).first()
         if same_email:
-            if not person.email_verified:
+            if not (person.email_verified and same_email.email_verified):
                 raise SocialError(
                     f"An account already uses {person.email}. Sign in with your password, then "
                     f"link {provider.name} from your profile."
@@ -338,9 +341,6 @@ def match_user(provider: Provider, person: Identity, link_user=None) -> Outcome:
             SocialAccount.objects.create(
                 user=same_email, provider=provider.key, subject=person.subject, email=person.email
             )
-            if not same_email.email_verified:
-                same_email.email_verified = True
-                same_email.save(update_fields=["email_verified"])
             return Outcome(user=same_email, linked=provider.key)
 
     with transaction.atomic():
