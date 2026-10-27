@@ -97,6 +97,12 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD"),
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),
+        # Seconds to keep a connection open between requests. The hosted
+        # database is across a network and every new connection pays for a
+        # TLS handshake, so production keeps them (DB_CONN_MAX_AGE=60).
+        "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=0),
+        # Azure's database refuses connections without TLS: DB_SSLMODE=require.
+        "OPTIONS": {"sslmode": env("DB_SSLMODE", default="prefer")},
     }
 }
 
@@ -127,6 +133,27 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=["http://localhost:5173", "http://127.0.0.1:5173"],
 )
 
+# Production runs behind Cloudflare and Caddy (deploy/Caddyfile), which ends
+# HTTPS and says so in X-Forwarded-Proto. Trust that header only behind a
+# proxy that sets it; reached directly, a client could claim HTTPS with it.
+NUM_PROXIES = env.int("DJANGO_NUM_PROXIES", default=0)
+if NUM_PROXIES:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+SESSION_COOKIE_SECURE = env.bool("DJANGO_SECURE_COOKIES", default=False)
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+# Off in production too: Cloudflare already sends every visitor to HTTPS,
+# and a second redirect behind it can loop.
+SECURE_SSL_REDIRECT = env.bool("DJANGO_SSL_REDIRECT", default=False)
+SECURE_HSTS_SECONDS = env.int("DJANGO_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+SECURE_CONTENT_TYPE_NOSNIFF = True
+# What `manage.py check --deploy` may leave unsaid (CI runs it):
+# W008, SECURE_SSL_REDIRECT is off on purpose (above).
+# W021, HSTS preload is not set: joining browsers' preload list is close to
+# permanent and is not wanted for a student project's domain.
+SILENCED_SYSTEM_CHECKS = ["security.W008", "security.W021"]
+
 REST_FRAMEWORK = {
     # Token first: DRF takes the challenge header from the first class, and
     # only a class that has one makes an anonymous request a 401 instead of
@@ -146,7 +173,7 @@ REST_FRAMEWORK = {
     # made-up address per request escapes every limit above. 0 means the
     # API is reached directly and REMOTE_ADDR is the client; set it to 1
     # behind one reverse proxy that sets the header.
-    "NUM_PROXIES": env.int("DJANGO_NUM_PROXIES", default=0),
+    "NUM_PROXIES": NUM_PROXIES,
 }
 
 # Alerts (alerts/). Email goes to an SMTP server when EMAIL_HOST is set, and
