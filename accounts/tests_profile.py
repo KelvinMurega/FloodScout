@@ -141,6 +141,8 @@ class MySubscriptionTests(_Signed):
         mine = Subscriber.objects.create(email="W@example.com", confirmed=True)
         mine.regions.add(region)
         theirs = Subscriber.objects.create(email="someone@example.com", confirmed=True)
+        self.user.email_verified = True
+        self.user.save()
         self.sign_in(self.user)
         listed = self.client.get("/api/auth/me/subscriptions/")
         self.assertEqual([row["id"] for row in listed.data], [mine.id])
@@ -154,6 +156,20 @@ class MySubscriptionTests(_Signed):
             status.HTTP_204_NO_CONTENT,
         )
         self.assertFalse(Subscriber.objects.filter(pk=mine.pk).exists())
+
+    def test_typing_a_strangers_email_does_not_reach_their_alerts(self):
+        theirs = Subscriber.objects.create(
+            email="someone@example.com", phone="+254712345678", confirmed=True
+        )
+        self.sign_in(self.user)
+        changed = self.client.patch("/api/auth/me/", {"email": "someone@example.com"}, format="json")
+        self.assertEqual(changed.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/auth/me/subscriptions/").data, [])
+        self.assertEqual(
+            self.client.delete(f"/api/auth/me/subscriptions/{theirs.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertTrue(Subscriber.objects.filter(pk=theirs.pk).exists())
 
 
 class AdminUsersTests(_Signed):

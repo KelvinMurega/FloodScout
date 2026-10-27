@@ -189,9 +189,13 @@ class MyActivityView(APIView):
 
 
 def my_subscriptions(user):
-    """Alert subscriptions made while signed in, or to this account's email."""
+    """Alert subscriptions made while signed in, or to this account's email.
+
+    By email only once the account has confirmed it: anyone can type any
+    address into their profile, and must not see or stop a stranger's alerts.
+    """
     mine = Q(user=user)
-    if user.email:
+    if user.email and user.email_verified:
         mine |= Q(email__iexact=user.email)
     return Subscriber.objects.filter(mine).prefetch_related("regions").distinct()
 
