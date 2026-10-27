@@ -7,7 +7,7 @@ Open to everyone:
   GET  alerts/feed/               an Atom feed of the active alerts, linking to CAP
   POST alerts/subscribe/          ask for alerts; a code is sent to confirm
   POST alerts/confirm/            enter the code; alerts start
-  GET  alerts/unsubscribe/<token>/  stop, and delete what was kept
+  GET  alerts/unsubscribe/<token>/  asks; POST stops, and deletes what was kept
 
 System Administrator only:
   POST alerts/issue/              issue an alert by hand
@@ -507,22 +507,37 @@ def _subscriber_summary(subscriber: Subscriber) -> dict:
     }
 
 
+def _page(body: str) -> HttpResponse:
+    return HttpResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<meta name='robots' content='noindex'>"
+        "<title>FloodScout alerts</title></head>"
+        "<body style='font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
+        f"<h1>FloodScout alerts</h1>{body}</body></html>"
+    )
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def unsubscribe(request, token: str):
-    """Stop the alerts and delete the subscription. A plain page, for an email link."""
+    """Stop the alerts and delete the subscription. A plain page, for an email link.
+
+    GET only asks; the button POSTs. Mail scanners and link previews open
+    every link in an email, and must not stop someone's flood warnings.
+    """
     subscriber = Subscriber.objects.filter(token=token).first()
-    if subscriber:
-        who = escape(subscriber.email or subscriber.phone)
-        subscriber.delete()
-        message = f"{who} will get no more FloodScout alerts. What was kept has been deleted."
-    else:
-        message = "This link has already been used, or the subscription no longer exists."
-    page = (
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>FloodScout alerts</title></head>"
-        "<body style='font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
-        f"<h1>FloodScout alerts</h1><p>{message}</p></body></html>"
-    )
-    return HttpResponse(page)
+    if subscriber is None:
+        return _page(
+            "<p>This link has already been used, or the subscription no longer exists.</p>"
+        )
+    who = escape(subscriber.email or subscriber.phone)
+    if request.method == "GET":
+        return _page(
+            f"<p>Stop all FloodScout alerts to {who}? What was kept for them will be "
+            "deleted.</p><form method='post'>"
+            "<button type='submit' style='font:inherit;padding:.5rem 1rem'>"
+            "Stop the alerts</button></form>"
+        )
+    subscriber.delete()
+    return _page(f"<p>{who} will get no more FloodScout alerts. What was kept has been deleted.</p>")

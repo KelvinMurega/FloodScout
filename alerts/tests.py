@@ -439,9 +439,15 @@ class AlertAPITests(APITestCase):
         # The watch already active for Alpha is sent at once.
         self.assertEqual(mail.outbox[-1].subject, "Flood watch for Alpha County")
 
-        page = self.client.get(f"/api/alerts/unsubscribe/{subscriber.token}/")
+        url = f"/api/alerts/unsubscribe/{subscriber.token}/"
+        # Opening the link (as a mail scanner does) only asks.
+        page = self.client.get(url)
+        self.assertContains(page, "<form method='post'>")
+        self.assertTrue(Subscriber.objects.exists())
+        page = self.client.post(url)
         self.assertContains(page, "no more FloodScout alerts")
         self.assertFalse(Subscriber.objects.exists())
+        self.assertContains(self.client.get(url), "already been used")
 
     def test_too_many_wrong_codes_end_the_sign_up(self):
         subscriber = Subscriber.objects.create(email="me@example.com", confirm_attempts=5)
