@@ -133,6 +133,12 @@ REST_FRAMEWORK = {
     # Sign-in attempts per client address (accounts/views.py), and alert
     # sign-ups and code entries (alerts/views.py), which send messages.
     "DEFAULT_THROTTLE_RATES": {"login": "10/min", "alerts": "20/hour"},
+    # How many proxies sit in front of the API. With the DRF default (None)
+    # the client's own X-Forwarded-For header names its address, so a new
+    # made-up address per request escapes every limit above. 0 means the
+    # API is reached directly and REMOTE_ADDR is the client; set it to 1
+    # behind one reverse proxy that sets the header.
+    "NUM_PROXIES": env.int("DJANGO_NUM_PROXIES", default=0),
 }
 
 # Alerts (alerts/). Email goes to an SMTP server when EMAIL_HOST is set, and

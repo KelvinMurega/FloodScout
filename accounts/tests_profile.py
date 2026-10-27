@@ -72,6 +72,33 @@ class SignInTests(_Signed):
         self.assertIsNotNone(self.user.last_login)
         self.assertEqual(self.actions(self.user), ["sign_in"])
 
+    def wrong(self, address, **extra):
+        return self.client.post(
+            "/api/auth/token/",
+            {"username": "wanjiku", "password": "not-it"},
+            REMOTE_ADDR=address,
+            **extra,
+        ).status_code
+
+    def test_a_made_up_forwarded_for_does_not_escape_the_limit(self):
+        codes = [self.wrong("10.1.1.1", HTTP_X_FORWARDED_FOR=f"10.9.9.{i}") for i in range(12)]
+        self.assertEqual(codes[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_guessing_one_account_from_many_addresses_stops(self):
+        codes = [self.wrong(f"10.2.2.{i}") for i in range(10)]
+        self.assertEqual(set(codes), {status.HTTP_400_BAD_REQUEST})
+        # Even the right password waits now, by username or by email.
+        for name in ("wanjiku", "W@example.com"):
+            response = self.client.post(
+                "/api/auth/token/", {"username": name, "password": PASSWORD}, REMOTE_ADDR="10.3.3.3"
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Other accounts are not affected.
+        other = self.client.post(
+            "/api/auth/token/", {"username": "otieno", "password": PASSWORD}, REMOTE_ADDR="10.4.4.4"
+        )
+        self.assertEqual(other.status_code, status.HTTP_200_OK)
+
 
 class MeTests(_Signed):
     def test_needs_a_sign_in(self):

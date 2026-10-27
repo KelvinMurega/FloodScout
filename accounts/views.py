@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth import password_validation
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import transaction
@@ -14,7 +15,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import mixins, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -66,6 +67,16 @@ def signed_in(user, token) -> dict:
     }
 
 
+def _failures_key(name: str) -> str:
+    """The cache key counting failed sign-ins for the account `name` points at."""
+    name = name.strip().lower()
+    if "@" in name:
+        matches = list(User.objects.filter(email__iexact=name).values_list("username", flat=True)[:2])
+        if len(matches) == 1:
+            name = matches[0].lower()
+    return f"signin-failures:{name}"
+
+
 class ObtainTokenView(ObtainAuthToken):
     """POST a username and password, get back a token and the user's role.
 
@@ -79,9 +90,25 @@ class ObtainTokenView(ObtainAuthToken):
     throttle_scope = "login"
     serializer_class = EmailOrUsernameTokenSerializer
 
+    # The rate above is per address. This is per account, so guessing one
+    # person's password from many addresses stops too.
+    MAX_FAILURES = 10
+    FAILURE_WINDOW = 15 * 60  # seconds
+
     def post(self, request, *args, **kwargs):
+        key = _failures_key(str(request.data.get("username") or ""))
+        if cache.get(key, 0) >= self.MAX_FAILURES:
+            raise Throttled(
+                wait=self.FAILURE_WINDOW,
+                detail="Too many wrong passwords for this account. Try again in 15 minutes, "
+                "or reset the password by email.",
+            )
         serializer = self.serializer_class(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            cache.add(key, 0, self.FAILURE_WINDOW)
+            cache.incr(key)
+            raise ValidationError(serializer.errors)
+        cache.delete(key)
         user = serializer.validated_data["user"]
         token, _created = Token.objects.get_or_create(user=user)
         update_last_login(None, user)
