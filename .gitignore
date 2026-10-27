@@ -51,11 +51,16 @@ data/external/*
 # Local credentials (Earth Engine token, mounted into the web container).
 .secrets/
 
+# The Cloudflare origin certificate and key, copied onto the server only.
+deploy/certs/*
+!deploy/certs/.gitkeep
+
 # Working documents: plans, the report draft and session notes. Kept on the
 # author's machine only. The data dictionary and the figures stay in the
 # repository, because the README and riskengine/ml/README.md refer to them.
 docs/*
 !docs/DATA_DICTIONARY.md
+!docs/DEPLOYMENT.md
 !docs/figures/
 
 # Written by scripts/windows/start-scheduler.ps1

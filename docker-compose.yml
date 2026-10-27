@@ -24,6 +24,10 @@ services:
   web:
     build: .
     restart: unless-stopped
+    # The image runs as a plain user. Here the repository is mounted over
+    # /app, owned by whoever checked it out, and the Earth Engine credential
+    # is mounted under /root, so development keeps running as root.
+    user: root
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - .:/app
@@ -46,6 +50,7 @@ services:
   scheduler:
     build: .
     restart: unless-stopped
+    user: root
     command: python manage.py refresh_scores --every-hours 24
     volumes:
       - .:/app
