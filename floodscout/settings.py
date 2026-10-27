@@ -12,15 +12,23 @@ Class Diagrams (Sections 4.3.1 and 4.3.4) — see accounts/models.py.
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(DJANGO_DEBUG=(bool, False))
 environ.Env.read_env(BASE_DIR / ".env")
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-change-me-in-.env")
+DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
-DEBUG = env.bool("DJANGO_DEBUG", default=True)
+# No fallback: a key everyone can read in this file signs nothing safely.
+# Outside DEBUG, the placeholder from .env.example is refused as well.
+SECRET_KEY = env("DJANGO_SECRET_KEY")
+if not DEBUG and SECRET_KEY.startswith(("change-me", "django-insecure")):
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is still the example value. Generate one with: python -c "
+        '"from django.core.management.utils import get_random_secret_key as k; print(k())"'
+    )
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
@@ -86,7 +94,7 @@ DATABASES = {
         "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": env("DB_NAME", default="floodscout"),
         "USER": env("DB_USER", default="floodscout"),
-        "PASSWORD": env("DB_PASSWORD", default="floodscout"),
+        "PASSWORD": env("DB_PASSWORD"),
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),
     }
@@ -133,6 +141,12 @@ REST_FRAMEWORK = {
     # Sign-in attempts per client address (accounts/views.py), and alert
     # sign-ups and code entries (alerts/views.py), which send messages.
     "DEFAULT_THROTTLE_RATES": {"login": "10/min", "alerts": "20/hour"},
+    # How many proxies sit in front of the API. With the DRF default (None)
+    # the client's own X-Forwarded-For header names its address, so a new
+    # made-up address per request escapes every limit above. 0 means the
+    # API is reached directly and REMOTE_ADDR is the client; set it to 1
+    # behind one reverse proxy that sets the header.
+    "NUM_PROXIES": env.int("DJANGO_NUM_PROXIES", default=0),
 }
 
 # Alerts (alerts/). Email goes to an SMTP server when EMAIL_HOST is set, and

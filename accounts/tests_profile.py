@@ -72,6 +72,33 @@ class SignInTests(_Signed):
         self.assertIsNotNone(self.user.last_login)
         self.assertEqual(self.actions(self.user), ["sign_in"])
 
+    def wrong(self, address, **extra):
+        return self.client.post(
+            "/api/auth/token/",
+            {"username": "wanjiku", "password": "not-it"},
+            REMOTE_ADDR=address,
+            **extra,
+        ).status_code
+
+    def test_a_made_up_forwarded_for_does_not_escape_the_limit(self):
+        codes = [self.wrong("10.1.1.1", HTTP_X_FORWARDED_FOR=f"10.9.9.{i}") for i in range(12)]
+        self.assertEqual(codes[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_guessing_one_account_from_many_addresses_stops(self):
+        codes = [self.wrong(f"10.2.2.{i}") for i in range(10)]
+        self.assertEqual(set(codes), {status.HTTP_400_BAD_REQUEST})
+        # Even the right password waits now, by username or by email.
+        for name in ("wanjiku", "W@example.com"):
+            response = self.client.post(
+                "/api/auth/token/", {"username": name, "password": PASSWORD}, REMOTE_ADDR="10.3.3.3"
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Other accounts are not affected.
+        other = self.client.post(
+            "/api/auth/token/", {"username": "otieno", "password": PASSWORD}, REMOTE_ADDR="10.4.4.4"
+        )
+        self.assertEqual(other.status_code, status.HTTP_200_OK)
+
 
 class MeTests(_Signed):
     def test_needs_a_sign_in(self):
@@ -141,6 +168,8 @@ class MySubscriptionTests(_Signed):
         mine = Subscriber.objects.create(email="W@example.com", confirmed=True)
         mine.regions.add(region)
         theirs = Subscriber.objects.create(email="someone@example.com", confirmed=True)
+        self.user.email_verified = True
+        self.user.save()
         self.sign_in(self.user)
         listed = self.client.get("/api/auth/me/subscriptions/")
         self.assertEqual([row["id"] for row in listed.data], [mine.id])
@@ -154,6 +183,20 @@ class MySubscriptionTests(_Signed):
             status.HTTP_204_NO_CONTENT,
         )
         self.assertFalse(Subscriber.objects.filter(pk=mine.pk).exists())
+
+    def test_typing_a_strangers_email_does_not_reach_their_alerts(self):
+        theirs = Subscriber.objects.create(
+            email="someone@example.com", phone="+254712345678", confirmed=True
+        )
+        self.sign_in(self.user)
+        changed = self.client.patch("/api/auth/me/", {"email": "someone@example.com"}, format="json")
+        self.assertEqual(changed.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/auth/me/subscriptions/").data, [])
+        self.assertEqual(
+            self.client.delete(f"/api/auth/me/subscriptions/{theirs.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertTrue(Subscriber.objects.filter(pk=theirs.pk).exists())
 
 
 class AdminUsersTests(_Signed):

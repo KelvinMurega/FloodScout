@@ -2,20 +2,23 @@
  * The only place that knows where the API lives.
  *
  * Resolution order, first match wins:
- *   1. ?api=<url> on the page URL      — for poking at another backend without a rebuild
+ *   1. ?api=<url> on the page URL      — dev server only (see baseurl.js)
  *   2. VITE_API_BASE_URL               — build/dev-time config, see .env.example
  *   3. http://localhost:8000/api       — the docker-compose default
  */
 
 import { errorMessage } from "./alerts/format.js";
+import { chooseBaseUrl } from "./baseurl.js";
 
 const FALLBACK_BASE_URL = "http://localhost:8000/api";
 
 export function resolveBaseUrl(search = window.location.search) {
-  const fromQuery = new URLSearchParams(search).get("api");
-  const configured =
-    fromQuery || import.meta.env.VITE_API_BASE_URL || FALLBACK_BASE_URL;
-  return configured.replace(/\/+$/, "");
+  return chooseBaseUrl({
+    search,
+    configured: import.meta.env.VITE_API_BASE_URL,
+    fallback: FALLBACK_BASE_URL,
+    dev: import.meta.env.DEV,
+  });
 }
 
 export const API_BASE_URL = resolveBaseUrl();
