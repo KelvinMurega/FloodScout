@@ -93,7 +93,9 @@ class _RegionFilterMixin:
         qs = super().get_queryset()
         region_id = self.request.query_params.get("region")
         if region_id:
-            qs = qs.filter(region_id=region_id)
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            qs = qs.filter(region_id=int(region_id))
         return qs
 
 

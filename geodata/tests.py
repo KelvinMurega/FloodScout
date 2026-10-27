@@ -277,6 +277,12 @@ class GeospatialFeatureAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 2)
 
+    def test_a_region_that_is_not_a_number_is_a_400_not_a_500(self):
+        for url in ("/api/geospatial-features/", "/api/environmental-data/"):
+            response = self.client.get(url, {"region": "abc"})
+            self.assertEqual(response.status_code, 400, url)
+            self.assertIn("region", response.data)
+
 
 class EnvironmentalDataAPITests(APITestCase):
     def test_list_environmental_data(self):
