@@ -1,0 +1,55 @@
+# Production, on the Azure VM (docs/DEPLOYMENT.md). The database is Azure's
+# own, so there is no db service; nothing is mounted from the repository;
+# only Caddy is reachable from outside, on 443, and only from Cloudflare.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn floodscout.wsgi:application --bind 0.0.0.0:8000
+             --workers 2 --timeout 120 --access-logfile -"
+    env_file: .env
+    volumes:
+      - static:/app/staticfiles
+      # Emails land here only when EMAIL_HOST is not set.
+      - ./data/outbox:/app/data/outbox
+    expose:
+      - "8000"
+
+  # Fetches the latest rainfall and rescores every region at start and once
+  # a day after that, then issues the alerts.
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: python manage.py refresh_scores --every-hours 24
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      - web
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    ports:
+      # 443 only. Cloudflare (SSL mode Full (strict)) always reaches the
+      # server over HTTPS and sends plain-HTTP visitors to HTTPS itself.
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+      - static:/srv/static:ro
+      - caddy_data:/data
+    environment:
+      # Read from .env by Compose (variable substitution), used in the Caddyfile.
+      API_HOST: ${API_HOST:?set API_HOST in .env}
+    depends_on:
+      - web
+
+volumes:
+  static:
+  caddy_data:
