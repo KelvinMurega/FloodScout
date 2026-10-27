@@ -1,0 +1,26 @@
+# Kept out of the image: secrets, history, local data and build output.
+# docker-compose.yml mounts the whole repository in development anyway.
+.env
+.env.*
+!.env.example
+!.env.production.example
+.git
+.github
+.secrets
+.worktrees
+.tmp.driveupload
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+frontend/node_modules
+frontend/dist
+data/raw/*
+data/processed/*
+data/external/*
+data/outbox/*
+deploy/certs
+docs
+staticfiles
+media
+*.log

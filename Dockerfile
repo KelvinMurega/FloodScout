@@ -22,6 +22,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Run as an ordinary user, not root. uid 1000 is the first user on an Ubuntu
+# server, so folders that user creates on the host (data/outbox) stay
+# writable from inside. collectstatic writes to staticfiles/, and the seed
+# commands download into data/. docker-compose.yml switches back to root for
+# development, where the repository is mounted over /app.
+RUN useradd --uid 1000 --create-home app     && mkdir -p /app/staticfiles /app/data/outbox     && chown -R app:app /app/staticfiles /app/data
+USER app
+
 EXPOSE 8000
 
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
