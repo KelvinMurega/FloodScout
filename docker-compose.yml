@@ -5,9 +5,14 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-floodscout}
       POSTGRES_USER: ${DB_USER:-floodscout}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-floodscout}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      # This computer only: "5432:5432" would let anyone on the same network
+      # sign in to the database. The web and scheduler containers reach it
+      # as "db" over Compose's own network and do not need this at all.
+      # DB_HOST_PORT moves it when a Postgres installed on the computer
+      # already owns 5432 (then the bind fails and the db never starts).
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
     healthcheck:
