@@ -6,6 +6,7 @@ from io import StringIO
 from unittest import mock
 
 import numpy as np
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 from rest_framework import status
@@ -129,6 +130,7 @@ class SummaryTests(SimpleTestCase):
 
 class ExplainAPITests(APITestCase):
     def setUp(self):
+        cache.clear()  # explain/ answers are kept a day
         self.region = make_region("Alpha")
         self.score = RiskScore.objects.create(
             region=self.region,
