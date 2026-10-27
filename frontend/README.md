@@ -114,7 +114,7 @@ Never hardcoded. Resolved in this order, first match wins:
 
 | Source | Example | Use |
 |---|---|---|
-| `?api=` on the page URL | `http://localhost:5173/?api=http://localhost:8010/api` | point at another backend without a rebuild |
+| `?api=` on the page URL | `http://localhost:5173/?api=http://localhost:8010/api` | point at another backend without a rebuild; **dev server only**, ignored by `npm run build` output so a link cannot send a token to another server |
 | `VITE_API_BASE_URL` | see `.env.example` | normal dev/build config |
 | built-in fallback | `http://localhost:8000/api` | the docker-compose default |
 
