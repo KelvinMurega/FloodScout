@@ -478,7 +478,7 @@ async function renderSubscribers(body) {
   const gone = card(
     body,
     "Stopped their alerts",
-    "Their subscription is deleted, as the unsubscribe page promises; only this is kept, with the contact mostly hidden.",
+    "Their subscription is deleted; only this is kept, with the contact mostly hidden, as the unsubscribe page tells them.",
   );
   gone.append(
     data.unsubscribed.length

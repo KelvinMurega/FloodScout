@@ -615,6 +615,14 @@ def _page(body: str) -> HttpResponse:
     )
 
 
+# What alerts/stopping.py keeps after someone stops, said where they stop.
+KEPT_NOTE = (
+    "Only a note that the alerts stopped is kept, with the address mostly hidden "
+    "(like k***@gmail.com), the places and how many alerts were sent; it cannot be "
+    "used to message you."
+)
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def unsubscribe(request, token: str):
@@ -631,10 +639,13 @@ def unsubscribe(request, token: str):
     who = escape(subscriber.email or subscriber.phone)
     if request.method == "GET":
         return _page(
-            f"<p>Stop all FloodScout alerts to {who}? What was kept for them will be "
-            "deleted.</p><form method='post'>"
+            f"<p>Stop all FloodScout alerts to {who}? The subscription will be deleted. "
+            f"{KEPT_NOTE}</p><form method='post'>"
             "<button type='submit' style='font:inherit;padding:.5rem 1rem'>"
             "Stop the alerts</button></form>"
         )
     stopping.stop(subscriber, Unsubscription.How.LINK)
-    return _page(f"<p>{who} will get no more FloodScout alerts. What was kept has been deleted.</p>")
+    return _page(
+        f"<p>{who} will get no more FloodScout alerts. The subscription has been deleted. "
+        f"{KEPT_NOTE}</p>"
+    )
