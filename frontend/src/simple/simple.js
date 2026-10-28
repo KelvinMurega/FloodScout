@@ -20,6 +20,7 @@ import { searchRegions } from "../search.js";
 import {
   alertFor,
   everydayAdvice,
+  groupAreas,
   mapBucket,
   seasonVerdict,
   subCountyAlerts,
@@ -170,17 +171,24 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
     }
   });
 
-  drawMap(mapDiv, counties, byRegion, (entry) => choose(entry));
+  // A pick on the map, or from a county's list of areas, brings its details into view.
+  drawMap(mapDiv, counties, byRegion, (entry) => choose(entry, { scroll: true }));
 
-  async function choose(place) {
+  async function choose(place, { scroll = false } = {}) {
     keepPlace(place);
     input.value = "";
     matches.hidden = true;
-    await showPlace(card, place, { countyScores, alerts, user, onDetailed, mine });
+    const context = { countyScores, alerts, user, onDetailed, mine, onPick: (area) => choose(area, { scroll: true }) };
+    const shown = showPlace(card, place, context);
+    if (scroll) {
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      card.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    }
+    await shown;
   }
 
   const start = storedPlace() ?? (user?.home_region ? { id: user.home_region, name: user.home_region_name, level: "sub_county" } : null);
-  if (start) await showPlace(card, start, { countyScores, alerts, user, onDetailed, mine });
+  if (start) await choose(start);
   else showKenya(card, countyScores);
 }
 
@@ -206,12 +214,15 @@ function showKenya(card, countyScores) {
   );
 }
 
-async function showPlace(card, place, { countyScores, alerts, user, onDetailed, mine }) {
+async function showPlace(card, place, { countyScores, alerts, user, onDetailed, mine, onPick }) {
   card.replaceChildren(el("p", "simple__muted", `Loading ${place.name}…`));
-  const [score, forecast, floods] = await Promise.all([
+  const [score, forecast, floods, areas] = await Promise.all([
     scoreFor(place, countyScores),
     fetchForecast({ region: place.id }).catch(() => []),
     fetchFloodEvents({ region: place.id }).catch(() => null),
+    place.level === "county"
+      ? fetchLatestScores({ level: "sub_county", parent: place.id }).catch(() => [])
+      : Promise.resolve([]),
   ]);
   if (mine !== render) return;
 
@@ -234,6 +245,18 @@ async function showPlace(card, place, { countyScores, alerts, user, onDetailed, 
     nodes.push(box);
   } else if (nearby) {
     nodes.push(el("p", "simple__alert simple__alert--advisory", `Flood alerts are in force in ${nearby} area${nearby === 1 ? "" : "s"} of this county.`));
+  }
+
+  const areaRows = Array.isArray(areas) ? areas : areas.results ?? [];
+  if (areaRows.length) nodes.push(...areaList(place, areaRows, alerts, onPick));
+  if (place.level === "sub_county" && full.county) {
+    const county = countyScores.find((s) => s.region_name === full.county && s.region_level === "county");
+    if (county) {
+      const back = el("button", "link-button", `← All areas in ${full.county}`);
+      back.type = "button";
+      back.addEventListener("click", () => onPick({ id: county.region, name: county.region_name, level: "county" }));
+      nodes.push(back);
+    }
   }
 
   nodes.push(el("h3", "simple__subtitle", "This week"), el("p", null, rain.text));
@@ -268,6 +291,46 @@ async function showPlace(card, place, { countyScores, alerts, user, onDetailed, 
   more.addEventListener("click", () => onDetailed(place.level === "county" ? place.id : null));
   nodes.push(more);
   card.replaceChildren(...nodes);
+}
+
+/** "Areas in Kisumu": its sub-counties in the map's three groups, each one tap from its own details. */
+function areaList(county, rows, alerts, onPick) {
+  const groups = groupAreas(rows);
+  const alerted = new Map(alerts.filter((a) => a.region_level === "sub_county").map((a) => [a.region, a]));
+  const nodes = [
+    el("h3", "simple__subtitle", `Areas in ${county.name}`),
+    el(
+      "p",
+      "simple__muted",
+      "Each area is read from the rain that fell on it. Tell them apart with care: the model learned from floods recorded for whole counties.",
+    ),
+  ];
+  for (const [key, title] of [
+    ["higher", "Higher chance than usual"],
+    ["usual", "About usual"],
+    ["lower", "Lower chance than usual"],
+    ["unknown", "No reading today"],
+  ]) {
+    const list = groups[key];
+    if (!list.length) continue;
+    const group = el("div", "simple__areas");
+    const head = el("p", "simple__areas-head");
+    head.append(el("span", `simple__swatch simple__swatch--${key === "unknown" ? "usual" : key}`), `${title} (${list.length})`);
+    const items = el("ul", "simple__area-list");
+    for (const row of list) {
+      const item = el("li");
+      const pick = el("button", "simple__area", row.region_name);
+      pick.type = "button";
+      const alert = alerted.get(row.region);
+      if (alert) pick.append(el("span", `simple__area-alert simple__area-alert--${alert.level}`, alert.level_label));
+      pick.addEventListener("click", () => onPick({ id: row.region, name: row.region_name, level: "sub_county", county: county.name }));
+      item.append(pick);
+      items.append(item);
+    }
+    group.append(head, items);
+    nodes.push(group);
+  }
+  return nodes;
 }
 
 function legend() {

@@ -6,6 +6,7 @@ import {
   alertFor,
   dailyRain,
   everydayAdvice,
+  groupAreas,
   mapBucket,
   seasonVerdict,
   subCountyAlerts,
@@ -84,4 +85,20 @@ test("administrators and analysts start on the detailed map; a choice on this de
   assert.equal(viewFor({ is_administrator: true }, null), "detailed");
   assert.equal(viewFor({ is_administrator: true }, "simple"), "simple");
   assert.equal(viewFor(null, "nonsense"), "simple");
+});
+
+test("a county's areas grouped by colour, the most worrying first", () => {
+  const groups = groupAreas([
+    { region_name: "A", times_season: 1.3, risk_category: "high" },
+    { region_name: "B", times_season: 1.9, risk_category: "very_high" },
+    { region_name: "C", times_season: 1.0, risk_category: "high" },
+    { region_name: "D", times_season: 0.7, risk_category: "high" },
+    { region_name: "E", times_season: 1.6, risk_category: "moderate" },
+    { region_name: "F", times_season: null, risk_category: null },
+  ]);
+  assert.deepEqual(groups.higher.map((s) => s.region_name), ["B", "A"]);
+  // E is dry (Moderate), so never "higher".
+  assert.deepEqual(groups.usual.map((s) => s.region_name), ["E", "C"]);
+  assert.deepEqual(groups.lower.map((s) => s.region_name), ["D"]);
+  assert.deepEqual(groups.unknown.map((s) => s.region_name), ["F"]);
 });

@@ -129,3 +129,17 @@ export function subCountyAlerts(place, alerts) {
   if (place.level !== "county") return 0;
   return alerts.filter((a) => a.region_level === "sub_county" && a.county_name === place.name).length;
 }
+
+/**
+ * A county's sub-counties grouped as the simple map colours them, the most
+ * worrying first within each group: { higher, usual, lower, unknown }.
+ */
+export function groupAreas(scores) {
+  const groups = { higher: [], usual: [], lower: [], unknown: [] };
+  for (const score of scores) {
+    const bucket = mapBucket(seasonVerdict(score.times_season, score.risk_category).key);
+    groups[bucket in groups ? bucket : "unknown"].push(score);
+  }
+  for (const list of Object.values(groups)) list.sort((a, b) => (b.times_season ?? 0) - (a.times_season ?? 0));
+  return groups;
+}
