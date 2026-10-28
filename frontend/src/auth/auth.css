@@ -29,11 +29,6 @@
   .auth-brand {
     padding: 24px 20px;
   }
-
-  .auth-brand__points,
-  .auth-brand__note {
-    display: none;
-  }
 }
 
 .auth-brand__mark {
@@ -84,6 +79,15 @@
   font-size: 12.5px;
   opacity: 0.8;
   max-width: 40ch;
+}
+
+/* After the rules above, or their display wins: on a narrow screen the form
+   comes first, so the brand panel keeps only its name and headline. */
+@media (max-width: 860px) {
+  .auth-brand__points,
+  .auth-brand__note {
+    display: none;
+  }
 }
 
 /* --- Form side --------------------------------------------------------- */
