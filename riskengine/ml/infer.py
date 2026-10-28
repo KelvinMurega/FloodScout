@@ -44,6 +44,7 @@ import numpy as np
 from django.db.models import Sum
 
 from geodata.services.climate_indices import dmi_for, oni_for
+from riskengine import dry
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, feature_row
 from riskengine.models import RiskScore
 
@@ -233,7 +234,8 @@ def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
     terrain = region.geospatial_features.order_by("-pk").first()
     row = region_row(model, region, region_rain(region, date), date, terrain)
     predicted_value = round(flood_probabilities(model, [row])[0], 4)
-    return predicted_value, classify(predicted_value, model_thresholds(model))
+    category = classify(predicted_value, model_thresholds(model))
+    return predicted_value, dry.gated(category, row, model_features(model))
 
 
 def infer(region, date) -> tuple[float, str]:
