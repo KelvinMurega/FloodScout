@@ -525,6 +525,15 @@ function drawMap(div, { counties, byCounty, byArea, loadShapes, onPickCounty, on
       weight: isSelected ? 3 : 1,
     };
   };
+  // A hidden area must not catch the tap meant for the county under it: at
+  // the Kenya level a tap picks a county, which then zooms in.
+  function styleAreas() {
+    areaLayer.setStyle(areaStyle);
+    areaLayer.eachLayer((shape) => {
+      const element = shape.getElement();
+      if (element) element.style.pointerEvents = areasShown(shape.feature.properties.county_name) ? "" : "none";
+    });
+  }
   const names = L.layerGroup().addTo(map);
   const areaLayer = L.geoJSON(null, {
     style: areaStyle,
@@ -534,7 +543,6 @@ function drawMap(div, { counties, byCounty, byArea, loadShapes, onPickCounty, on
       const county = feature.properties.county_name;
       shape.bindTooltip(() => `${name}, ${county}: ${verdictOf(byArea.get(id)).word}`, { sticky: true });
       shape.on("click", (event) => {
-        if (!areasShown(county)) return;
         L.DomEvent.stopPropagation(event);
         onPickArea({ id, name, county });
       });
@@ -560,7 +568,7 @@ function drawMap(div, { counties, byCounty, byArea, loadShapes, onPickCounty, on
       if (shapes.length) areaLayer.addData(shapes);
       else loaded.delete(wanted[i]);
     });
-    areaLayer.setStyle(areaStyle);
+    styleAreas();
   }
 
   function countiesInView() {
@@ -581,7 +589,7 @@ function drawMap(div, { counties, byCounty, byArea, loadShapes, onPickCounty, on
     if (zoomedIn()) ensureAreas(countiesInView());
     else if (focused !== null) ensureAreas([focused]);
     countyLayer.setStyle(countyStyle);
-    areaLayer.setStyle(areaStyle);
+    styleAreas();
     // Names only where areas show: zoomed in, or in the picked county.
     div.classList.toggle("simple__map--names", map.getZoom() >= NAMES_FROM_ZOOM);
   }
