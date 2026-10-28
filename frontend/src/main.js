@@ -2728,6 +2728,11 @@ function isPageSlug(slug) {
 
 let auth = null;
 
+// Settles once a sign-in saved from an earlier visit has been checked with
+// the API. route() waits for it, so a reload of #/profile does not find
+// nobody signed in, send the reader to the sign-in page, and bounce back.
+let sessionChecked = Promise.resolve();
+
 /** A page in place of the map: the analytics (#/admin) or the alerts (#/alerts). */
 function setAdminOpen(open) {
   state.adminOpen = open;
@@ -2740,6 +2745,7 @@ function setAdminOpen(open) {
 }
 
 async function route() {
+  await sessionChecked;
   const slug = currentSlug();
   document.body.classList.toggle("is-auth", isAuthSlug(slug));
   if (isAuthSlug(slug)) {
@@ -2852,13 +2858,18 @@ async function load() {
 
   // A sign-in from an earlier visit, or from before the trip to Google and
   // back, is checked with the API before the header shows it.
-  restoreSession().then((user) => {
+  sessionChecked = restoreSession().then((user) => {
     if (user) auth.setUser(user);
   });
 
   // A page shown in place of the map (sign-in, alerts, profile, analytics)
-  // needs none of the map's data, so it does not wait for the counties.
-  if (isPageSlug(currentSlug())) route();
+  // needs none of the map's data, so it does not wait for the counties. A
+  // restored sign-in has already routed it (onUserChange); otherwise route.
+  if (isPageSlug(currentSlug())) {
+    sessionChecked.then(() => {
+      if (!state.user) route();
+    });
+  }
 
   try {
     setStatus("Loading counties and risk scores…");
