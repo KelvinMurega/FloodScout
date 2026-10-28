@@ -1,5 +1,6 @@
 import datetime as dt
 
+from django.core.cache import cache
 from django.db.models import Max
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
@@ -30,6 +31,21 @@ from .scoring import NoRegionsError, score_regions, start_of_day
 from .serializers import RiskForecastSerializer, RiskOutlookSerializer, RiskScoreSerializer
 from .situation import newest_places
 from .why import explain_score
+
+# `inputs/` and `explain/` work a score out again from the stored rainfall,
+# which costs a model run each. Kept a day; the key changes when the model
+# or the score does (a rescore after new rainfall).
+WORKED_OUT_SECONDS = 24 * 60 * 60
+
+
+def _worked_out(kind: str, score, model, build):
+    version = model["version"] if model else "none"
+    key = f"score-{kind}:{score.id}:{version}:{score.predicted_value!r}"
+    found = cache.get(key)
+    if found is None:
+        found = build()
+        cache.set(key, found, WORKED_OUT_SECONDS)
+    return found
 
 # How close two regions' boundaries must come to count as neighbours, in
 # degrees (~220 m). Not zero: the ADM2 boundaries do not always share
@@ -76,6 +92,13 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = RiskScore.objects.select_related("region").all()
     serializer_class = RiskScoreSerializer
+
+    def paginate_queryset(self, queryset):
+        # One region's history (the dashboard's chart) comes whole, a row a
+        # day; the list of every score is paged (api/pagination.py).
+        if self.request.query_params.get("region"):
+            return None
+        return super().paginate_queryset(queryset)
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -198,7 +221,11 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
             "model_version": score.model_version,
             "computed_with": model["version"] if model else None,
             "same_model": bool(model) and model["version"] == score.model_version,
-            "inputs": score_inputs(model, score.region, date) if model else [],
+            "inputs": _worked_out(
+                "inputs", score, model, lambda: score_inputs(model, score.region, date)
+            )
+            if model
+            else [],
         }
         return Response(body)
 
@@ -226,7 +253,7 @@ class RiskScoreViewSet(viewsets.ReadOnlyModelViewSet):
             "model_version": score.model_version,
             "computed_with": model["version"],
             "same_model": model["version"] == score.model_version,
-            **explain_score(model, score.region, date),
+            **_worked_out("explain", score, model, lambda: explain_score(model, score.region, date)),
         }
         return Response(body)
 
@@ -359,6 +386,8 @@ class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = RiskOutlook.objects.select_related("region").all()
     serializer_class = RiskOutlookSerializer
+    # One month's outlook: one row per region.
+    pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -442,6 +471,8 @@ class RiskForecastViewSet(viewsets.ReadOnlyModelViewSet):
     """
 
     serializer_class = RiskForecastSerializer
+    # One issue: seven days for each region at most.
+    pagination_class = None
 
     def get_queryset(self):
         params = self.request.query_params

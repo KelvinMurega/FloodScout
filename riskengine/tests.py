@@ -10,6 +10,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.gis.geos import MultiPolygon, Polygon
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
@@ -443,7 +444,8 @@ class ScoreHistoryAPITests(APITestCase):
         response = self.client.get("/api/risk-scores/?date_after=2026-05-01")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, [])
+        # Without ?region= the list is paged (api/pagination.py).
+        self.assertEqual(response.data["results"], [])
 
     def test_rejects_a_malformed_date(self):
         for query in ("date_after=14-04-2026", "date_before=yesterday", "date_after=2026-02-30"):
@@ -497,6 +499,11 @@ class ScoreHistoryAPITests(APITestCase):
 
 class ScoreInputsAPITests(APITestCase):
     """`risk-scores/<id>/inputs/`: what the model was given for one score."""
+
+    def setUp(self):
+        # Answers are kept a day per score and model version, and these
+        # tests give one score different models under one version.
+        cache.clear()
 
     @classmethod
     def setUpTestData(cls):

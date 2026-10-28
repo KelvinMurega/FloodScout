@@ -990,4 +990,9 @@ def save(artifact: dict, metrics: dict) -> None:
     """Write the model and its metrics where `infer()` and the docs expect them."""
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(artifact, ARTIFACT_PATH)
-    METRICS_PATH.write_text(json.dumps({"version": artifact["version"], **metrics}, indent=2) + "\n")
+    # infer.load_model checks this before unpickling (security review 15).
+    digest = hashlib.sha256(ARTIFACT_PATH.read_bytes()).hexdigest()
+    METRICS_PATH.write_text(
+        json.dumps({"version": artifact["version"], "model_sha256": digest, **metrics}, indent=2)
+        + "\n"
+    )

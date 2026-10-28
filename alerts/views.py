@@ -7,7 +7,7 @@ Open to everyone:
   GET  alerts/feed/               an Atom feed of the active alerts, linking to CAP
   POST alerts/subscribe/          ask for alerts; a code is sent to confirm
   POST alerts/confirm/            enter the code; alerts start
-  GET  alerts/unsubscribe/<token>/  stop, and delete what was kept
+  GET  alerts/unsubscribe/<token>/  asks; POST stops, and deletes what was kept
 
 System Administrator only:
   POST alerts/issue/              issue an alert by hand
@@ -28,7 +28,7 @@ from django.utils import timezone
 from django.utils.html import escape
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -44,6 +44,9 @@ from .models import LEVEL_RANK, Alert, AlertRun, Delivery, Level, Subscriber, ne
 MAX_CONFIRM_ATTEMPTS = 5
 CODE_LIFETIME = dt.timedelta(hours=1)
 MAX_REGIONS = 10
+CODES_USED_UP = (
+    "This email or phone has been sent all the codes it can get today. Try again tomorrow."
+)
 
 
 class AlertSerializer(serializers.ModelSerializer):
@@ -95,6 +98,9 @@ def _sorted(alerts):
 
 class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertSerializer
+    # The ones in force by default, at most one per region; the history
+    # (?status=all) grows by a few a day.
+    pagination_class = None
 
     def get_queryset(self):
         qs = Alert.objects.select_related("region", "issued_by")
@@ -297,7 +303,14 @@ class SubscribeSerializer(serializers.Serializer):
 
 
 def _send_code(subscriber: Subscriber) -> list[str]:
-    """Send the confirmation code by every channel given; the channels it went by."""
+    """Send the confirmation code by every channel given; the channels it went by.
+
+    Raises Throttled, sending nothing, when the email or phone has already
+    had its codes for the day.
+    """
+    for to in (subscriber.email, subscriber.phone):
+        if to and not channels.take_code_allowance(to):
+            raise Throttled(detail=CODES_USED_UP)
     sent = []
     if subscriber.email:
         result = channels.send_email(
@@ -334,7 +347,11 @@ def subscribe(request):
         user=request.user if request.user.is_authenticated else None,
     )
     subscriber.regions.set(values["region_objects"])
-    sent = _send_code(subscriber)
+    try:
+        sent = _send_code(subscriber)
+    except Throttled:
+        subscriber.delete()
+        raise
     if not sent:
         subscriber.delete()
         return Response(
@@ -507,22 +524,37 @@ def _subscriber_summary(subscriber: Subscriber) -> dict:
     }
 
 
+def _page(body: str) -> HttpResponse:
+    return HttpResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<meta name='robots' content='noindex'>"
+        "<title>FloodScout alerts</title></head>"
+        "<body style='font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
+        f"<h1>FloodScout alerts</h1>{body}</body></html>"
+    )
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def unsubscribe(request, token: str):
-    """Stop the alerts and delete the subscription. A plain page, for an email link."""
+    """Stop the alerts and delete the subscription. A plain page, for an email link.
+
+    GET only asks; the button POSTs. Mail scanners and link previews open
+    every link in an email, and must not stop someone's flood warnings.
+    """
     subscriber = Subscriber.objects.filter(token=token).first()
-    if subscriber:
-        who = escape(subscriber.email or subscriber.phone)
-        subscriber.delete()
-        message = f"{who} will get no more FloodScout alerts. What was kept has been deleted."
-    else:
-        message = "This link has already been used, or the subscription no longer exists."
-    page = (
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>FloodScout alerts</title></head>"
-        "<body style='font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
-        f"<h1>FloodScout alerts</h1><p>{message}</p></body></html>"
-    )
-    return HttpResponse(page)
+    if subscriber is None:
+        return _page(
+            "<p>This link has already been used, or the subscription no longer exists.</p>"
+        )
+    who = escape(subscriber.email or subscriber.phone)
+    if request.method == "GET":
+        return _page(
+            f"<p>Stop all FloodScout alerts to {who}? What was kept for them will be "
+            "deleted.</p><form method='post'>"
+            "<button type='submit' style='font:inherit;padding:.5rem 1rem'>"
+            "Stop the alerts</button></form>"
+        )
+    subscriber.delete()
+    return _page(f"<p>{who} will get no more FloodScout alerts. What was kept has been deleted.</p>")

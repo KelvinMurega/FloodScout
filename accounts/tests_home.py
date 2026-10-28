@@ -127,6 +127,27 @@ class SignUpCodeTests(APITestCase):
         user.refresh_from_db()
         self.assertFalse(user.email_verified)
 
+    def test_asking_for_a_new_code_keeps_the_wrong_tries(self):
+        user = User.objects.create_user("akinyi", email="a@example.com", password=PASSWORD)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=user).key}")
+        self.client.post("/api/auth/verify/", {"channel": "email"})
+        for _ in range(3):
+            self.client.post("/api/auth/verify/", {"channel": "email", "code": "000000"})
+        self.client.post("/api/auth/verify/", {"channel": "email"})
+        self.assertEqual(ContactCode.objects.get(user=user).attempts, 3)
+
+    def test_one_address_gets_at_most_five_codes_a_day(self):
+        # Six accounts, all naming the same stranger's address.
+        for i in range(6):
+            user = User.objects.create_user(f"u{i}", email="victim@example.com", password=PASSWORD)
+            self.client.credentials(
+                HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=user).key}"
+            )
+            response = self.client.post("/api/auth/verify/", {"channel": "email"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("codes it can get today", response.data["detail"])
+        self.assertEqual(len(mail.outbox), 5)
+
 
 @override_settings(EMAIL_BACKEND=LOCMEM, AT_API_KEY="")
 class HomeAlertTests(APITestCase):

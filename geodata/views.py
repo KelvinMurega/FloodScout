@@ -24,6 +24,9 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
     filtered, so any region is reachable by id.
     """
 
+    # The 47 counties by default; every sub-county at most (about 300).
+    pagination_class = None
+
     queryset = Region.objects.order_by("county_name", "level", "name")
     serializer_class = RegionSerializer
 
@@ -93,7 +96,9 @@ class _RegionFilterMixin:
         qs = super().get_queryset()
         region_id = self.request.query_params.get("region")
         if region_id:
-            qs = qs.filter(region_id=region_id)
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            qs = qs.filter(region_id=int(region_id))
         return qs
 
 

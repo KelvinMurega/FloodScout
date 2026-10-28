@@ -41,6 +41,24 @@ jobs:
         run: npm test
       - name: Build the dashboard
         run: npm ci && npm run build
+      # Known vulnerabilities in the dashboard's packages, high or worse.
+      - name: Audit the packages
+        run: npm audit --audit-level=high
+
+  audit:
+    name: Audit (Python packages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Checks the exact versions in requirements.lock against the Python
+      # advisory database, without installing them.
+      - name: Check for known vulnerabilities
+        run: |
+          pip install "pip-audit>=2.7,<3"
+          pip-audit -r requirements.lock --require-hashes --disable-pip
 
   test:
     name: Tests (Django + PostGIS)

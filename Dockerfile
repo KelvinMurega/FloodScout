@@ -17,8 +17,10 @@ RUN git config --system --add safe.directory /app
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.lock pins every package, dependencies included, to an exact
+# version and hash (made from requirements.txt; see the top of that file).
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY . .
 

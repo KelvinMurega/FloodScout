@@ -1,5 +1,6 @@
 {
   "version": "flood-random-forest-20261007",
+  "model_sha256": "72fe2cf060c8e6c156e25a7a2d2a37a37827a278ace8c956bfbd4ddb8cc60ffb",
   "target": "DFO large flood recorded in the county within the 30-day window",
   "rows": 14523,
   "positives": 1406,
