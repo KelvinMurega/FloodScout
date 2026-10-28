@@ -8,6 +8,7 @@ import {
   everydayAdvice,
   groupAreas,
   mapBucket,
+  pointInGeometry,
   seasonVerdict,
   subCountyAlerts,
   timeOfYear,
@@ -101,4 +102,16 @@ test("a county's areas grouped by colour, the most worrying first", () => {
   assert.deepEqual(groups.usual.map((s) => s.region_name), ["E", "C"]);
   assert.deepEqual(groups.lower.map((s) => s.region_name), ["D"]);
   assert.deepEqual(groups.unknown.map((s) => s.region_name), ["F"]);
+});
+
+test("which county a point is in, holes included", () => {
+  const square = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]];
+  const hole = [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]];
+  const polygon = { type: "Polygon", coordinates: [square, hole] };
+  assert.equal(pointInGeometry([2, 2], polygon), true);
+  assert.equal(pointInGeometry([5, 5], polygon), false);
+  assert.equal(pointInGeometry([12, 2], polygon), false);
+  const multi = { type: "MultiPolygon", coordinates: [[square], [[[20, 0], [30, 0], [30, 10], [20, 10], [20, 0]]]] };
+  assert.equal(pointInGeometry([25, 5], multi), true);
+  assert.equal(pointInGeometry([15, 5], multi), false);
 });

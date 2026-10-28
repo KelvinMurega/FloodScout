@@ -391,3 +391,25 @@
     height: 300px;
   }
 }
+
+/* Sub-county names on the map, from a close zoom (simple.js, NAMES_FROM_ZOOM). */
+.simple__area-name {
+  display: none;
+}
+
+.simple__map--names .simple__area-name {
+  display: block;
+}
+
+.simple__area-name span {
+  display: block;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 3px var(--surface-1),
+    0 0 3px var(--surface-1),
+    0 0 6px var(--surface-1);
+}

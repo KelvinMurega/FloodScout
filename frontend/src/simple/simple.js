@@ -19,12 +19,14 @@ import {
   fetchScoreHistory,
 } from "../api.js";
 import { quickAlertControl } from "../alerts/quick.js";
+import { prefersDark } from "../risk.js";
 import { searchRegions } from "../search.js";
 import {
   alertFor,
   everydayAdvice,
   groupAreas,
   mapBucket,
+  pointInGeometry,
   seasonVerdict,
   subCountyAlerts,
   timeOfYear,
@@ -153,7 +155,7 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
   mapHead.append(mapTitle, mapBack);
   const mapDiv = el("div", "simple__map");
   mapDiv.setAttribute("aria-label", "Map coloured by the chance of flooding against the usual for the time of year");
-  const mapHint = el("p", "simple__muted simple__map-hint", "Tap a county to see it up close.");
+  const mapHint = el("p", "simple__muted simple__map-hint", "Tap a county, or zoom in, to see its areas.");
   mapBox.append(mapHead, mapDiv, legend(), mapHint);
   const card = el("section", "simple__card");
   card.setAttribute("aria-live", "polite");
@@ -169,14 +171,20 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
   card.append(el("p", "simple__muted", "Loading today's readings…"));
 
   let countyScores = [];
+  let areaScores = [];
   try {
-    countyScores = rowsOf(await fetchLatestScores({ level: "county" }));
+    [countyScores, areaScores] = await Promise.all([
+      fetchLatestScores({ level: "county" }).then(rowsOf),
+      // Every sub-county's reading is light (a row each); their shapes load per county as needed.
+      fetchLatestScores({ level: "sub_county" }).then(rowsOf).catch(() => []),
+    ]);
   } catch (error) {
     if (mine === render) card.replaceChildren(el("p", "simple__muted", `Could not load today's readings: ${error.message}`));
     return;
   }
   if (mine !== render) return;
   const byCounty = new Map(countyScores.map((s) => [s.region, s]));
+  const byArea = new Map(areaScores.map((s) => [s.region, s]));
   const countyByName = new Map(countyScores.map((s) => [s.region_name, s.region]));
 
   const entries = counties.map((f) => ({ id: idOf(f), name: nameOf(f), level: "county" }));
@@ -198,11 +206,38 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
     }
   });
 
-  const kenyaMap = drawKenya(mapDiv, counties, byCounty, (entry) => choose(entry));
   const shapesCache = new Map();
+  const loadShapes = (countyId) => {
+    if (!shapesCache.has(countyId)) {
+      shapesCache.set(
+        countyId,
+        fetchRegions({ level: "sub_county", parent: countyId })
+          .then((geo) => geo.features ?? [])
+          .catch(() => {
+            shapesCache.delete(countyId); // let a later look retry
+            return [];
+          }),
+      );
+    }
+    return shapesCache.get(countyId);
+  };
   // Each pick or "back" is numbered; a slower earlier one never draws over a later one.
   let pick = 0;
+  let shownCounty = null;
   const current = (n) => n === pick && mine === render;
+
+  const kenyaMap = drawMap(mapDiv, {
+    counties,
+    byCounty,
+    byArea,
+    loadShapes,
+    onPickCounty: (entry) => choose(entry),
+    onPickArea: (area) => choose({ ...area, level: "sub_county" }, { fly: false }),
+    // Zooming or dragging into another county brings its details alongside.
+    onCentreCounty: (entry) => {
+      if (shownCounty !== entry.id) choose(entry, { fly: false, scroll: false });
+    },
+  });
 
   function bringIntoView() {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -211,51 +246,41 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
 
   function backToKenya() {
     pick += 1;
+    shownCounty = null;
     keepPlace(null);
     kenyaMap.showKenya();
     mapTitle.textContent = "All of Kenya";
     mapBack.hidden = true;
-    mapHint.textContent = "Tap a county to see it up close.";
+    mapHint.textContent = "Tap a county, or zoom in, to see its areas.";
     showKenya(card, countyScores);
     bringIntoView();
   }
 
-  async function choose(place) {
+  async function choose(place, { fly = true, scroll = true } = {}) {
     const n = ++pick;
     keepPlace(place);
     input.value = "";
     matches.hidden = true;
-    bringIntoView();
+    if (scroll) bringIntoView();
     card.replaceChildren(el("p", "simple__muted", `Loading ${place.name}…`));
 
-    const score = await scoreFor(place, countyScores);
+    const known = place.level === "county" ? byCounty.get(place.id) : byArea.get(place.id);
+    const score = known ?? (await scoreFor(place, countyScores));
+    if (!current(n)) return;
     const countyName = place.level === "county" ? place.name : score?.county_name ?? place.county;
     const countyId = place.level === "county" ? place.id : countyByName.get(countyName);
-    const [areas, shapes] = countyId
-      ? await Promise.all([
-          fetchLatestScores({ level: "sub_county", parent: countyId }).then(rowsOf).catch(() => []),
-          shapesCache.get(countyId) ??
-            fetchRegions({ level: "sub_county", parent: countyId })
-              .then((geo) => {
-                shapesCache.set(countyId, geo.features ?? []);
-                return geo.features ?? [];
-              })
-              .catch(() => []),
-        ])
-      : [[], []];
-    if (!current(n)) return;
+    shownCounty = countyId ?? null;
 
     if (countyId) {
-      kenyaMap.showCounty(countyId, shapes, new Map(areas.map((s) => [s.region, s])), place.level === "sub_county" ? place.id : null, (area) =>
-        choose({ ...area, level: "sub_county", county: countyName }),
-      );
+      kenyaMap.focus(countyId, place.level === "sub_county" ? place.id : null, { fly });
       mapTitle.textContent = `${countyName} County`;
       mapBack.hidden = false;
-      mapHint.textContent = "Tap an area for its details, or another county to move there.";
+      mapHint.textContent = "Tap an area for its details. Zoom out or drag to move to another county.";
     }
+    const areas = place.level === "county" ? areaScores.filter((row) => row.county_name === countyName) : [];
     await showPlace(card, { ...place, county: countyName }, score, {
       countyId,
-      areas: place.level === "county" ? areas : [],
+      areas,
       alerts,
       user,
       onDetailed,
@@ -417,30 +442,63 @@ function legend() {
   return box;
 }
 
+// From this zoom the map shows sub-counties instead of counties, and the
+// basemap's towns and roads; from the next, the sub-counties' names too.
+const AREAS_FROM_ZOOM = 8;
+const NAMES_FROM_ZOOM = 9;
+
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+const CANVAS_ATTRIBUTION = "Basemap &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors";
+
 /**
- * The map: all Kenya by county, or one county by sub-county with the rest
- * faint (still a tap away). Returns { showKenya, showCounty }.
+ * The map: all Kenya by county; zoomed in, every county in view by
+ * sub-county with names and the basemap's places; one county picked, that
+ * county's areas whatever the zoom, the rest faint and a tap away.
+ * Returns { showKenya, focus }.
  */
-function drawKenya(div, counties, byCounty, onPickCounty) {
+function drawMap(div, { counties, byCounty, byArea, loadShapes, onPickCounty, onPickArea, onCentreCounty }) {
   map = L.map(div, {
     zoomControl: true,
-    scrollWheelZoom: false,
-    attributionControl: false,
+    scrollWheelZoom: true,
     zoomSnap: 0.25,
+    minZoom: 5,
   });
+  map.attributionControl.setPrefix(false);
+  map.createPane("simpleNames").style.zIndex = 450;
+  map.getPane("simpleNames").style.pointerEvents = "none";
+
+  const canvas = prefersDark() ? "World_Dark_Gray" : "World_Light_Gray";
+  L.tileLayer(`${ESRI}/Canvas/${canvas}_Base/MapServer/tile/{z}/{y}/{x}`, {
+    attribution: CANVAS_ATTRIBUTION,
+    maxZoom: 16,
+  }).addTo(map);
+  L.tileLayer(`${ESRI}/Canvas/${canvas}_Reference/MapServer/tile/{z}/{y}/{x}`, {
+    maxZoom: 16,
+    minZoom: AREAS_FROM_ZOOM,
+    pane: "simpleNames",
+  }).addTo(map);
+
   const colour = (score) => cssVar(`--simple-${mapBucket(verdictOf(score).key)}`) || "#cccccc";
   const stroke = () => cssVar("--polygon-stroke") || "#ffffff";
   const focusStroke = () => cssVar("--polygon-stroke-focus") || "#000000";
+  const countyLine = () => cssVar("--county-line") || "#52514e";
   let focused = null;
-  let areaLayer = null;
+  let focusedName = null;
+  let selected = null;
+  let flying = false;
+  const zoomedIn = () => map.getZoom() >= AREAS_FROM_ZOOM;
+  // A county's areas show when zoomed in, or when it is the one picked.
+  const areasShown = (countyName) => zoomedIn() || countyName === focusedName;
 
   const countyStyle = (feature) => {
-    const faint = focused !== null;
+    const id = idOf(feature);
+    const own = id === focused;
+    const covered = zoomedIn() || own;
     return {
-      fillColor: colour(byCounty.get(idOf(feature))),
-      fillOpacity: faint ? 0.25 : 0.85,
-      color: stroke(),
-      weight: 1,
+      fillColor: colour(byCounty.get(id)),
+      fillOpacity: covered ? 0 : focused !== null ? 0.25 : 0.75,
+      color: own ? focusStroke() : covered ? countyLine() : stroke(),
+      weight: own ? 3 : covered ? 2 : 1,
     };
   };
   const countyLayer = L.geoJSON(
@@ -455,47 +513,115 @@ function drawKenya(div, counties, byCounty, onPickCounty) {
       },
     },
   ).addTo(map);
+
+  const areaStyle = (feature) => {
+    const shown = areasShown(feature.properties.county_name);
+    const isSelected = idOf(feature) === selected;
+    return {
+      fillColor: colour(byArea.get(idOf(feature))),
+      fillOpacity: shown ? 0.7 : 0,
+      opacity: shown ? 1 : 0,
+      color: isSelected ? focusStroke() : stroke(),
+      weight: isSelected ? 3 : 1,
+    };
+  };
+  const names = L.layerGroup().addTo(map);
+  const areaLayer = L.geoJSON(null, {
+    style: areaStyle,
+    onEachFeature: (feature, shape) => {
+      const id = idOf(feature);
+      const name = nameOf(feature);
+      const county = feature.properties.county_name;
+      shape.bindTooltip(() => `${name}, ${county}: ${verdictOf(byArea.get(id)).word}`, { sticky: true });
+      shape.on("click", (event) => {
+        if (!areasShown(county)) return;
+        L.DomEvent.stopPropagation(event);
+        onPickArea({ id, name, county });
+      });
+      names.addLayer(
+        L.marker(shape.getBounds().getCenter(), {
+          pane: "simpleNames",
+          interactive: false,
+          keyboard: false,
+          icon: L.divIcon({ className: "simple__area-name", html: el("span", null, name), iconSize: null }),
+        }),
+      );
+    },
+  }).addTo(map);
+  const loaded = new Set();
+
+  async function ensureAreas(countyIds) {
+    const wanted = countyIds.filter((id) => !loaded.has(id));
+    wanted.forEach((id) => loaded.add(id));
+    if (!wanted.length) return;
+    const lists = await Promise.all(wanted.map((id) => loadShapes(id)));
+    if (!map) return;
+    lists.forEach((shapes, i) => {
+      if (shapes.length) areaLayer.addData(shapes);
+      else loaded.delete(wanted[i]);
+    });
+    areaLayer.setStyle(areaStyle);
+  }
+
+  function countiesInView() {
+    const view = map.getBounds();
+    return countyLayer
+      .getLayers()
+      .filter((shape) => view.intersects(shape.getBounds()))
+      .map((shape) => idOf(shape.feature));
+  }
+
+  function countyAtCentre() {
+    const { lng, lat } = map.getCenter();
+    const shape = countyLayer.getLayers().find((s) => pointInGeometry([lng, lat], s.feature.geometry));
+    return shape ? { id: idOf(shape.feature), name: nameOf(shape.feature), level: "county" } : null;
+  }
+
+  function refresh() {
+    if (zoomedIn()) ensureAreas(countiesInView());
+    else if (focused !== null) ensureAreas([focused]);
+    countyLayer.setStyle(countyStyle);
+    areaLayer.setStyle(areaStyle);
+    // Names only where areas show: zoomed in, or in the picked county.
+    div.classList.toggle("simple__map--names", map.getZoom() >= NAMES_FROM_ZOOM);
+  }
+
+  map.on("moveend", () => {
+    refresh();
+    if (flying) {
+      flying = false;
+      return;
+    }
+    if (zoomedIn()) {
+      const county = countyAtCentre();
+      if (county) onCentreCounty(county);
+    }
+  });
+
   const kenyaBounds = countyLayer.getBounds();
   map.fitBounds(kenyaBounds, { padding: [8, 8] });
+
+  function flyTo(bounds) {
+    flying = true;
+    map.flyToBounds(bounds, { padding: [12, 12], duration: 0.6 });
+  }
 
   return {
     showKenya() {
       focused = null;
-      areaLayer?.remove();
-      areaLayer = null;
-      countyLayer.setStyle(countyStyle);
-      map.flyToBounds(kenyaBounds, { padding: [8, 8], duration: 0.6 });
+      focusedName = null;
+      selected = null;
+      flyTo(kenyaBounds);
+      refresh();
     },
-    showCounty(countyId, shapes, byArea, selectedId, onPickArea) {
+    focus(countyId, selectedAreaId, { fly = true } = {}) {
+      const shape = countyLayer.getLayers().find((s) => idOf(s.feature) === countyId);
       focused = countyId;
-      countyLayer.setStyle(countyStyle);
-      areaLayer?.remove();
-      areaLayer = null;
-      if (shapes.length) {
-        areaLayer = L.geoJSON(
-          { type: "FeatureCollection", features: shapes },
-          {
-            style: (feature) => {
-              const selected = idOf(feature) === selectedId;
-              return {
-                fillColor: colour(byArea.get(idOf(feature))),
-                fillOpacity: 0.9,
-                color: selected ? focusStroke() : stroke(),
-                weight: selected ? 3 : 1,
-              };
-            },
-            onEachFeature: (feature, shape) => {
-              const id = idOf(feature);
-              const name = nameOf(feature);
-              shape.bindTooltip(`${name}: ${verdictOf(byArea.get(id)).word}`, { sticky: true });
-              shape.on("click", () => onPickArea({ id, name }));
-              if (id === selectedId) shape.bringToFront();
-            },
-          },
-        ).addTo(map);
-      }
-      const target = areaLayer ?? countyLayer.getLayers().find((shape) => idOf(shape.feature) === countyId);
-      if (target) map.flyToBounds(target.getBounds(), { padding: [12, 12], duration: 0.6 });
+      focusedName = shape ? nameOf(shape.feature) : null;
+      selected = selectedAreaId;
+      ensureAreas([countyId]);
+      if (fly && shape) flyTo(shape.getBounds());
+      refresh();
     },
   };
 }
