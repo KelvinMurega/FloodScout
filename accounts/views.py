@@ -65,6 +65,9 @@ def signed_in(user, token) -> dict:
         "phone": user.phone,
         "role": user.role,
         "is_administrator": user.is_administrator(),
+        "can_see_analytics": user.can_see_analytics(),
+        "home_region": user.home_region_id,
+        "home_region_name": str(user.home_region) if user.home_region else None,
     }
 
 

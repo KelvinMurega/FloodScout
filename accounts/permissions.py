@@ -13,3 +13,13 @@ class IsAdministrator(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and user.is_administrator())
+
+
+class CanSeeAnalytics(BasePermission):
+    """System Administrators and Analysts: reading the model and system analytics."""
+
+    message = "Only an Analyst or a System Administrator can see this."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.can_see_analytics())

@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from accounts.activity import record
 from accounts.models import ActivityLog
-from accounts.permissions import IsAdministrator
+from accounts.permissions import CanSeeAnalytics, IsAdministrator
 from geodata import focus_regions
 from geodata.filters import filter_by_region_params
 from geodata.models import Region
@@ -358,7 +358,7 @@ def situation_briefing(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAdministrator])
+@permission_classes([CanSeeAnalytics])
 def admin_analytics(request):
     """Everything the administrator's analytics page shows, in one response.
 

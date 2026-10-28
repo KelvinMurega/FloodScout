@@ -1115,11 +1115,11 @@ const RENDERERS = {
 function renderLocked(root) {
   const box = el("div", "admin-locked");
   box.append(
-    el("h2", "admin-locked__title", "Administrator analytics"),
+    el("h2", "admin-locked__title", "Model and system analytics"),
     el(
       "p",
       "admin-locked__text",
-      "Model evaluation and system health are for the System Administrator. Sign in with the button at the top right to see them.",
+      "Model evaluation and system health are for Analysts and the System Administrator. Sign in with the button at the top right to see them.",
     ),
   );
   const back = el("a", "auth__button", "Back to the map");
@@ -1183,7 +1183,7 @@ function renderLoading(root) {
 export async function showAdmin(root, { slug, user }) {
   clearCharts();
   lastRender = { root, slug, user };
-  if (!user?.is_administrator) {
+  if (!(user?.can_see_analytics ?? user?.is_administrator)) {
     analytics = null;
     renderLocked(root);
     return;
