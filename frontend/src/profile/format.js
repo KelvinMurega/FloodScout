@@ -17,6 +17,7 @@ export function displayName(user) {
 
 export const ROLE_LABELS = {
   admin: "System Administrator",
+  analyst: "Analyst",
   user: "End User",
 };
 

@@ -93,6 +93,8 @@ export function initAuth(root, { onRescored, onUserChange = () => {} }) {
     const message = el("span", "auth__message", note);
     message.setAttribute("role", "status");
 
+    // An Analyst reads the analytics and changes nothing (accounts/models.py).
+    if (user.can_see_analytics && !user.is_administrator) list.append(menuLink("Analytics", "#/admin"));
     if (user.is_administrator) {
       list.append(
         menuLink("Analytics", "#/admin"),

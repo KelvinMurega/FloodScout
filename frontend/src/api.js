@@ -417,6 +417,14 @@ export function updateUser(id, body) {
   return sendJson("PATCH", `admin/users/${id}/`, body);
 }
 
+/**
+ * Administrator only: everyone signed up for alerts with what reached them,
+ * and those who stopped (their contact masked): { totals, subscribers, unsubscribed }.
+ */
+export function fetchSubscribers() {
+  return authedGet("alerts/subscribers/");
+}
+
 /** Administrator only: what everyone has done, newest first. */
 export function fetchActivity() {
   return authedGet("admin/activity/");

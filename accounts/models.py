@@ -18,6 +18,11 @@ class User(AbstractUser):
 
     class Role(models.TextChoices):
         ADMINISTRATOR = "admin", "System Administrator"
+        # Someone at ease with the numbers (a county disaster officer, a Red
+        # Cross analyst): the detailed map first, and the model and system
+        # analytics to read, but no power to change users, rescore or issue
+        # alerts. Added 28 October 2026.
+        ANALYST = "analyst", "Analyst"
         END_USER = "user", "End User"
 
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.END_USER)
@@ -70,6 +75,10 @@ class User(AbstractUser):
         # A Django superuser (`createsuperuser`) counts as well, so the first
         # account on a new install can administer without a role edit.
         return self.is_superuser or self.role == self.Role.ADMINISTRATOR
+
+    def can_see_analytics(self) -> bool:
+        """Administrators and analysts read the analytics page; only administrators change things."""
+        return self.is_administrator() or self.role == self.Role.ANALYST
 
     def __str__(self) -> str:
         return self.username

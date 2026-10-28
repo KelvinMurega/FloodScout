@@ -12,6 +12,9 @@ class MeSerializer(serializers.ModelSerializer):
     """The signed-in user's own profile. Only the details are writable."""
 
     is_administrator = serializers.BooleanField(read_only=True)
+    can_see_analytics = serializers.BooleanField(read_only=True)
+    # Where the simple front page opens for them (accounts/home.py sets it).
+    home_region_name = serializers.SerializerMethodField()
     county = serializers.PrimaryKeyRelatedField(
         queryset=Region.objects.filter(level=Region.Level.COUNTY), allow_null=True, required=False
     )
@@ -31,6 +34,9 @@ class MeSerializer(serializers.ModelSerializer):
             "county_name",
             "role",
             "is_administrator",
+            "can_see_analytics",
+            "home_region",
+            "home_region_name",
             "email_verified",
             "phone_verified",
             "date_joined",
@@ -40,11 +46,15 @@ class MeSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "role",
+            "home_region",
             "email_verified",
             "phone_verified",
             "date_joined",
             "last_login",
         ]
+
+    def get_home_region_name(self, user) -> str | None:
+        return str(user.home_region) if user.home_region else None
 
     def validate_email(self, value):
         taken = User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk)
@@ -131,6 +141,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
     """An account as the administrator's Users table shows it."""
 
     subscriptions = serializers.IntegerField(read_only=True)
+    alerts_received = serializers.IntegerField(read_only=True)
+    unsubscribed = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = User
@@ -146,6 +158,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "date_joined",
             "last_login",
             "subscriptions",
+            "alerts_received",
+            "unsubscribed",
         ]
         read_only_fields = [
             "id",

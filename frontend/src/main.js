@@ -74,6 +74,8 @@ import {
 import { initLayers, overlayLegend } from "./layers.js";
 import { searchRegions } from "./search.js";
 import { KENYA_SLUG, alertSummary, countySlug, overviewScope, regionSummaries } from "./focus.js";
+import { hideSimple, showSimple } from "./simple/simple.js";
+import { chooseView, viewFor } from "./viewmode.js";
 import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
 import {
   THEMES,
@@ -147,6 +149,7 @@ const els = {
   searchEmpty: document.getElementById("search-empty"),
   printReport: document.getElementById("print-report"),
   downloadCsv: document.getElementById("download-csv"),
+  viewToggle: document.getElementById("view-toggle"),
   report: document.getElementById("report"),
   admin: document.getElementById("admin"),
 };
@@ -2744,10 +2747,35 @@ function setAdminOpen(open) {
   }
 }
 
+/** Whether #/ shows the simple view for whoever is here (viewmode.js). */
+function simpleHome() {
+  return viewFor(state.user) === "simple";
+}
+
+/** The header's switch names the other view. */
+function updateViewToggle() {
+  const onSimple = currentSlug() === "" && simpleHome();
+  const label = els.viewToggle.querySelector(".button-label");
+  label.textContent = onSimple ? "Detailed map" : "Simple view";
+  els.viewToggle.title = onSimple ? "The full map, with every number" : "Plain answers for your area";
+}
+
+/** Leave the simple view for the detailed map, with `regionId` selected if given. */
+function openDetailed(regionId = null) {
+  chooseView("detailed");
+  state.pendingSelect = regionId;
+  const slug = regionId !== null ? countySlug(regionId, state.focusByCountyId) : "";
+  if (currentSlug() === slug) route();
+  else location.hash = slug ? `#/${slug}` : "";
+}
+
 async function route() {
   await sessionChecked;
   const slug = currentSlug();
+  hideSimple();
   document.body.classList.toggle("is-auth", isAuthSlug(slug));
+  document.body.classList.toggle("is-simple", slug === "" && simpleHome());
+  updateViewToggle();
   if (isAuthSlug(slug)) {
     hideAdmin();
     hideAlerts();
@@ -2797,6 +2825,24 @@ async function route() {
     setAdminOpen(true);
     window.scrollTo(0, 0);
     await showAlerts(els.admin, { slug, user: state.user, onShowOnMap: showAlertOnMap });
+    return;
+  }
+  // The front door in plain words, for everyone who has not chosen the map.
+  if (slug === "" && simpleHome()) {
+    hideAdmin();
+    hideAlerts();
+    hideProfile();
+    stopPlaying();
+    setAdminOpen(true);
+    window.scrollTo(0, 0);
+    // It needs the county shapes; load() routes again once they are in.
+    if (!state.counties) return;
+    await showSimple(els.admin, {
+      user: state.user,
+      counties: state.counties.features,
+      alerts: state.alerts,
+      onDetailed: openDetailed,
+    });
     return;
   }
   if (state.adminOpen) {
@@ -2852,8 +2898,20 @@ async function load() {
       if (state.selectedRegionId !== null && !state.adminOpen) renderDetail(state.selectedRegionId);
       if (!user && isProfileSlug(currentSlug())) location.hash = "#/";
       if (!user) resetAdmin();
-      if (isPageSlug(currentSlug())) route();
+      // The front door depends on who is here (viewmode.js).
+      if (isPageSlug(currentSlug()) || currentSlug() === "") route();
     },
+  });
+
+  els.viewToggle.addEventListener("click", () => {
+    const onSimple = currentSlug() === "" && simpleHome();
+    if (onSimple) {
+      openDetailed();
+      return;
+    }
+    chooseView("simple");
+    if (currentSlug() === "") route();
+    else location.hash = "";
   });
 
   // A sign-in from an earlier visit, or from before the trip to Google and
