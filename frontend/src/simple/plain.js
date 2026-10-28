@@ -143,3 +143,20 @@ export function groupAreas(scores) {
   for (const list of Object.values(groups)) list.sort((a, b) => (b.times_season ?? 0) - (a.times_season ?? 0));
   return groups;
 }
+
+/** Whether [lon, lat] lies inside a GeoJSON Polygon or MultiPolygon (holes respected). */
+export function pointInGeometry([x, y], geometry) {
+  const inRing = (ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  const inPolygon = (rings) => inRing(rings[0]) && !rings.slice(1).some(inRing);
+  if (geometry?.type === "Polygon") return inPolygon(geometry.coordinates);
+  if (geometry?.type === "MultiPolygon") return geometry.coordinates.some(inPolygon);
+  return false;
+}

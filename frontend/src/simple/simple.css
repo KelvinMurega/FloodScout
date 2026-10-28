@@ -26,7 +26,7 @@
 .simple {
   display: grid;
   gap: 20px;
-  max-width: 760px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 24px 20px 48px;
   font-size: 16px;
@@ -109,6 +109,67 @@
 .simple__match:hover,
 .simple__match:focus-visible {
   background: var(--surface-page);
+}
+
+/* The map beside the details on a wide screen; on a phone, the map first. */
+.simple__body {
+  display: grid;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .simple__body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  /* The map stays in view while the details scroll. */
+  .simple__map-box {
+    position: sticky;
+    top: 12px;
+  }
+}
+
+.simple__body {
+  scroll-margin-top: 8px;
+}
+
+.simple__map-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.simple__map-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.simple__map-hint {
+  margin: 8px 0 0;
+}
+
+/* The way back: a real button, easy to see and to tap. */
+.simple__back {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14.5px;
+  font-weight: 600;
+  border: 1.5px solid var(--polygon-stroke-focus);
+}
+
+.simple__back[hidden] {
+  display: none;
+}
+
+.simple__card-back {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .simple__card,
@@ -273,7 +334,7 @@
 }
 
 .simple__map {
-  height: 380px;
+  height: 420px;
   border-radius: 10px;
   background: var(--surface-page);
 }
@@ -329,4 +390,26 @@
   .simple__map {
     height: 300px;
   }
+}
+
+/* Sub-county names on the map, from a close zoom (simple.js, NAMES_FROM_ZOOM). */
+.simple__area-name {
+  display: none;
+}
+
+.simple__map--names .simple__area-name {
+  display: block;
+}
+
+.simple__area-name span {
+  display: block;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 3px var(--surface-1),
+    0 0 3px var(--surface-1),
+    0 0 6px var(--surface-1);
 }
