@@ -7,11 +7,13 @@ services:
   web:
     build: .
     restart: unless-stopped
+    # Every line at the same indent: in a folded (>) block, a line indented
+    # further keeps its newline, and sh would end the command there.
     command: >
       sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput &&
-             gunicorn floodscout.wsgi:application --bind 0.0.0.0:8000
-             --workers 2 --timeout 120 --access-logfile -"
+      python manage.py collectstatic --noinput &&
+      gunicorn floodscout.wsgi:application --bind 0.0.0.0:8000
+      --workers 2 --timeout 120 --access-logfile -"
     env_file: .env
     volumes:
       - static:/app/staticfiles
