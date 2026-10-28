@@ -707,6 +707,60 @@ body:not(.is-admin) .app {
   color: var(--text-muted);
 }
 
+.focus-list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.focus-list__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-ring);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.focus-list__item:hover {
+  background: var(--surface-page);
+}
+
+.focus-list__item:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.focus-list__name {
+  font-weight: 550;
+}
+
+.focus-list__risk {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The alerts line sits under the name, across the last two columns. */
+.focus-list__alerts {
+  grid-column: 2 / 4;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.focus-list__alerts:empty {
+  display: none;
+}
+
 .relocation__group {
   margin: 10px 0 6px;
   font-size: 12.5px;

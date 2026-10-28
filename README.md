@@ -32,7 +32,18 @@ Dr. Deperias Kerre.
 - **Scores every region daily.** Each county and sub-county gets a risk
   category (Low, Moderate, High or Very High) from the last 30 days of
   rainfall, the El Niño and Indian Ocean Dipole indices, the time of year
-  and the terrain. A scheduler refreshes the scores once a day.
+  and the terrain. A scheduler refreshes the scores once a day. A window
+  with little rain (under 25 mm, or under half the county's normal) is
+  shown no higher than Moderate, whatever the season says
+  (`riskengine/dry.py`).
+- **Trained nationally, presented for the flood-prone regions.** The
+  dashboard opens on five focus regions (23 counties: the Coast, the Lake
+  Victoria Basin, the Rift Valley, the northern rivers and Nairobi metro,
+  each cited in `geodata/focus_regions.py`), with All Kenya one click away.
+  The model is still trained on all 47 counties. The flood archive is
+  national, and training on 23 counties would halve the rows it learns
+  from. In the model README's learning curve, half the rows scored an
+  average precision of 0.255 against 0.297 for all of them.
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
   The colour can show the risk level, the risk as a multiple of the usual
