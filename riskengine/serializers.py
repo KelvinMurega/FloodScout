@@ -1,8 +1,10 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from .advisory import relocation_advisory
 from .ml.infer import times_usual
 from .models import RiskForecast, RiskOutlook, RiskScore
+from .season import times_season
 
 
 class RiskScoreSerializer(serializers.ModelSerializer):
@@ -13,6 +15,7 @@ class RiskScoreSerializer(serializers.ModelSerializer):
     region_level = serializers.CharField(source="region.level", read_only=True)
     relocation_advisory = serializers.SerializerMethodField()
     times_usual = serializers.SerializerMethodField()
+    times_season = serializers.SerializerMethodField()
 
     class Meta:
         model = RiskScore
@@ -27,6 +30,8 @@ class RiskScoreSerializer(serializers.ModelSerializer):
             # The same value as a multiple of the usual chance of a flood.
             # null for a placeholder score. See riskengine/ml/infer.py.
             "times_usual",
+            # Against an ordinary year for the county and month (riskengine/season.py).
+            "times_season",
             "risk_category",
             "relocation_advisory",
             # Always exposed: an API consumer must be able to tell a placeholder
@@ -39,6 +44,11 @@ class RiskScoreSerializer(serializers.ModelSerializer):
 
     def get_times_usual(self, score) -> float | None:
         return times_usual(score.predicted_value)
+
+    def get_times_season(self, score) -> float | None:
+        return times_season(
+            score.predicted_value, score.region.county_name, timezone.localtime(score.prediction_date).month
+        )
 
 
 class RiskOutlookSerializer(serializers.ModelSerializer):
@@ -96,6 +106,7 @@ class RiskForecastSerializer(serializers.ModelSerializer):
     region_name = serializers.CharField(source="region.name", read_only=True)
     region_level = serializers.CharField(source="region.level", read_only=True)
     times_usual = serializers.SerializerMethodField()
+    times_season = serializers.SerializerMethodField()
 
     class Meta:
         model = RiskForecast
@@ -109,6 +120,7 @@ class RiskForecastSerializer(serializers.ModelSerializer):
             "target_date",
             "predicted_value",
             "times_usual",
+            "times_season",
             "risk_category",
             "rain_forecast_mm",
             "rain_forecast_max_24h",
@@ -117,3 +129,8 @@ class RiskForecastSerializer(serializers.ModelSerializer):
 
     def get_times_usual(self, forecast) -> float | None:
         return times_usual(forecast.predicted_value)
+
+    def get_times_season(self, forecast) -> float | None:
+        return times_season(
+            forecast.predicted_value, forecast.region.county_name, forecast.target_date.month
+        )

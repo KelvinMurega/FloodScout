@@ -785,10 +785,33 @@ class FocusRegionTests(APITestCase):
             [row["slug"] for row in response.data],
             [focus.slug for focus in focus_regions.FOCUS_REGIONS],
         )
-        north_eastern = next(row for row in response.data if row["slug"] == "north-eastern")
+        northern = next(row for row in response.data if row["slug"] == "northern-rivers")
         # Only counties present in the database are listed.
-        self.assertEqual(north_eastern["counties"], [{"id": garissa.id, "name": "Garissa"}])
+        self.assertEqual(northern["counties"], [{"id": garissa.id, "name": "Garissa"}])
+        self.assertEqual(northern["former_slugs"], ["north-eastern"])
+        self.assertTrue(northern["sources"])
 
     def test_retrieve_and_unknown_slug(self):
         self.assertEqual(self.client.get("/api/focus-regions/coast/").data["name"], "Coast")
         self.assertEqual(self.client.get("/api/focus-regions/atlantis/").status_code, 404)
+
+    def test_every_focus_region_cites_a_source(self):
+        for focus in focus_regions.FOCUS_REGIONS:
+            with self.subTest(focus=focus.slug):
+                self.assertTrue(focus.sources)
+
+    def test_former_slugs_still_open_the_renamed_region(self):
+        """Links saved before the renames keep working."""
+        for former, current in (("north-eastern", "northern-rivers"), ("nairobi", "nairobi-metro")):
+            with self.subTest(former=former):
+                response = self.client.get(f"/api/focus-regions/{former}/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["slug"], current)
+
+    def test_no_slug_belongs_to_two_regions(self):
+        slugs = [
+            slug
+            for focus in focus_regions.FOCUS_REGIONS
+            for slug in (focus.slug, *focus.former_slugs)
+        ]
+        self.assertEqual(len(slugs), len(set(slugs)))

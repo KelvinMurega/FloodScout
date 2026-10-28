@@ -54,7 +54,7 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
 class FocusRegionViewSet(viewsets.ViewSet):
     """The flood-prone regions the dashboard can drill into.
 
-    Static, editorial groupings of counties (geodata/focus_regions.py) with
+    Static groupings of counties, with their sources (geodata/focus_regions.py),
     each county resolved to its Region id, so the client can pick them out
     of the county layer it already holds.
     """
@@ -71,6 +71,8 @@ class FocusRegionViewSet(viewsets.ViewSet):
                 for name in focus.counties
                 if name in county_ids
             ],
+            "sources": list(focus.sources),
+            "former_slugs": list(focus.former_slugs),
         }
 
     def _county_ids(self):

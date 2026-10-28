@@ -32,10 +32,25 @@ Dr. Deperias Kerre.
 - **Scores every region daily.** Each county and sub-county gets a risk
   category (Low, Moderate, High or Very High) from the last 30 days of
   rainfall, the El Niño and Indian Ocean Dipole indices, the time of year
-  and the terrain. A scheduler refreshes the scores once a day.
+  and the terrain. A scheduler refreshes the scores once a day. A window
+  with little rain (under 25 mm, or under half the county's normal) is
+  shown no higher than Moderate, whatever the season says
+  (`riskengine/dry.py`).
+- **Trained nationally, presented for the flood-prone regions.** The
+  dashboard opens on five focus regions (23 counties: the Coast, the Lake
+  Victoria Basin, the Rift Valley, the northern rivers and Nairobi metro,
+  each cited in `geodata/focus_regions.py`), with All Kenya one click away.
+  The model is still trained on all 47 counties. The flood archive is
+  national, and training on 23 counties would halve the rows it learns
+  from. In the model README's learning curve, half the rows scored an
+  average precision of 0.255 against 0.297 for all of them.
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
-  The colour can show the risk level, the risk as a multiple of the usual
+  The colour shows, by default, the risk against an ordinary year for the
+  same place and month (`riskengine/season.py`), so a wet season does not
+  paint every county the same: on 27 October 2026 it ran from 0.6 (Kericho,
+  a third of its normal rain) to 2.2 (Garissa, more than twice its normal).
+  It can also show the risk level, the risk as a multiple of the usual
   chance, its change over a week or the rain against normal, over a choice
   of basemaps (map, satellite, today's satellite image, terrain).
 - **Puts the risk in context.** Rivers, the 100-year flood zone, 84 large
@@ -245,13 +260,31 @@ and forecast:
 
 | Level | When |
 |---|---|
-| Warning | Very High and rising, or forecast Very High within 3 days with a day of 50 mm or more in those days |
+| Warning | Very High and rising with heavy rain for the county in the 7-day forecast, or forecast Very High within 3 days with heavy rain for the county in those days |
 | Watch | Very High today, or forecast Very High within 7 days |
 | Advisory | High and rising, or a day of 50 mm or more in the forecast |
 
-50 mm in a day is the Kenya Meteorological Department's flood
-early-warning proxy. High on its own never alerts. An alert is raised
-rather than duplicated when its conditions worsen, and ends when they go.
+"Heavy rain for the county" is forecast rain above the county's own line
+for a week in that month (the 90th percentile of its wettest weeks, 1996
+to 2016) and at least 30 mm, or a day of 50 mm. 50 mm in a day is the Kenya
+Meteorological Department's flood early-warning proxy. High on its own
+never alerts.
+
+Replayed over 1996 to 2016 with the rain that actually fell (a perfect
+forecast, so better than live):
+
+| Rule | Alerts | Floods caught | Followed by a flood |
+|---|---|---|---|
+| Very High alone (Watch) | 2,177 | 584 of 1,225 | 26.8% |
+| Warning | 449 | 141 of 1,225 | 31.4% |
+
+On 2017 to 2021, scored once afterwards, the Warning rule gave 260 alerts,
+caught 66 of 181 floods, and 25.4% were followed by a flood
+(`manage.py backtest_alerts`).
+
+An alert is raised rather than duplicated when its conditions worsen, and
+steps down without a message when they ease, so the map shows what the
+rules say today. It ends when they give nothing.
 
 **Warnings for where you live.** A new account is asked for the code that
 confirms its email straight after sign-up (and at sign-in while it is still

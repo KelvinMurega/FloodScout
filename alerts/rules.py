@@ -15,8 +15,16 @@ the last week, and the 7-day forecast with its wettest day.
 "Heavy rain for the county" is forecast rain over the coming days above
 the county's own line for a week in that month: the 90th percentile of its
 wettest 7 days in that calendar month, 1996 to 2016 (HEAVY_RAIN_7D_PATH,
-written by `manage.py backtest_alerts --save-thresholds`). Until 22 October
-2026 a Warning needed a day of HEAVY_RAIN_MM, one line for all of Kenya.
+written by `manage.py backtest_alerts --save-thresholds`), and at least
+FLOOR_7D_MM in all or a day of HEAVY_RAIN_MM. Until 22 October 2026 a
+Warning needed a day of HEAVY_RAIN_MM, one line for all of Kenya.
+
+The floor came on 28 October 2026. In a dry county and month the line is a
+few showers: Kajiado got a Warning for 25 mm over three days, against an
+October line of 18 mm. Replayed over 1996 to 2016 it changes little (449
+alerts against 460, 141 floods caught against 145, the same one in three
+followed by a flood), and on 2017 to 2021 it gave 260 alerts and 66 floods
+against 271 and 67. It was added after those rules had been run.
 
 Why: replayed over 1996 to 2016 (alerts/backtest.py), Very High alone
 alerted 2,177 county-months, about 20 counties in a typical alert month,
@@ -51,6 +59,7 @@ from riskengine.briefing import Place
 from .models import LEVEL_RANK, Level
 
 HEAVY_RAIN_MM = 50.0
+FLOOR_7D_MM = 30.0
 RISING = 0.2
 SOON_DAYS = 3
 
@@ -105,12 +114,18 @@ def heavy_week_line(county: str, month: int) -> float | None:
 
 
 def _local_rain(place: Place, days):
-    """(day, mm, line) of the first of `days` whose forecast rain so far is heavy for the county."""
+    """(day, mm, line) of the first of `days` whose forecast rain so far is heavy for the county.
+
+    Heavy is above the county's line, and FLOOR_7D_MM or more or with a day of
+    HEAVY_RAIN_MM in it.
+    """
     county = place.county or place.name
     for day in days:
         mm = day[4] if len(day) > 4 else None
         line = heavy_week_line(county, day[0].month)
-        if mm is not None and line is not None and mm > line:
+        if mm is None or line is None or mm <= line:
+            continue
+        if mm >= FLOOR_7D_MM or (day[3] or 0) >= HEAVY_RAIN_MM:
             return day[0], mm, line
     return None
 

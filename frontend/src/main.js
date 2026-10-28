@@ -73,12 +73,14 @@ import {
 } from "./risk.js";
 import { initLayers, overlayLegend } from "./layers.js";
 import { searchRegions } from "./search.js";
+import { KENYA_SLUG, alertSummary, countySlug, overviewScope, regionSummaries } from "./focus.js";
 import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
 import {
   THEMES,
   THEME_ORDER,
   describeChange,
   describeRain,
+  describeSeason,
   legendEntries,
   themeAvailable,
   themeColour,
@@ -184,7 +186,7 @@ const state = {
   // Whether the view on screen is drawn by area.
   gridOn: false,
   // What the colour shows: one of THEME_ORDER (themes.js).
-  theme: "usual",
+  theme: "season",
   // How strongly the colour covers the basemap, 0.15 to 1.
   fillOpacity: readOpacity(),
   // Context rows (change, rain against normal) per view, fetched on first use.
@@ -206,8 +208,10 @@ const state = {
   searchActive: -1,
   // A region chosen in the search box that the next view should select.
   pendingSelect: null,
-  // The current view.
+  // The current view: a focus region, or else the overview's scope, "focus"
+  // (the focus counties, the front door) or "kenya" (every county).
   focus: null,
+  scope: "focus",
   // The score rows on screen, as the API returned them: what the printed
   // report and the CSV export hold.
   viewScores: [],
@@ -304,6 +308,10 @@ function formatMonth(isoDate) {
 
 function isRegionView() {
   return state.focus !== null;
+}
+
+function isFocusOverview() {
+  return !isRegionView() && state.scope === "focus";
 }
 
 function isOutlook() {
@@ -608,6 +616,8 @@ function regionTooltip(regionId, name) {
   badge.append(swatch(score?.risk_category), labelFor(score?.risk_category));
   box.append(title, badge);
   if (score) box.append(el("div", null, formatTimesUsual(context?.times_usual ?? score.times_usual)));
+  const season = describeSeason(context?.times_season ?? score?.times_season, monthOf(score));
+  if (season) box.append(el("div", null, season));
   const change = describeChange(context?.change_7d);
   if (change) box.append(el("div", "map-card__muted", change));
   const rain = describeRain(context);
@@ -621,13 +631,23 @@ function regionTooltip(regionId, name) {
   return box;
 }
 
+/** "October": the month a score or forecast row is for. */
+function monthOf(score) {
+  const iso = score?.target_date ?? score?.prediction_date;
+  if (!iso) return null;
+  const date = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+  return Number.isNaN(date.valueOf()) ? null : date.toLocaleDateString(undefined, { month: "long" });
+}
+
 /** A grid square's tooltip: its county, its risk, and the rain behind it. */
-function gridTooltip(cell) {
+function gridTooltip(cell, date) {
   const box = el("div", "grid-tooltip");
   box.append(
     el("strong", null, `${cell.county_name} area — ${labelFor(cell.risk_category)}`),
     el("div", null, formatTimesUsual(cell.times_usual)),
   );
+  const season = describeSeason(cell.times_season, monthOf({ prediction_date: date }));
+  if (season) box.append(el("div", null, season));
   if (typeof cell.rain_30d === "number") {
     const usual =
       typeof cell.rain_30d_ratio === "number"
@@ -661,7 +681,7 @@ function drawGrid(grid, countyIds = null) {
         fillOpacity: state.fillOpacity,
       },
     );
-    square.bindTooltip(gridTooltip(cell), { sticky: true });
+    square.bindTooltip(gridTooltip(cell, grid.date), { sticky: true });
     square.on("click", () => {
       if (state.layersByRegion.has(cell.county)) select(cell.county);
     });
@@ -772,9 +792,13 @@ function daysSince(isoString) {
 function renderRegionBar() {
   const group = el("div", "segmented");
   els.regionBar.replaceChildren(el("span", "layer-bar__label", "Region"), group);
-  const current = state.focus?.slug ?? "";
+  const current = state.focus?.slug ?? (state.scope === "kenya" ? KENYA_SLUG : "");
 
-  const options = [{ slug: "", name: "All Kenya" }, ...state.focusRegions];
+  const options = [
+    { slug: "", name: "Focus regions" },
+    ...state.focusRegions,
+    { slug: KENYA_SLUG, name: "All Kenya" },
+  ];
   for (const option of options) {
     const button = el("button", "region-bar__button", option.name);
     button.type = "button";
@@ -1169,7 +1193,7 @@ function renderGlance(scores) {
     return;
   }
   els.glance.hidden = false;
-  const where = isRegionView() ? `${state.focus.name} region` : "Kenya";
+  const where = viewName();
   const heading = el("h2", "panel__heading", "At a glance");
   heading.append(el("span", "panel__hint", where));
 
@@ -1259,7 +1283,7 @@ async function renderBriefing(params) {
       const name = el("span", "hotspot__name");
       name.append(swatch(spot.category), spot.name);
       button.append(name, ...spot.reasons.map((r) => el("span", `hotspot__reason hotspot__reason--${r.kind}`, r.text)));
-      button.addEventListener("click", () => select(spot.region, { pan: true }));
+      button.addEventListener("click", () => selectOrOpenKenya(spot.region));
       item.append(button);
       list.append(item);
     }
@@ -1367,15 +1391,14 @@ function showAlertOnMap(alert) {
   state.period = null;
   state.scoreDate = null;
   state.forecastDay = null;
-  let slug = "";
+  const county = state.counties?.features.find((f) => nameOf(f) === alert.county_name);
+  // A county is on the focus overview if it is in a focus region, else on All Kenya.
+  let slug = county ? countySlug(regionIdOf(county), state.focusByCountyId) : KENYA_SLUG;
   if (alert.region_level === "sub_county") {
     const focus = state.focusRegions.find((f) => f.counties.some((c) => c.name === alert.county_name));
     // A sub-county outside the focus regions: its county is on the national map.
     if (focus) slug = focus.slug;
-    else {
-      const county = state.counties?.features.find((f) => nameOf(f) === alert.county_name);
-      state.pendingSelect = county ? regionIdOf(county) : null;
-    }
+    else state.pendingSelect = county ? regionIdOf(county) : null;
   }
   location.hash = slug ? `#/${slug}` : "#/";
   if (currentSlug() === slug) route();
@@ -1423,7 +1446,56 @@ function formatTimesShort(times) {
   return typeof times === "number" ? `${times.toFixed(1)}×` : "—";
 }
 
+/**
+ * The focus overview's list of regions, each with its worst county today and
+ * the alerts in force in it, and why the map shows these and not all Kenya.
+ */
+function renderFocusIntro() {
+  els.regionIntro.hidden = false;
+  const list = el("ul", "focus-list");
+  for (const region of regionSummaries(state.focusRegions, state.scoresByRegion, state.alerts)) {
+    const button = el("button", "focus-list__item");
+    button.type = "button";
+    button.append(
+      region.worst ? swatch(region.worst) : el("span", "legend__swatch"),
+      el("span", "focus-list__name", region.name),
+      el("span", "focus-list__risk", region.worst ? `Up to ${labelFor(region.worst)}` : "No score"),
+      el("span", "focus-list__alerts", givesAdvice() ? alertSummary(region.alerts) : ""),
+    );
+    button.addEventListener("click", () => {
+      location.hash = `#/${region.slug}`;
+    });
+    const item = el("li");
+    item.append(button);
+    list.append(item);
+  }
+
+  const all = el("button", "link-button", "All Kenya →");
+  all.type = "button";
+  all.addEventListener("click", () => {
+    location.hash = `#/${KENYA_SLUG}`;
+  });
+
+  els.regionIntro.replaceChildren(
+    el("h2", "region-intro__name", "Flood-prone focus regions"),
+    el(
+      "p",
+      "region-intro__hazards",
+      "The model is trained on all 47 counties, because Kenya's flood records are national " +
+        "and fewer counties would leave too few floods to learn from. The map opens on the " +
+        `${state.focusRegions.length} regions named in national flood plans; pick one for its ` +
+        "sub-counties.",
+    ),
+    list,
+    all,
+  );
+}
+
 function renderRegionIntro() {
+  if (isFocusOverview()) {
+    renderFocusIntro();
+    return;
+  }
   if (!isRegionView()) {
     els.regionIntro.hidden = true;
     return;
@@ -1432,7 +1504,7 @@ function renderRegionIntro() {
   els.regionIntro.hidden = false;
   els.regionIntro.replaceChildren();
 
-  const back = el("button", "link-button", "← All Kenya");
+  const back = el("button", "link-button", "← Focus regions");
   back.type = "button";
   back.addEventListener("click", () => {
     location.hash = "";
@@ -2040,7 +2112,9 @@ function renderEmptyDetail() {
       "detail__empty",
       isRegionView()
         ? "Select a sub-county on the map, the relocation list or the table."
-        : "Select a county on the map, or pick a region above to see its sub-counties.",
+        : isFocusOverview()
+          ? "Select a county on the map, or pick a focus region to see its sub-counties."
+          : "Select a county on the map, or pick a region above to see its sub-counties.",
     ),
   );
 }
@@ -2050,7 +2124,11 @@ function renderTable(features) {
   els.tableBody.replaceChildren();
   state.rowsByRegion.clear();
 
-  els.tableHeading.firstChild.textContent = region ? "All sub-counties " : "All counties ";
+  els.tableHeading.firstChild.textContent = region
+    ? "All sub-counties "
+    : isFocusOverview()
+      ? "Focus counties "
+      : "All counties ";
   const headRow = el("tr");
   const headings = region
     ? ["Sub-county", "County", "Risk", "Value"]
@@ -2155,7 +2233,8 @@ const RESPONSIBLE_USE_NOTE =
   "and the county authorities.";
 
 function viewName() {
-  return isRegionView() ? `${state.focus.name} region` : "Kenya";
+  if (isRegionView()) return `${state.focus.name} region`;
+  return isFocusOverview() ? "Focus regions" : "Kenya";
 }
 
 /** The day or month the scores on screen are for, as the API wrote it. */
@@ -2240,7 +2319,7 @@ function downloadCsv() {
   const link = el("a");
   link.href = URL.createObjectURL(blob);
   link.download = reportFileName(
-    `${isRegionView() ? state.focus.name : "kenya"}${isOutlook() ? " outlook" : ""}`,
+    `${isRegionView() ? state.focus.name : isFocusOverview() ? "focus regions" : "kenya"}${isOutlook() ? " outlook" : ""}`,
     viewDate(),
   );
   document.body.append(link);
@@ -2270,6 +2349,19 @@ function initReport() {
 }
 
 /** Select the region the search box asked for, if this view holds it. */
+/**
+ * Select a county from the national briefing. On the focus overview a county
+ * outside the focus regions is not on the map, so All Kenya opens with it.
+ */
+function selectOrOpenKenya(regionId) {
+  if (state.layersByRegion.has(regionId) || !isFocusOverview()) {
+    select(regionId, { pan: true });
+    return;
+  }
+  state.pendingSelect = regionId;
+  location.hash = `#/${KENYA_SLUG}`;
+}
+
 function selectPending() {
   const regionId = state.pendingSelect;
   state.pendingSelect = null;
@@ -2286,7 +2378,7 @@ function countyEntries() {
     id: regionIdOf(feature),
     name: nameOf(feature),
     level: "county",
-    slug: "",
+    slug: countySlug(regionIdOf(feature), state.focusByCountyId),
     hint: "County",
   }));
 }
@@ -2421,11 +2513,34 @@ function loadCountyScores() {
   return state.countyCache.get(key);
 }
 
-async function showOverview() {
+/** The rest of Kenya, faint and inert, so the shapes on screen keep their place. */
+function drawContext(features) {
+  addToView(
+    L.geoJSON(
+      { type: "FeatureCollection", features },
+      {
+        pane: "context",
+        interactive: false,
+        // Named so the print stylesheet can lighten it (style.css).
+        className: "context-shape",
+        style: {
+          fillColor: cssVar("--context-fill"),
+          // Faint enough that the basemap still places the shapes in Kenya.
+          fillOpacity: 0.5,
+          color: cssVar("--polygon-stroke"),
+          weight: 1,
+        },
+      },
+    ),
+  );
+}
+
+/** Every county ("kenya"), or the focus counties with the rest faint ("focus"). */
+async function showOverview(scope) {
   const slug = currentSlug();
   const view = viewKey();
   const mapBy = state.mapBy;
-  const [scores, grid, context] = await Promise.all([
+  const [allScores, grid, context] = await Promise.all([
     loadCountyScores(),
     loadGrid(),
     loadContext({ level: "county" }),
@@ -2434,15 +2549,23 @@ async function showOverview() {
   if (currentSlug() !== slug || viewKey() !== view || state.mapBy !== mapBy) return;
 
   state.focus = null;
+  state.scope = scope;
   clearView();
+  const inScope = (regionId) => scope === "kenya" || state.focusByCountyId.has(regionId);
+  const scores = allScores.filter((score) => inScope(score.region));
   state.scoresByRegion = new Map(scores.map((score) => [score.region, score]));
   state.contextByRegion = context;
   state.gridOn = grid?.cells.length > 0;
 
-  const features = state.counties.features;
+  const features = state.counties.features.filter((f) => inScope(regionIdOf(f)));
+  if (scope === "focus") {
+    drawContext(state.counties.features.filter((f) => !inScope(regionIdOf(f))));
+  }
   drawOutline(features);
   const layer = drawChoropleth(features);
-  const cells = state.gridOn ? drawGrid(grid) : null;
+  const cells = state.gridOn
+    ? drawGrid(grid, scope === "focus" ? new Set(state.focusByCountyId.keys()) : null)
+    : null;
   if (state.gridOn) drawRegionLines(features);
   if (layer.getLayers().length > 0) lockTo(layer.getBounds());
   updateLabelVisibility();
@@ -2524,25 +2647,7 @@ async function showRegion(focus) {
     (f) => !focusCountyIds.has(regionIdOf(f)),
   );
 
-  // The rest of Kenya, faint and inert, so the region keeps its place.
-  addToView(
-    L.geoJSON(
-      { type: "FeatureCollection", features: otherCounties },
-      {
-        pane: "context",
-        interactive: false,
-        // Named so the print stylesheet can lighten it (style.css).
-        className: "context-shape",
-        style: {
-          fillColor: cssVar("--context-fill"),
-          // Faint enough that the basemap still places the region in Kenya.
-          fillOpacity: 0.5,
-          color: cssVar("--polygon-stroke"),
-          weight: 1,
-        },
-      },
-    ),
-  );
+  drawContext(otherCounties);
   // Outline and bounds come from the sub-counties themselves, not the
   // county shapes: the two boundary sets were drawn by different agencies
   // (RCMRD and IEBC) and do not line up exactly, so a county outline would
@@ -2623,6 +2728,11 @@ function isPageSlug(slug) {
 
 let auth = null;
 
+// Settles once a sign-in saved from an earlier visit has been checked with
+// the API. route() waits for it, so a reload of #/profile does not find
+// nobody signed in, send the reader to the sign-in page, and bounce back.
+let sessionChecked = Promise.resolve();
+
 /** A page in place of the map: the analytics (#/admin) or the alerts (#/alerts). */
 function setAdminOpen(open) {
   state.adminOpen = open;
@@ -2635,6 +2745,7 @@ function setAdminOpen(open) {
 }
 
 async function route() {
+  await sessionChecked;
   const slug = currentSlug();
   document.body.classList.toggle("is-auth", isAuthSlug(slug));
   if (isAuthSlug(slug)) {
@@ -2696,11 +2807,19 @@ async function route() {
   // The map views need the counties; load() routes again once they are in.
   if (!state.counties) return;
   const focus = state.focusRegions.find((f) => f.slug === slug);
+  // A link saved before a region was renamed: swap in its new slug, without
+  // a second history entry. The hashchange routes again.
+  const renamed = !focus && state.focusRegions.find((f) => f.former_slugs?.includes(slug));
+  if (renamed) {
+    location.replace(`#/${renamed.slug}`);
+    return;
+  }
   try {
     if (focus) {
       await showRegion(focus);
     } else {
-      await showOverview();
+      // An unknown slug opens the front door.
+      await showOverview(overviewScope(slug) ?? "focus");
     }
   } catch (error) {
     console.error(error);
@@ -2739,13 +2858,18 @@ async function load() {
 
   // A sign-in from an earlier visit, or from before the trip to Google and
   // back, is checked with the API before the header shows it.
-  restoreSession().then((user) => {
+  sessionChecked = restoreSession().then((user) => {
     if (user) auth.setUser(user);
   });
 
   // A page shown in place of the map (sign-in, alerts, profile, analytics)
-  // needs none of the map's data, so it does not wait for the counties.
-  if (isPageSlug(currentSlug())) route();
+  // needs none of the map's data, so it does not wait for the counties. A
+  // restored sign-in has already routed it (onUserChange); otherwise route.
+  if (isPageSlug(currentSlug())) {
+    sessionChecked.then(() => {
+      if (!state.user) route();
+    });
+  }
 
   try {
     setStatus("Loading counties and risk scores…");

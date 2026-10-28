@@ -30,6 +30,7 @@ from django.utils import timezone
 from geodata.management.commands.seed_rainfall import DEFAULT_PAST_DAYS
 from geodata.models import GridCell
 from geodata.services.open_meteo import Point, fetch_daily_rainfall
+from riskengine import dry
 from riskengine.ml import infer as scorer
 from riskengine.ml.features import rainfall_features
 from riskengine.models import GridRiskScore
@@ -90,6 +91,7 @@ def score_grid(dates: list[dt.date], fetch=fetch_daily_rainfall) -> GridResult:
 
     series = fetch([Point(lon=cell.lon, lat=cell.lat) for cell in cells], past_days)
     thresholds = scorer.model_thresholds(model)
+    names = scorer.model_features(model)
 
     with transaction.atomic():
         for date in dates:
@@ -99,10 +101,10 @@ def score_grid(dates: list[dt.date], fetch=fetch_daily_rainfall) -> GridResult:
             ]
             probabilities = scorer.flood_probabilities(model, rows)
             scores = []
-            for cell, rain, probability in zip(cells, series, probabilities):
+            for cell, rain, row, probability in zip(cells, series, rows, probabilities):
                 rain_30d = rainfall_features(rain, date)["rain_30d"]
                 normal = model["normals"].get(cell.county.county_name, {}).get(date.month)
-                category = scorer.classify(probability, thresholds)
+                category = dry.gated(scorer.classify(probability, thresholds), row, names)
                 result.categories[category] += 1
                 scores.append(
                     GridRiskScore(

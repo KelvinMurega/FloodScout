@@ -28,6 +28,7 @@ from django.utils import timezone
 from geodata.models import Region
 from geodata.services.open_meteo import fetch_forecast_rainfall
 from geodata.services.sampling import regional_rainfall
+from riskengine import dry
 from riskengine.ml import infer as scorer
 from riskengine.models import RiskForecast
 
@@ -114,9 +115,10 @@ def forecast_regions(
         days=targets,
         categories={target: Counter() for target in targets},
     )
+    names = scorer.model_features(model)
     records = []
-    for (region, target, forecast), probability in zip(keys, probabilities):
-        category = scorer.classify(probability, thresholds)
+    for (region, target, forecast), row, probability in zip(keys, rows, probabilities):
+        category = dry.gated(scorer.classify(probability, thresholds), row, names)
         total, wettest = forecast_totals(forecast, issued_on, target)
         result.categories[target][category] += 1
         records.append(
