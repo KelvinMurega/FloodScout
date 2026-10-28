@@ -4,6 +4,9 @@ For each region scored on a day, three things a reader can check against
 the risk:
 
   times_usual       the score as a multiple of the usual chance (as everywhere)
+  times_season      the score against an ordinary year for the county and
+                    month (riskengine/season.py): worse or better than usual
+                    for the time of year
   change_7d         that multiple now minus seven days before: is risk rising?
   rain_30d_ratio    rain in the 30 days to the date over what the region's
                     county normally gets in that month: the main driver,
@@ -23,6 +26,7 @@ from django.db.models import Count, Sum
 from geodata.models import EnvironmentalData
 from riskengine.ml import infer as scorer
 from riskengine.ml.features import MAX_MISSING_DAYS, WINDOW_DAYS
+from riskengine.season import times_season
 
 CHANGE_DAYS = 7
 
@@ -70,6 +74,7 @@ def map_context(scores, earlier_scores, day: dt.date, model=None) -> list[dict]:
             {
                 "region": score.region_id,
                 "times_usual": now,
+                "times_season": times_season(score.predicted_value, score.region.county_name, day.month),
                 "change_7d": _round(now - then, 1)
                 if now is not None and then is not None
                 else None,

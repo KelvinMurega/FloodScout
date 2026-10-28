@@ -46,7 +46,11 @@ Dr. Deperias Kerre.
   average precision of 0.255 against 0.297 for all of them.
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
-  The colour can show the risk level, the risk as a multiple of the usual
+  The colour shows, by default, the risk against an ordinary year for the
+  same place and month (`riskengine/season.py`), so a wet season does not
+  paint every county the same: on 27 October 2026 it ran from 0.6 (Kericho,
+  a third of its normal rain) to 2.2 (Garissa, more than twice its normal).
+  It can also show the risk level, the risk as a multiple of the usual
   chance, its change over a week or the rain against normal, over a choice
   of basemaps (map, satellite, today's satellite image, terrain).
 - **Puts the risk in context.** Rivers, the 100-year flood zone, 84 large

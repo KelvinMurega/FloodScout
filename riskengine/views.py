@@ -28,6 +28,7 @@ from .ml import infer as scorer
 from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
 from .performance import load_performance
 from .scoring import NoRegionsError, score_regions, start_of_day
+from .season import times_season
 from .serializers import RiskForecastSerializer, RiskOutlookSerializer, RiskScoreSerializer
 from .situation import newest_places
 from .why import explain_score
@@ -446,6 +447,9 @@ class RiskGridViewSet(viewsets.ViewSet):
                         "county_name": score.cell.county.county_name,
                         "predicted_value": score.predicted_value,
                         "times_usual": scorer.times_usual(score.predicted_value),
+                        "times_season": times_season(
+                            score.predicted_value, score.cell.county.county_name, score.date.month
+                        ),
                         "risk_category": score.risk_category,
                         "rain_30d": score.rain_30d,
                         "rain_30d_ratio": score.rain_30d_ratio,

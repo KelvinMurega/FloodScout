@@ -7,6 +7,11 @@
  * continuous values drawn on graduated scales, so places that share a
  * category still look different:
  *
+ *   season  the score against an ordinary year for the same county and
+ *           month (riskengine/season.py): the default, because it is the
+ *           one that follows the weather. In late October 2026 it ran from
+ *           0.6 in the dry western highlands to 2.2 in Garissa, where the
+ *           plain multiple had every county between 1.4 and 2.7
  *   usual   the score as a multiple of the usual chance of a large flood
  *   change  that multiple now minus a week before: where risk is rising
  *   rain    rain in the last 30 days over the county's normal for the month
@@ -18,9 +23,16 @@
 
 import { CATEGORY_ORDER, colourFor, labelFor } from "./risk.js";
 
-export const THEME_ORDER = ["usual", "risk", "change", "rain"];
+export const THEME_ORDER = ["season", "usual", "risk", "change", "rain"];
 
 export const THEMES = {
+  season: {
+    name: "Risk vs the season",
+    hint: "against an ordinary year for this place and month",
+    breaks: [0.67, 0.8, 0.91, 1.1, 1.25, 1.5],
+    colours: ["#2166ac", "#67a9cf", "#d1e5f0", "#f2f2f0", "#fddbc7", "#ef8a62", "#b2182b"],
+    format: (v) => `${v}×`,
+  },
   risk: {
     name: "Risk level",
     hint: "the four official categories",
@@ -75,6 +87,8 @@ export function classIndex(value, breaks) {
 export function themeValue(theme, score, context) {
   const pick = (...values) => values.find((v) => typeof v === "number") ?? null;
   switch (theme) {
+    case "season":
+      return pick(context?.times_season, score?.times_season);
     case "usual":
       return pick(context?.times_usual, score?.times_usual);
     case "change":
@@ -135,12 +149,20 @@ export function legendEntries(theme, rows, dark = false) {
 /**
  * Whether `theme` has anything to show for the view described. A forecast
  * day has no 30-day rain against normal and no week-on-week change; an
- * outlook and the area grid have no change.
+ * outlook and the area grid have no change, and an outlook no season figure.
  */
 export function themeAvailable(theme, { outlook = false, grid = false, forecast = false } = {}) {
+  if (theme === "season") return !outlook;
   if (theme === "change") return !outlook && !grid && !forecast;
   if (theme === "rain") return !forecast;
   return true;
+}
+
+/** "1.7 times an ordinary October", for tooltips and the detail panel. */
+export function describeSeason(timesSeason, month) {
+  if (typeof timesSeason !== "number" || !month) return null;
+  if (Math.abs(timesSeason - 1) < 0.05) return `About the same as an ordinary ${month}`;
+  return `${timesSeason.toFixed(1)} times an ordinary ${month}`;
 }
 
 /** An arrow and words for a 7-day change, for tooltips and the detail panel. */

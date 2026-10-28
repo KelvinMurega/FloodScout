@@ -80,6 +80,7 @@ import {
   THEME_ORDER,
   describeChange,
   describeRain,
+  describeSeason,
   legendEntries,
   themeAvailable,
   themeColour,
@@ -185,7 +186,7 @@ const state = {
   // Whether the view on screen is drawn by area.
   gridOn: false,
   // What the colour shows: one of THEME_ORDER (themes.js).
-  theme: "usual",
+  theme: "season",
   // How strongly the colour covers the basemap, 0.15 to 1.
   fillOpacity: readOpacity(),
   // Context rows (change, rain against normal) per view, fetched on first use.
@@ -615,6 +616,8 @@ function regionTooltip(regionId, name) {
   badge.append(swatch(score?.risk_category), labelFor(score?.risk_category));
   box.append(title, badge);
   if (score) box.append(el("div", null, formatTimesUsual(context?.times_usual ?? score.times_usual)));
+  const season = describeSeason(context?.times_season ?? score?.times_season, monthOf(score));
+  if (season) box.append(el("div", null, season));
   const change = describeChange(context?.change_7d);
   if (change) box.append(el("div", "map-card__muted", change));
   const rain = describeRain(context);
@@ -628,13 +631,23 @@ function regionTooltip(regionId, name) {
   return box;
 }
 
+/** "October": the month a score or forecast row is for. */
+function monthOf(score) {
+  const iso = score?.target_date ?? score?.prediction_date;
+  if (!iso) return null;
+  const date = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+  return Number.isNaN(date.valueOf()) ? null : date.toLocaleDateString(undefined, { month: "long" });
+}
+
 /** A grid square's tooltip: its county, its risk, and the rain behind it. */
-function gridTooltip(cell) {
+function gridTooltip(cell, date) {
   const box = el("div", "grid-tooltip");
   box.append(
     el("strong", null, `${cell.county_name} area — ${labelFor(cell.risk_category)}`),
     el("div", null, formatTimesUsual(cell.times_usual)),
   );
+  const season = describeSeason(cell.times_season, monthOf({ prediction_date: date }));
+  if (season) box.append(el("div", null, season));
   if (typeof cell.rain_30d === "number") {
     const usual =
       typeof cell.rain_30d_ratio === "number"
@@ -668,7 +681,7 @@ function drawGrid(grid, countyIds = null) {
         fillOpacity: state.fillOpacity,
       },
     );
-    square.bindTooltip(gridTooltip(cell), { sticky: true });
+    square.bindTooltip(gridTooltip(cell, grid.date), { sticky: true });
     square.on("click", () => {
       if (state.layersByRegion.has(cell.county)) select(cell.county);
     });

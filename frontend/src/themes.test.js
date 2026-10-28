@@ -7,6 +7,7 @@ import {
   classLabel,
   describeChange,
   describeRain,
+  describeSeason,
   legendEntries,
   themeAvailable,
   themeColour,
@@ -114,4 +115,26 @@ test("describeChange and describeRain read as plain English", () => {
   );
   assert.equal(describeRain({ rain_30d: 40 }), "40 mm in 30 days");
   assert.equal(describeRain(null), null);
+});
+
+test("the season theme reads times_season and is blue below an ordinary year, red above", () => {
+  assert.equal(themeValue("season", { times_season: 0.9 }, { times_season: 1.6 }), 1.6);
+  const dry = themeColour("season", { times_season: 0.6 });
+  const ordinary = themeColour("season", { times_season: 1.0 });
+  const wet = themeColour("season", { times_season: 2.1 });
+  assert.equal(dry, THEMES.season.colours[0]);
+  assert.equal(ordinary, THEMES.season.colours[3]);
+  assert.equal(wet, THEMES.season.colours.at(-1));
+});
+
+test("an outlook has no season figure", () => {
+  assert.equal(themeAvailable("season"), true);
+  assert.equal(themeAvailable("season", { outlook: true }), false);
+});
+
+test("the season in words", () => {
+  assert.equal(describeSeason(1.74, "October"), "1.7 times an ordinary October");
+  assert.equal(describeSeason(0.6, "October"), "0.6 times an ordinary October");
+  assert.equal(describeSeason(1.02, "October"), "About the same as an ordinary October");
+  assert.equal(describeSeason(null, "October"), null);
 });
