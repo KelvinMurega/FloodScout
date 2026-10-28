@@ -413,3 +413,9 @@
     0 0 3px var(--surface-1),
     0 0 6px var(--surface-1);
 }
+
+/* A tapped shape gets no browser focus box; the picked county has its own
+   thick outline, and the search box is the way in by keyboard. */
+.simple__map path.leaflet-interactive:focus {
+  outline: none;
+}
