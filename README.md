@@ -245,13 +245,31 @@ and forecast:
 
 | Level | When |
 |---|---|
-| Warning | Very High and rising, or forecast Very High within 3 days with a day of 50 mm or more in those days |
+| Warning | Very High and rising with heavy rain for the county in the 7-day forecast, or forecast Very High within 3 days with heavy rain for the county in those days |
 | Watch | Very High today, or forecast Very High within 7 days |
 | Advisory | High and rising, or a day of 50 mm or more in the forecast |
 
-50 mm in a day is the Kenya Meteorological Department's flood
-early-warning proxy. High on its own never alerts. An alert is raised
-rather than duplicated when its conditions worsen, and ends when they go.
+"Heavy rain for the county" is forecast rain above the county's own line
+for a week in that month (the 90th percentile of its wettest weeks, 1996
+to 2016) and at least 30 mm, or a day of 50 mm. 50 mm in a day is the Kenya
+Meteorological Department's flood early-warning proxy. High on its own
+never alerts.
+
+Replayed over 1996 to 2016 with the rain that actually fell (a perfect
+forecast, so better than live):
+
+| Rule | Alerts | Floods caught | Followed by a flood |
+|---|---|---|---|
+| Very High alone (Watch) | 2,177 | 584 of 1,225 | 26.8% |
+| Warning | 449 | 141 of 1,225 | 31.4% |
+
+On 2017 to 2021, scored once afterwards, the Warning rule gave 260 alerts,
+caught 66 of 181 floods, and 25.4% were followed by a flood
+(`manage.py backtest_alerts`).
+
+An alert is raised rather than duplicated when its conditions worsen, and
+steps down without a message when they ease, so the map shows what the
+rules say today. It ends when they give nothing.
 
 **Warnings for where you live.** A new account is asked for the code that
 confirms its email straight after sign-up (and at sign-in while it is still

@@ -263,6 +263,36 @@ class EngineTests(TestCase):
         self.assertEqual((run.upgraded, alert.level, alert.version), (1, Level.WARNING, 2))
         self.assertEqual(len(mail.outbox), 2)
 
+    @mock.patch("alerts.rules.heavy_week_lines", lambda: {"Alpha": {"10": 100.0}})
+    def test_a_weaker_condition_steps_down_quietly_and_back_up_tells_no_one_twice(self):
+        score(self.region, RiskScore.RiskCategory.VERY_HIGH)
+        heavy = dict(
+            region=self.region,
+            issued_on=TODAY,
+            target_date=TODAY + dt.timedelta(days=1),
+            predicted_value=0.31,
+            risk_category=RiskScore.RiskCategory.VERY_HIGH,
+            rain_forecast_max_24h=80.0,
+            rain_forecast_mm=120.0,
+            model_version="t",
+        )
+        RiskForecast.objects.create(**heavy)
+        engine.run_alerts()
+        self.assertEqual(Alert.objects.get().level, Level.WARNING)
+        sent = len(mail.outbox)
+
+        RiskForecast.objects.all().delete()
+        engine.run_alerts()
+        alert = Alert.objects.get()
+        self.assertEqual((alert.level, alert.status), (Level.WATCH, Alert.Status.ACTIVE))
+        self.assertIn("Flood watch", alert.headline)
+        self.assertEqual(len(mail.outbox), sent)
+
+        RiskForecast.objects.create(**heavy)
+        run = engine.run_alerts()
+        self.assertEqual((run.upgraded, Alert.objects.get().level), (1, Level.WARNING))
+        self.assertEqual(len(mail.outbox), sent)
+
     def test_an_alert_ends_when_its_conditions_go(self):
         score(self.region, RiskScore.RiskCategory.VERY_HIGH)
         engine.run_alerts()

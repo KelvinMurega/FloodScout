@@ -6,8 +6,11 @@
     its subscribers are told;
   - an active alert whose rules now give a stronger level is upgraded (a
     new version), and its subscribers are told again;
-  - an active alert whose rules give the same or a weaker level is kept,
-    its wording and expiry refreshed, and nobody is told twice;
+  - an active alert whose rules give the same level is kept, its reasons
+    and expiry refreshed, and nobody is told twice;
+  - an active alert whose rules give a weaker level steps down to it (a new
+    version) without a message, so the map shows what the rules say today
+    (since 28 October 2026; until then it kept its highest level);
   - an active alert whose rules give nothing has ended: it is closed
     without a message. An alert also ends on its own at `expires`, so one
     that the daily run never gets back to does not stay up for ever.
@@ -207,8 +210,17 @@ def run_alerts(now=None) -> AlertRun:
                 current.save()
                 run.upgraded += 1
                 to_notify.append(current)
+            elif stronger(current.level, decision.level):
+                # Weaker: the alert says what the rules say today, but nobody is
+                # messaged to say so. Climbing back later messages only those not
+                # yet told at that level (deliver() sends once per level).
+                for name, value in fields.items():
+                    setattr(current, name, value)
+                current.level = decision.level
+                current.version += 1
+                current.save()
             else:
-                # Same or weaker: keep the level people were told, refresh the rest.
+                # The same level: refresh what it rests on.
                 current.expires = fields["expires"]
                 current.reasons = decision.reasons
                 current.times_usual = place.times_usual
