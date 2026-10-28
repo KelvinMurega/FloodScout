@@ -45,7 +45,7 @@
 .is-admin .controls,
 .is-admin .region-bar,
 .is-admin .app__main,
-.is-admin .report-actions,
+.is-admin:not(.is-simple) .report-actions,
 .is-admin .provenance {
   display: none !important;
 }

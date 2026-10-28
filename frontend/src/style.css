@@ -1881,3 +1881,9 @@ body:not(.is-admin) .app {
   font-size: 12.5px;
   color: var(--text-secondary);
 }
+
+/* The simple view has nothing to print or export. */
+.is-simple #print-report,
+.is-simple #download-csv {
+  display: none;
+}
