@@ -764,6 +764,24 @@
   .admin-facts dd {
     margin-bottom: 10px;
   }
+
+  /* A table of numbers is read across, so on a phone it scrolls sideways
+     inside its card instead of being cut off at the card's edge. */
+  .admin-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* The tabs swipe sideways, like the map's region bar, without a scrollbar
+     under them. */
+  .admin-tabs {
+    scrollbar-width: none;
+  }
+
+  .admin-tabs::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @media print {

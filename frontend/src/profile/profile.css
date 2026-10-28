@@ -133,6 +133,60 @@
   color: var(--text-muted);
 }
 
+/* On a phone the seven columns would need a sideways swipe to reach the
+   role and on/off controls, so each user becomes a card of labelled lines. */
+@media (max-width: 560px) {
+  .profile-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .profile-table,
+  .profile-table tbody,
+  .profile-table tr,
+  .profile-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .profile-table tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .profile-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .profile-table td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: left;
+  }
+
+  /* The name heads the card; it needs no label. */
+  .profile-table td:first-child {
+    padding-bottom: 6px;
+    font-weight: 600;
+  }
+
+  .profile-table td:first-child::before {
+    content: none;
+  }
+}
+
 .profile-who {
   display: flex;
   align-items: center;
@@ -168,6 +222,15 @@
 
 .auth__menu-list[hidden] {
   display: none;
+}
+
+/* Under 860px the account button sits at the right edge of the header's
+   second row (style.css), so the menu, opening leftwards from it, stays on
+   the screen; never wider than the screen either. */
+@media (max-width: 860px) {
+  .auth__menu-list {
+    max-width: calc(100vw - 24px);
+  }
 }
 
 .auth__menu-item {

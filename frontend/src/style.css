@@ -1445,11 +1445,15 @@ body:not(.is-admin) .app {
     padding-left: 10px;
   }
 
+  /* One row under the brand: the page actions on the left, the account at
+     the right edge, where its menu opens without leaving the screen. */
   .app__actions {
+    flex-basis: 100%;
     margin-left: 0;
   }
 
   .app__actions .auth {
+    margin-left: auto;
     padding-left: 0;
     border-left: 0;
   }
@@ -1679,6 +1683,41 @@ body:not(.is-admin) .app {
   100% {
     transform: scale(1.6);
     opacity: 0.15;
+  }
+}
+
+/* A phone: the header and the banner give the first screen back to the map.
+   The page actions show as icons; their words stay for screen readers. */
+@media (max-width: 560px) {
+  .app__subtitle {
+    display: none;
+  }
+
+  .provenance {
+    font-size: 11.5px;
+    max-height: calc(2 * 1.45em);
+  }
+
+  .report-actions .button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .report-actions .auth__button {
+    padding: 7px 9px;
+  }
+
+  .alert-banner {
+    padding: 6px 12px;
+    font-size: 12.5px;
+  }
+
+  .alert-banner__hint {
+    display: none;
   }
 }
 

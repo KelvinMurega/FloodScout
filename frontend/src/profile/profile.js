@@ -314,7 +314,8 @@ async function renderUsers(body, me) {
   }
   const table = el("table", "table profile-table");
   const head = el("tr");
-  for (const h of ["User", "Email", "Role", "Account", "Alerts", "Last signed in", "Joined"]) {
+  const headings = ["User", "Email", "Role", "Account", "Alerts", "Last signed in", "Joined"];
+  for (const h of headings) {
     const th = el("th", null, h);
     th.scope = "col";
     head.append(th);
@@ -378,6 +379,10 @@ async function renderUsers(body, me) {
       el("td", null, user.last_login ? ago(user.last_login) : "Never"),
       el("td", null, new Date(user.date_joined).toLocaleDateString()),
     );
+    // On a phone each row is a card, and each cell says what it is (profile.css).
+    [...row.children].forEach((cell, i) => {
+      cell.dataset.label = headings[i];
+    });
     tbody.append(row);
   }
   table.append(thead, tbody);
