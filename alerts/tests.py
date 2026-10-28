@@ -88,6 +88,13 @@ class RuleTests(SimpleTestCase):
         days = week(("high", 1.7, 20, 20), ("very_high", 2.2, HEAVY_RAIN_MM, 70))
         self.assertEqual(self.level(place("high", 0.0, days)), Level.WATCH)
 
+    def test_a_low_line_still_needs_30_mm_for_a_warning(self):
+        showers = week(("high", 1.7, 10, 10), ("very_high", 2.2, 15, 25))
+        rain = week(("high", 1.7, 10, 10), ("very_high", 2.2, 22, 32))
+        with mock.patch("alerts.rules.heavy_week_lines", lambda: {"Kisumu": {"10": 18.0}}):
+            self.assertEqual(self.level(place("high", 0.0, showers)), Level.WATCH)
+            self.assertEqual(self.level(place("high", 0.0, rain)), Level.WARNING)
+
     def test_no_line_on_file_means_no_warning(self):
         days = week(("very_high", 2.2, 80, 500))
         p = place("high", 0.0, days)

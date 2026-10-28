@@ -43,7 +43,7 @@ from riskengine.ml import experiments, train
 from riskengine.ml.features import WINDOW_DAYS, soil_features
 from riskengine.ml.infer import times_usual
 
-from .rules import HEAVY_RAIN_MM, RISING
+from .rules import FLOOR_7D_MM, HEAVY_RAIN_MM, RISING
 
 # The live rules' horizon for "rising": the score now against 7 days before.
 RISING_DAYS = 7
@@ -190,6 +190,7 @@ def signals(h: History) -> dict[str, np.ndarray]:
         "rising": np.round(usual - usual_before, 1) >= RISING,
         "heavy_day": h.wettest_day >= HEAVY_RAIN_MM,
         "heavy_local": _above(h, h.rain_7d_max, heavy),
+        "floor": (h.rain_7d_max >= FLOOR_7D_MM) | (h.wettest_day >= HEAVY_RAIN_MM),
         "wet_ground": _above(h, h.soil_start, wet),
     }
 
@@ -207,7 +208,18 @@ RULES = {
         lambda s: s["very_high"] & s["heavy_local"] & s["wet_ground"],
     ),
     "E": ("Above 30% and heavy rain for the county", lambda s: s["higher_bar"] & s["heavy_local"]),
+    # Added 28 October 2026, after the rules above had been run: the live
+    # Warning (C) fired on 25 mm over three days in Kajiado, so F is C with
+    # an absolute floor. It is compared with C, not entered in `choose`, and
+    # is the live Warning rule since (alerts/rules.py).
+    "F": (
+        "C and at least 30 mm in the week or a day of 50 mm",
+        lambda s: s["very_high"] & s["heavy_local"] & s["floor"],
+    ),
 }
+
+# The live Warning rule and the floor proposed for it, both scored on 2017-2021.
+WARNING_RULES = ("C", "F")
 
 
 def score(alerted: np.ndarray, h: History, rows: np.ndarray) -> dict:
@@ -245,10 +257,12 @@ def backtest(h: History) -> dict:
     development = h.years < train.FINAL_TEST_FROM
     test = ~development
     results = {name: score(alerted[name], h, development) for name in RULES}
-    winner = choose(results)
+    winner = choose({name: r for name, r in results.items() if name != "F"})
     checked = {}
     if test.any():
-        checked = {name: score(alerted[name], h, test) for name in dict.fromkeys(("A", winner))}
+        checked = {
+            name: score(alerted[name], h, test) for name in dict.fromkeys(("A", winner, *WARNING_RULES))
+        }
     return {
         "rules": {name: text for name, (text, _rule) in RULES.items()},
         "development": results,
