@@ -3,8 +3,10 @@
  *
  * One place at a time, in plain words: is flooding more likely than usual
  * here for the time of year, is heavy rain coming this week, is an alert in
- * force, and what to do. A small map in three colours, and the detailed map
- * one tap away. The words come from plain.js; every fact is the API's.
+ * force, and what to do. Beside it a map in three colours: all Kenya by
+ * county, or, once a county is picked, that county by sub-county, with a
+ * plain way back to Kenya to pick another. The words come from plain.js;
+ * every fact is the API's.
  */
 
 import L from "leaflet";
@@ -13,6 +15,7 @@ import {
   fetchFloodEvents,
   fetchForecast,
   fetchLatestScores,
+  fetchRegions,
   fetchScoreHistory,
 } from "../api.js";
 import { quickAlertControl } from "../alerts/quick.js";
@@ -55,7 +58,8 @@ function storedPlace() {
 
 function keepPlace(place) {
   try {
-    localStorage.setItem(PLACE_KEY, JSON.stringify(place));
+    if (place) localStorage.setItem(PLACE_KEY, JSON.stringify(place));
+    else localStorage.removeItem(PLACE_KEY);
   } catch {
     // Blocked storage: the place is forgotten when the page is left.
   }
@@ -66,18 +70,40 @@ function isoDaysAgo(days) {
   return date.toISOString().slice(0, 10);
 }
 
+function rowsOf(result) {
+  return Array.isArray(result) ? result : result?.results ?? [];
+}
+
+function idOf(feature) {
+  return feature.id ?? feature.properties.id;
+}
+
+function nameOf(feature) {
+  return feature.properties.name ?? feature.properties.county_name;
+}
+
+function verdictOf(score) {
+  return seasonVerdict(score?.times_season, score?.risk_category);
+}
+
 /** The newest score for one place: a county's from the list, a sub-county's from its history. */
 async function scoreFor(place, countyScores) {
   if (place.level === "county") return countyScores.find((s) => s.region === place.id) ?? null;
   const history = await fetchScoreHistory(place.id, isoDaysAgo(7), isoDaysAgo(-1)).catch(() => []);
-  const rows = Array.isArray(history) ? history : history.results ?? [];
-  return rows[0] ?? null;
+  return rowsOf(history)[0] ?? null;
 }
 
 export function hideSimple() {
   render += 1;
   map?.remove();
   map = null;
+}
+
+function button(className, text, onClick) {
+  const node = el("button", className, text);
+  node.type = "button";
+  node.addEventListener("click", onClick);
+  return node;
 }
 
 /**
@@ -96,10 +122,7 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
     el("h1", "simple__title", "Floods where you are"),
     el("p", "simple__lede", "Plain answers for your area: is flooding more likely than usual, is heavy rain coming, and what to do."),
   );
-  const detailed = el("button", "auth__button", "See the detailed map");
-  detailed.type = "button";
-  detailed.addEventListener("click", () => onDetailed());
-  head.append(titles, detailed);
+  head.append(titles, button("auth__button", "See the detailed map", () => onDetailed()));
 
   const find = el("div", "simple__find");
   const label = el("label", "simple__label", "Find your area");
@@ -113,52 +136,56 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
   matches.hidden = true;
   find.append(label, input, matches);
   if (user?.home_region) {
-    const home = el("button", "link-button simple__home", `Use where I live: ${user.home_region_name}`);
-    home.type = "button";
-    home.addEventListener("click", () => choose({ id: user.home_region, name: user.home_region_name, level: "sub_county" }));
-    find.append(home);
+    find.append(
+      button("link-button simple__home", `Use where I live: ${user.home_region_name}`, () =>
+        choose({ id: user.home_region, name: user.home_region_name, level: "sub_county" }),
+      ),
+    );
   }
 
+  // The map and the details side by side on a wide screen, the map first on a phone.
+  const body = el("div", "simple__body");
+  const mapBox = el("section", "simple__map-box");
+  const mapHead = el("div", "simple__map-head");
+  const mapTitle = el("h2", "simple__map-title", "All of Kenya");
+  const mapBack = button("auth__button simple__back", "← Back to the Kenya map", () => backToKenya());
+  mapBack.hidden = true;
+  mapHead.append(mapTitle, mapBack);
+  const mapDiv = el("div", "simple__map");
+  mapDiv.setAttribute("aria-label", "Map coloured by the chance of flooding against the usual for the time of year");
+  const mapHint = el("p", "simple__muted simple__map-hint", "Tap a county to see it up close.");
+  mapBox.append(mapHead, mapDiv, legend(), mapHint);
   const card = el("section", "simple__card");
   card.setAttribute("aria-live", "polite");
-  const mapBox = el("section", "simple__map-box");
-  const mapDiv = el("div", "simple__map");
-  mapDiv.setAttribute("aria-label", "Map of Kenya's counties, coloured by flood chance against the usual");
-  mapBox.append(el("h2", "simple__subtitle", "Across Kenya"), mapDiv, legend());
+  body.append(mapBox, card);
+
   const note = el(
     "p",
     "simple__note",
     "FloodScout is a university research project, not an official warning service. Follow the Kenya Meteorological Department and your county government. In an emergency call 999 or 112, or the Kenya Red Cross on 1199.",
   );
-  page.append(head, find, card, mapBox, note);
+  page.append(head, find, body, note);
   root.replaceChildren(page);
   card.append(el("p", "simple__muted", "Loading today's readings…"));
 
   let countyScores = [];
   try {
-    const result = await fetchLatestScores({ level: "county" });
-    countyScores = Array.isArray(result) ? result : result.results ?? [];
+    countyScores = rowsOf(await fetchLatestScores({ level: "county" }));
   } catch (error) {
     if (mine === render) card.replaceChildren(el("p", "simple__muted", `Could not load today's readings: ${error.message}`));
     return;
   }
   if (mine !== render) return;
-  const byRegion = new Map(countyScores.map((s) => [s.region, s]));
+  const byCounty = new Map(countyScores.map((s) => [s.region, s]));
+  const countyByName = new Map(countyScores.map((s) => [s.region_name, s.region]));
 
-  const entries = counties.map((f) => ({
-    id: f.id ?? f.properties.id,
-    name: f.properties.name ?? f.properties.county_name,
-    level: "county",
-  }));
+  const entries = counties.map((f) => ({ id: idOf(f), name: nameOf(f), level: "county" }));
   input.addEventListener("input", () => {
     const found = searchRegions(entries, input.value, 6);
     matches.replaceChildren(
       ...found.map((entry) => {
         const item = el("li");
-        const pick = el("button", "simple__match", entry.name);
-        pick.type = "button";
-        pick.addEventListener("click", () => choose(entry));
-        item.append(pick);
+        item.append(button("simple__match", entry.name, () => choose(entry)));
         return item;
       }),
     );
@@ -171,29 +198,76 @@ export async function showSimple(root, { user, counties, alerts, onDetailed }) {
     }
   });
 
-  // A pick on the map, or from a county's list of areas, brings its details into view.
-  drawMap(mapDiv, counties, byRegion, (entry) => choose(entry, { scroll: true }));
+  const kenyaMap = drawKenya(mapDiv, counties, byCounty, (entry) => choose(entry));
+  const shapesCache = new Map();
+  // Each pick or "back" is numbered; a slower earlier one never draws over a later one.
+  let pick = 0;
+  const current = (n) => n === pick && mine === render;
 
-  async function choose(place, { scroll = false } = {}) {
+  function bringIntoView() {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    body.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  }
+
+  function backToKenya() {
+    pick += 1;
+    keepPlace(null);
+    kenyaMap.showKenya();
+    mapTitle.textContent = "All of Kenya";
+    mapBack.hidden = true;
+    mapHint.textContent = "Tap a county to see it up close.";
+    showKenya(card, countyScores);
+    bringIntoView();
+  }
+
+  async function choose(place) {
+    const n = ++pick;
     keepPlace(place);
     input.value = "";
     matches.hidden = true;
-    const context = { countyScores, alerts, user, onDetailed, mine, onPick: (area) => choose(area, { scroll: true }) };
-    const shown = showPlace(card, place, context);
-    if (scroll) {
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      card.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    bringIntoView();
+    card.replaceChildren(el("p", "simple__muted", `Loading ${place.name}…`));
+
+    const score = await scoreFor(place, countyScores);
+    const countyName = place.level === "county" ? place.name : score?.county_name ?? place.county;
+    const countyId = place.level === "county" ? place.id : countyByName.get(countyName);
+    const [areas, shapes] = countyId
+      ? await Promise.all([
+          fetchLatestScores({ level: "sub_county", parent: countyId }).then(rowsOf).catch(() => []),
+          shapesCache.get(countyId) ??
+            fetchRegions({ level: "sub_county", parent: countyId })
+              .then((geo) => {
+                shapesCache.set(countyId, geo.features ?? []);
+                return geo.features ?? [];
+              })
+              .catch(() => []),
+        ])
+      : [[], []];
+    if (!current(n)) return;
+
+    if (countyId) {
+      kenyaMap.showCounty(countyId, shapes, new Map(areas.map((s) => [s.region, s])), place.level === "sub_county" ? place.id : null, (area) =>
+        choose({ ...area, level: "sub_county", county: countyName }),
+      );
+      mapTitle.textContent = `${countyName} County`;
+      mapBack.hidden = false;
+      mapHint.textContent = "Tap an area for its details, or another county to move there.";
     }
-    await shown;
+    await showPlace(card, { ...place, county: countyName }, score, {
+      countyId,
+      areas: place.level === "county" ? areas : [],
+      alerts,
+      user,
+      onDetailed,
+      onPick: (next) => choose(next),
+      onKenya: backToKenya,
+      isCurrent: () => current(n),
+    });
   }
 
   const start = storedPlace() ?? (user?.home_region ? { id: user.home_region, name: user.home_region_name, level: "sub_county" } : null);
   if (start) await choose(start);
   else showKenya(card, countyScores);
-}
-
-function verdictOf(score) {
-  return seasonVerdict(score?.times_season, score?.risk_category);
 }
 
 function showKenya(card, countyScores) {
@@ -214,30 +288,35 @@ function showKenya(card, countyScores) {
   );
 }
 
-async function showPlace(card, place, { countyScores, alerts, user, onDetailed, mine, onPick }) {
-  card.replaceChildren(el("p", "simple__muted", `Loading ${place.name}…`));
-  const [score, forecast, floods, areas] = await Promise.all([
-    scoreFor(place, countyScores),
+async function showPlace(card, place, score, { countyId, areas, alerts, user, onDetailed, onPick, onKenya, isCurrent }) {
+  const [forecast, floods] = await Promise.all([
     fetchForecast({ region: place.id }).catch(() => []),
     fetchFloodEvents({ region: place.id }).catch(() => null),
-    place.level === "county"
-      ? fetchLatestScores({ level: "sub_county", parent: place.id }).catch(() => [])
-      : Promise.resolve([]),
   ]);
-  if (mine !== render) return;
+  if (!isCurrent()) return;
 
-  const full = { ...place, county: score?.county_name ?? place.county };
   const verdict = verdictOf(score);
-  const rain = weekRain(Array.isArray(forecast) ? forecast : forecast.results ?? []);
-  const alert = alertFor(full, alerts);
-  const nearby = subCountyAlerts(full, alerts);
+  const rain = weekRain(rowsOf(forecast));
+  const alert = alertFor(place, alerts);
+  const nearby = subCountyAlerts(place, alerts);
   const when = score?.prediction_date ? timeOfYear(score.prediction_date) : "this time of year";
 
+  // The way back, first and plain: to the county from one of its areas, to Kenya from a county.
+  const back = el("div", "simple__card-back");
+  if (place.level === "sub_county" && countyId) {
+    back.append(
+      button("auth__button simple__back", `← Back to ${place.county}`, () =>
+        onPick({ id: countyId, name: place.county, level: "county" }),
+      ),
+    );
+  }
+  back.append(button("auth__button simple__back", "← Back to the Kenya map", onKenya));
+
   const name = el("h2", "simple__place-name", place.name);
-  if (place.level === "sub_county" && full.county) name.append(el("span", "simple__county", ` ${full.county} County`));
+  if (place.level === "sub_county" && place.county) name.append(el("span", "simple__county", ` ${place.county} County`));
   const badge = el("p", `simple__verdict simple__verdict--${mapBucket(verdict.key)}`);
   badge.append(el("strong", null, verdict.word), ` for ${when}`);
-  const nodes = [name, badge, el("p", null, verdict.text)];
+  const nodes = [back, name, badge, el("p", null, verdict.text)];
 
   if (alert) {
     const box = el("div", `simple__alert simple__alert--${alert.level}`);
@@ -247,17 +326,7 @@ async function showPlace(card, place, { countyScores, alerts, user, onDetailed, 
     nodes.push(el("p", "simple__alert simple__alert--advisory", `Flood alerts are in force in ${nearby} area${nearby === 1 ? "" : "s"} of this county.`));
   }
 
-  const areaRows = Array.isArray(areas) ? areas : areas.results ?? [];
-  if (areaRows.length) nodes.push(...areaList(place, areaRows, alerts, onPick));
-  if (place.level === "sub_county" && full.county) {
-    const county = countyScores.find((s) => s.region_name === full.county && s.region_level === "county");
-    if (county) {
-      const back = el("button", "link-button", `← All areas in ${full.county}`);
-      back.type = "button";
-      back.addEventListener("click", () => onPick({ id: county.region, name: county.region_name, level: "county" }));
-      nodes.push(back);
-    }
-  }
+  if (areas.length) nodes.push(...areaList(place, areas, alerts, onPick));
 
   nodes.push(el("h3", "simple__subtitle", "This week"), el("p", null, rain.text));
 
@@ -286,10 +355,11 @@ async function showPlace(card, place, { countyScores, alerts, user, onDetailed, 
     );
   }
 
-  const more = el("button", "link-button", "See the numbers for this area on the detailed map →");
-  more.type = "button";
-  more.addEventListener("click", () => onDetailed(place.level === "county" ? place.id : null));
-  nodes.push(more);
+  nodes.push(
+    button("link-button", "See the numbers for this area on the detailed map →", () =>
+      onDetailed(place.level === "county" ? place.id : null),
+    ),
+  );
   card.replaceChildren(...nodes);
 }
 
@@ -319,11 +389,11 @@ function areaList(county, rows, alerts, onPick) {
     const items = el("ul", "simple__area-list");
     for (const row of list) {
       const item = el("li");
-      const pick = el("button", "simple__area", row.region_name);
-      pick.type = "button";
+      const pick = button("simple__area", row.region_name, () =>
+        onPick({ id: row.region, name: row.region_name, level: "sub_county", county: county.name }),
+      );
       const alert = alerted.get(row.region);
       if (alert) pick.append(el("span", `simple__area-alert simple__area-alert--${alert.level}`, alert.level_label));
-      pick.addEventListener("click", () => onPick({ id: row.region, name: row.region_name, level: "sub_county", county: county.name }));
       item.append(pick);
       items.append(item);
     }
@@ -347,34 +417,85 @@ function legend() {
   return box;
 }
 
-function drawMap(div, counties, byRegion, onPick) {
+/**
+ * The map: all Kenya by county, or one county by sub-county with the rest
+ * faint (still a tap away). Returns { showKenya, showCounty }.
+ */
+function drawKenya(div, counties, byCounty, onPickCounty) {
   map = L.map(div, {
     zoomControl: true,
     scrollWheelZoom: false,
     attributionControl: false,
     zoomSnap: 0.25,
   });
-  const colour = (key) => cssVar(`--simple-${key}`) || "#cccccc";
-  const layer = L.geoJSON(
+  const colour = (score) => cssVar(`--simple-${mapBucket(verdictOf(score).key)}`) || "#cccccc";
+  const stroke = () => cssVar("--polygon-stroke") || "#ffffff";
+  const focusStroke = () => cssVar("--polygon-stroke-focus") || "#000000";
+  let focused = null;
+  let areaLayer = null;
+
+  const countyStyle = (feature) => {
+    const faint = focused !== null;
+    return {
+      fillColor: colour(byCounty.get(idOf(feature))),
+      fillOpacity: faint ? 0.25 : 0.85,
+      color: stroke(),
+      weight: 1,
+    };
+  };
+  const countyLayer = L.geoJSON(
     { type: "FeatureCollection", features: counties },
     {
-      style: (feature) => {
-        const id = feature.id ?? feature.properties.id;
-        const bucket = mapBucket(verdictOf(byRegion.get(id)).key);
-        return {
-          fillColor: colour(bucket),
-          fillOpacity: 0.85,
-          color: cssVar("--polygon-stroke") || "#ffffff",
-          weight: 1,
-        };
-      },
+      style: countyStyle,
       onEachFeature: (feature, shape) => {
-        const id = feature.id ?? feature.properties.id;
-        const name = feature.properties.name ?? feature.properties.county_name;
-        shape.bindTooltip(`${name}: ${verdictOf(byRegion.get(id)).word}`, { sticky: true });
-        shape.on("click", () => onPick({ id, name, level: "county" }));
+        const id = idOf(feature);
+        const name = nameOf(feature);
+        shape.bindTooltip(() => `${name}: ${verdictOf(byCounty.get(id)).word}`, { sticky: true });
+        shape.on("click", () => onPickCounty({ id, name, level: "county" }));
       },
     },
   ).addTo(map);
-  map.fitBounds(layer.getBounds(), { padding: [8, 8] });
+  const kenyaBounds = countyLayer.getBounds();
+  map.fitBounds(kenyaBounds, { padding: [8, 8] });
+
+  return {
+    showKenya() {
+      focused = null;
+      areaLayer?.remove();
+      areaLayer = null;
+      countyLayer.setStyle(countyStyle);
+      map.flyToBounds(kenyaBounds, { padding: [8, 8], duration: 0.6 });
+    },
+    showCounty(countyId, shapes, byArea, selectedId, onPickArea) {
+      focused = countyId;
+      countyLayer.setStyle(countyStyle);
+      areaLayer?.remove();
+      areaLayer = null;
+      if (shapes.length) {
+        areaLayer = L.geoJSON(
+          { type: "FeatureCollection", features: shapes },
+          {
+            style: (feature) => {
+              const selected = idOf(feature) === selectedId;
+              return {
+                fillColor: colour(byArea.get(idOf(feature))),
+                fillOpacity: 0.9,
+                color: selected ? focusStroke() : stroke(),
+                weight: selected ? 3 : 1,
+              };
+            },
+            onEachFeature: (feature, shape) => {
+              const id = idOf(feature);
+              const name = nameOf(feature);
+              shape.bindTooltip(`${name}: ${verdictOf(byArea.get(id)).word}`, { sticky: true });
+              shape.on("click", () => onPickArea({ id, name }));
+              if (id === selectedId) shape.bringToFront();
+            },
+          },
+        ).addTo(map);
+      }
+      const target = areaLayer ?? countyLayer.getLayers().find((shape) => idOf(shape.feature) === countyId);
+      if (target) map.flyToBounds(target.getBounds(), { padding: [12, 12], duration: 0.6 });
+    },
+  };
 }
