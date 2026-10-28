@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from django.db.models import Count
+from django.db.models import Count, Max, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -38,8 +38,17 @@ from accounts.models import ActivityLog
 from accounts.permissions import IsAdministrator
 from geodata.models import Region
 
-from . import cap, channels, engine
-from .models import LEVEL_RANK, Alert, AlertRun, Delivery, Level, Subscriber, new_code
+from . import cap, channels, engine, stopping
+from .models import (
+    LEVEL_RANK,
+    Alert,
+    AlertRun,
+    Delivery,
+    Level,
+    Subscriber,
+    Unsubscription,
+    new_code,
+)
 
 MAX_CONFIRM_ATTEMPTS = 5
 CODE_LIFETIME = dt.timedelta(hours=1)
@@ -248,6 +257,77 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
                 "sms_sandbox": channels.sms_configured()
                 and channels.sms_url().count("sandbox") > 0,
                 "last_run": _run_dict(last) if last else None,
+            }
+        )
+
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAdministrator])
+    def subscribers(self, request):
+        """Everyone signed up for alerts, what reached them, and who stopped.
+
+        Subscribers are listed in full (the administrator runs the service);
+        those who stopped only as alerts/stopping.py kept them, contact masked.
+        """
+        sent = Q(deliveries__kind="alert", deliveries__outcome=Delivery.Outcome.SENT)
+        failed = Q(deliveries__kind="alert", deliveries__outcome=Delivery.Outcome.FAILED)
+        people = (
+            Subscriber.objects.select_related("user")
+            .prefetch_related("regions")
+            .annotate(
+                sent=Count("deliveries", filter=sent),
+                failed=Count("deliveries", filter=failed),
+                last_sent=Max("deliveries__sent_at", filter=sent),
+            )
+            .order_by("-created_at")
+        )
+        totals = dict(
+            Delivery.objects.filter(kind="alert")
+            .values_list("outcome")
+            .annotate(n=Count("id"))
+        )
+        month_ago = timezone.now() - dt.timedelta(days=30)
+        stopped = Unsubscription.objects.select_related("user")
+        return Response(
+            {
+                "totals": {
+                    "subscribers": people.filter(confirmed=True).count(),
+                    "awaiting_code": people.filter(confirmed=False).count(),
+                    "with_account": people.filter(confirmed=True, user__isnull=False).count(),
+                    "alerts_sent": totals.get(Delivery.Outcome.SENT, 0),
+                    "alerts_failed": totals.get(Delivery.Outcome.FAILED, 0),
+                    "alerts_skipped": totals.get(Delivery.Outcome.SKIPPED, 0),
+                    "unsubscribed": stopped.count(),
+                    "unsubscribed_30d": stopped.filter(stopped_at__gte=month_ago).count(),
+                },
+                "subscribers": [
+                    {
+                        "id": s.pk,
+                        "email": s.email,
+                        "phone": s.phone,
+                        "username": s.user.username if s.user else None,
+                        "places": [str(region) for region in s.regions.all()],
+                        "min_level": s.min_level,
+                        "confirmed": s.confirmed,
+                        "is_home": s.is_home,
+                        "subscribed_at": s.confirmed_at or s.created_at,
+                        "alerts_sent": s.sent,
+                        "alerts_failed": s.failed,
+                        "last_alert_at": s.last_sent,
+                    }
+                    for s in people[:500]
+                ],
+                "unsubscribed": [
+                    {
+                        "username": u.username or None,
+                        "contact": u.contact,
+                        "places": u.places,
+                        "how": u.get_how_display(),
+                        "alerts_received": u.alerts_received,
+                        "subscribed_at": u.subscribed_at,
+                        "stopped_at": u.stopped_at,
+                    }
+                    for u in stopped[:200]
+                ],
             }
         )
 
@@ -556,5 +636,5 @@ def unsubscribe(request, token: str):
             "<button type='submit' style='font:inherit;padding:.5rem 1rem'>"
             "Stop the alerts</button></form>"
         )
-    subscriber.delete()
+    stopping.stop(subscriber, Unsubscription.How.LINK)
     return _page(f"<p>{who} will get no more FloodScout alerts. What was kept has been deleted.</p>")

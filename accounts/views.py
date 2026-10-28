@@ -22,7 +22,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from alerts.models import Subscriber
+from alerts import stopping
+from alerts.models import Subscriber, Unsubscription
 
 from . import home, social, verification
 from .activity import PAGE, record
@@ -261,7 +262,7 @@ class MySubscriptionView(APIView):
         if sub.is_home:
             request.user.home_alerts = False
             request.user.save(update_fields=["home_alerts"])
-        sub.delete()
+        stopping.stop(sub, Unsubscription.How.PROFILE)
         record(request, ActivityLog.Action.SUBSCRIPTION_REMOVE, regions=regions)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -280,9 +281,17 @@ class UserAdminViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.
     pagination_class = None
 
     def get_queryset(self):
-        return User.objects.annotate(subscriptions=Count("alert_subscriptions")).order_by(
-            "-is_active", "username"
+        sent = Q(
+            alert_subscriptions__deliveries__kind="alert",
+            alert_subscriptions__deliveries__outcome="sent",
         )
+        return User.objects.annotate(
+            subscriptions=Count("alert_subscriptions", distinct=True),
+            # Alerts that reached them while subscribed; those after they
+            # stopped are kept unnamed (alerts/stopping.py).
+            alerts_received=Count("alert_subscriptions__deliveries", filter=sent, distinct=True),
+            unsubscribed=Count("unsubscriptions", distinct=True),
+        ).order_by("-is_active", "username")
 
     def perform_update(self, serializer):
         user = serializer.instance

@@ -35,8 +35,8 @@ from django.contrib.gis.geos import Point
 from django.core.cache import cache
 from django.utils import timezone
 
-from alerts import channels
-from alerts.models import Subscriber
+from alerts import channels, stopping
+from alerts.models import Subscriber, Unsubscription
 from geodata.models import Region
 
 from .models import User
@@ -165,7 +165,7 @@ def sync_home_subscription(user: User) -> Subscriber | None:
     places = home_places(user)
     if not places or not user.home_alerts:
         if existing:
-            existing.delete()
+            stopping.stop(existing, Unsubscription.How.HOME_OFF)
         return None
 
     email, phone = verified_contacts(user)

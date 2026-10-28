@@ -383,3 +383,8 @@
   flex-wrap: wrap;
   gap: 16px;
 }
+
+/* The Subscribers tab's totals: five tiles, wrapping on a narrow screen. */
+.profile-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}

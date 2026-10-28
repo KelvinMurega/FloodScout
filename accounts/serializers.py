@@ -131,6 +131,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
     """An account as the administrator's Users table shows it."""
 
     subscriptions = serializers.IntegerField(read_only=True)
+    alerts_received = serializers.IntegerField(read_only=True)
+    unsubscribed = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = User
@@ -146,6 +148,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "date_joined",
             "last_login",
             "subscriptions",
+            "alerts_received",
+            "unsubscribed",
         ]
         read_only_fields = [
             "id",

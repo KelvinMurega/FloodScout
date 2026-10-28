@@ -144,7 +144,12 @@ class Subscriber(models.Model):
 
 
 class Delivery(models.Model):
-    """One message to one subscriber on one channel about one alert level."""
+    """One message to one subscriber on one channel about one alert level.
+
+    Kept when the subscriber stops their alerts, with `subscriber` emptied and
+    `detail` cleared, so the totals of what was sent still add up and nothing
+    in it points back at the person (alerts/stopping.py).
+    """
 
     class Channel(models.TextChoices):
         EMAIL = "email", "Email"
@@ -156,7 +161,9 @@ class Delivery(models.Model):
         SKIPPED = "skipped", "Skipped"
 
     alert = models.ForeignKey(Alert, on_delete=models.CASCADE, related_name="deliveries")
-    subscriber = models.ForeignKey(Subscriber, on_delete=models.CASCADE, related_name="deliveries")
+    subscriber = models.ForeignKey(
+        Subscriber, on_delete=models.SET_NULL, null=True, blank=True, related_name="deliveries"
+    )
     channel = models.CharField(max_length=5, choices=Channel.choices)
     level = models.CharField(max_length=10, choices=Level.choices)
     kind = models.CharField(max_length=10, default="alert", help_text="alert or cancel")
@@ -175,6 +182,42 @@ class Delivery(models.Model):
 
     def __str__(self) -> str:
         return f"{self.channel} to {self.subscriber} for {self.alert}: {self.outcome}"
+
+
+class Unsubscription(models.Model):
+    """Someone stopped their alerts: what the administrator may still see.
+
+    The subscription itself is deleted, as the unsubscribe page promises.
+    This keeps only enough to count and recognise it: the account's username
+    if there was one, the email or phone with most of it hidden, the places,
+    and how many alerts had reached them (alerts/stopping.py).
+    """
+
+    class How(models.TextChoices):
+        LINK = "link", "Unsubscribe link"
+        PROFILE = "profile", "Removed on their profile"
+        HOME_OFF = "home_off", "Turned off warnings for where they live"
+
+    stopped_at = models.DateTimeField(auto_now_add=True)
+    how = models.CharField(max_length=10, choices=How.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="unsubscriptions",
+    )
+    username = models.CharField(max_length=150, blank=True)
+    contact = models.CharField(max_length=80, blank=True, help_text="masked: k***@gmail.com, +2547****678")
+    places = models.JSONField(default=list)
+    alerts_received = models.PositiveIntegerField(default=0)
+    subscribed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-stopped_at"]
+
+    def __str__(self) -> str:
+        return f"{self.username or self.contact} stopped ({self.get_how_display()})"
 
 
 class AlertRun(models.Model):

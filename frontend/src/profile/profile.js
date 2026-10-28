@@ -12,6 +12,7 @@
 import {
   changePassword,
   fetchSocialAccounts,
+  fetchSubscribers,
   startSocialSignIn,
   unlinkSocialAccount,
   fetchActivity,
@@ -30,6 +31,7 @@ import "./profile.css";
 const TABS = [
   { id: "", label: "My profile" },
   { id: "users", label: "Users", admin: true },
+  { id: "subscribers", label: "Subscribers", admin: true },
   { id: "activity", label: "Activity log", admin: true },
 ];
 
@@ -314,7 +316,7 @@ async function renderUsers(body, me) {
   }
   const table = el("table", "table profile-table");
   const head = el("tr");
-  const headings = ["User", "Email", "Role", "Account", "Alerts", "Last signed in", "Joined"];
+  const headings = ["User", "Email", "Role", "Account", "Subscriptions", "Alerts received", "Stopped", "Last signed in", "Joined"];
   for (const h of headings) {
     const th = el("th", null, h);
     th.scope = "col";
@@ -376,6 +378,8 @@ async function renderUsers(body, me) {
       roleCell,
       activeCell,
       el("td", "table__num", `${user.subscriptions}`),
+      el("td", "table__num", `${user.alerts_received ?? 0}`),
+      el("td", "table__num", user.unsubscribed ? `${user.unsubscribed}×` : "—"),
       el("td", null, user.last_login ? ago(user.last_login) : "Never"),
       el("td", null, new Date(user.date_joined).toLocaleDateString()),
     );
@@ -387,6 +391,110 @@ async function renderUsers(body, me) {
   }
   table.append(thead, tbody);
   holder.replaceChildren(table);
+}
+
+/** A table whose cells say what they are, so it becomes cards on a phone (profile.css). */
+function labelledTable(headings, rows) {
+  const holder = el("div", "profile-table-wrap");
+  const table = el("table", "table profile-table");
+  const head = el("tr");
+  for (const h of headings) {
+    const th = el("th", null, h);
+    th.scope = "col";
+    head.append(th);
+  }
+  const thead = el("thead");
+  thead.append(head);
+  const tbody = el("tbody");
+  for (const cells of rows) {
+    const row = el("tr");
+    cells.forEach((cell, i) => {
+      const td = el("td");
+      td.dataset.label = headings[i];
+      if (cell instanceof Node) td.append(cell);
+      else td.textContent = cell;
+      row.append(td);
+    });
+    tbody.append(row);
+  }
+  table.append(thead, tbody);
+  holder.append(table);
+  return holder;
+}
+
+const LEVEL_SHORT = { advisory: "Advisories and up", watch: "Watches and warnings", warning: "Warnings only" };
+
+function placesText(places) {
+  if (places.length <= 2) return places.join(", ") || "—";
+  return `${places.slice(0, 2).join(", ")} and ${places.length - 2} more`;
+}
+
+async function renderSubscribers(body) {
+  const summary = card(body, "Alerts sent", "Everyone signed up for flood alerts, what reached them, and who stopped.");
+  const holder = el("div");
+  holder.append(el("p", "alerts-form__hint", "Loading…"));
+  summary.append(holder);
+  let data;
+  try {
+    data = await fetchSubscribers();
+  } catch (error) {
+    holder.replaceChildren(el("p", "alerts-form__hint", `Could not load them: ${error.message}`));
+    return;
+  }
+  const t = data.totals;
+  const tiles = el("div", "alerts-tiles profile-tiles");
+  for (const [n, label] of [
+    [t.subscribers, `subscribed (${t.with_account} with an account)`],
+    [t.awaiting_code, "waiting to enter their code"],
+    [t.alerts_sent, "alerts delivered"],
+    [t.alerts_failed, "alerts that failed to send"],
+    [t.unsubscribed, `stopped (${t.unsubscribed_30d} in the last 30 days)`],
+  ]) {
+    const tile = el("div", "alerts-tile");
+    tile.append(el("span", "alerts-tile__number", `${n}`), el("span", null, label));
+    tiles.append(tile);
+  }
+  holder.replaceChildren(tiles);
+
+  const people = card(body, "Subscribers", "Newest first. A failed alert is one the email or SMS service refused.");
+  people.append(
+    data.subscribers.length
+      ? labelledTable(
+          ["Contact", "Account", "Places", "Wants", "Delivered", "Failed", "Last alert", "Since"],
+          data.subscribers.map((s) => [
+            [s.email, s.phone].filter(Boolean).join(", ") + (s.confirmed ? "" : " (awaiting code)"),
+            s.username ?? "No account",
+            (s.is_home ? "Home: " : "") + placesText(s.places),
+            LEVEL_SHORT[s.min_level] ?? s.min_level,
+            `${s.alerts_sent}`,
+            `${s.alerts_failed}`,
+            s.last_alert_at ? ago(s.last_alert_at) : "None yet",
+            new Date(s.subscribed_at).toLocaleDateString(),
+          ]),
+        )
+      : el("p", "alerts-form__hint", "Nobody has signed up for alerts yet."),
+  );
+
+  const gone = card(
+    body,
+    "Stopped their alerts",
+    "Their subscription is deleted, as the unsubscribe page promises; only this is kept, with the contact mostly hidden.",
+  );
+  gone.append(
+    data.unsubscribed.length
+      ? labelledTable(
+          ["Who", "Places", "How", "Alerts received", "Subscribed", "Stopped"],
+          data.unsubscribed.map((u) => [
+            u.username ? `${u.username} (${u.contact})` : u.contact || "—",
+            placesText(u.places),
+            u.how,
+            `${u.alerts_received}`,
+            u.subscribed_at ? new Date(u.subscribed_at).toLocaleDateString() : "—",
+            ago(u.stopped_at),
+          ]),
+        )
+      : el("p", "alerts-form__hint", "Nobody has stopped their alerts since this was first recorded."),
+  );
 }
 
 async function renderActivity(body) {
@@ -466,6 +574,10 @@ export async function showProfile(root, { slug, user, onUserChange }) {
   }
   if (admin && tab === "activity") {
     await renderActivity(body);
+    return;
+  }
+  if (admin && tab === "subscribers") {
+    await renderSubscribers(body);
     return;
   }
 
