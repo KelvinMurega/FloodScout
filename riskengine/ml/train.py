@@ -90,6 +90,10 @@ FIRST_TRAINING_YEAR = 1996
 # Years from this one on are the final test: set aside before any model is
 # compared, and scored once (see `final_test`). Fixed on 5 October 2026,
 # before the result was seen. Do not move it to get a better number.
+#
+# Closed on 29 October 2026 after about seven looks: `train` and `build` no
+# longer score it unless a caller passes `test_from`, and nothing that
+# trains on the real training set does (riskengine/ml/experiments.md).
 FINAL_TEST_FROM = 2017
 
 # The inputs of the season-only baseline.
@@ -850,7 +854,7 @@ def train(
     oni: dict[tuple[int, int], float],
     dmi: dict[tuple[int, int], float] | None = None,
     first_year: int = FIRST_TRAINING_YEAR,
-    test_from: int | None = FINAL_TEST_FROM,
+    test_from: int | None = None,
     tune_models: bool = True,
     seeds=SEEDS,
 ) -> tuple[dict, dict]:
@@ -867,7 +871,7 @@ def build(
     oni: dict[tuple[int, int], float],
     dmi: dict[tuple[int, int], float] | None = None,
     first_year: int = FIRST_TRAINING_YEAR,
-    test_from: int | None = FINAL_TEST_FROM,
+    test_from: int | None = None,
     tune_models: bool = True,
     seeds=SEEDS,
 ) -> tuple[dict, dict]:
@@ -986,13 +990,20 @@ def build(
     return artifact, metrics
 
 
-def save(artifact: dict, metrics: dict) -> None:
-    """Write the model and its metrics where `infer()` and the docs expect them."""
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(artifact, ARTIFACT_PATH)
+def save(artifact: dict, metrics: dict, directory: Path | None = None) -> None:
+    """Write the model and its metrics into `directory`.
+
+    Without one, they go where `infer()` and the docs expect them. The
+    pipeline passes a run's own folder, so a run never replaces the model
+    being served (see riskengine/ml/pipeline/).
+    """
+    model_path = ARTIFACT_PATH if directory is None else directory / ARTIFACT_PATH.name
+    metrics_path = METRICS_PATH if directory is None else directory / METRICS_PATH.name
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(artifact, model_path)
     # infer.load_model checks this before unpickling (security review 15).
-    digest = hashlib.sha256(ARTIFACT_PATH.read_bytes()).hexdigest()
-    METRICS_PATH.write_text(
+    digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    metrics_path.write_text(
         json.dumps({"version": artifact["version"], "model_sha256": digest, **metrics}, indent=2)
         + "\n"
     )

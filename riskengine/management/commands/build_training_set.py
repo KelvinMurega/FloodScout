@@ -130,6 +130,24 @@ def county_area(region) -> float | None:
     return county.area_size
 
 
+def training_row(county, rain, end: dt.date, *, normal_30d: float, oni, dmi, terrain) -> list[float]:
+    """The inputs of one county-month, as written to the training set.
+
+    Serving builds the same row with `infer.region_row`; a test checks the
+    two agree.
+    """
+    features = feature_row(
+        rain,
+        end,
+        normal_30d=normal_30d,
+        oni=oni_for(end, oni),
+        dmi=dmi_for(end, dmi),
+        area_km2=county_area(county),
+        terrain=terrain,
+    )
+    return [round(value, 5) for value in features]
+
+
 def rain_model_of(meta: dict) -> str:
     """The archive rainfall model a training set or trained model was built on."""
     return meta.get("rain_model", UNNAMED_RAIN_MODEL)
@@ -275,18 +293,12 @@ class Command(BaseCommand):
             for end in ends:
                 start = end - dt.timedelta(days=WINDOW_DAYS - 1)
                 active = [event for event in placed[county.name] if in_window(event, start, end)]
-                features = feature_row(
-                    rain,
-                    end,
-                    normal_30d=normals[end.month],
-                    oni=oni_for(end, oni),
-                    dmi=dmi_for(end, dmi),
-                    area_km2=county_area(county),
-                    terrain=terrain,
+                features = training_row(
+                    county, rain, end, normal_30d=normals[end.month], oni=oni, dmi=dmi, terrain=terrain
                 )
                 rows.append(
                     [county.name, end.isoformat(), round(normals[end.month], 2)]
-                    + [round(value, 5) for value in features]
+                    + features
                     + [
                         int(bool(active)),
                         max((event.severity for event in active), default=0),

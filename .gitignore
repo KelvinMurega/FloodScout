@@ -65,3 +65,7 @@ docs/*
 
 # Written by scripts/windows/start-scheduler.ps1
 scheduler-task.log
+
+# A pipeline run's model file is kept in Drive or blob storage, not in git;
+# its metrics, config and summary are committed (riskengine/ml/pipeline/runs.py).
+riskengine/ml/runs/**/*.joblib

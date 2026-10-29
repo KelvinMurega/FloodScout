@@ -90,7 +90,13 @@ class TrainingTests(SimpleTestCase):
         # The settings search has its own tests below; skipping it here keeps
         # this class quick.
         cls.artifact, cls.metrics = train.train(
-            cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5}, tune_models=False, seeds=(0, 7)
+            cls.path,
+            {(2019, 9): 1.0},
+            {(2019, 9): 0.5},
+            # Synthetic data, so the closed final test's code can still be tested.
+            test_from=train.FINAL_TEST_FROM,
+            tune_models=False,
+            seeds=(0, 7),
         )
 
     @classmethod
@@ -799,6 +805,7 @@ class BuildColabBundleTests(SimpleTestCase):
             for name in (
                 "riskengine/ml/train.py",
                 "riskengine/ml/artifacts/flood_model.joblib",
+                "riskengine/ml/artifacts/metrics.json",
                 "requirements.txt",
             ):
                 info = tarfile.TarInfo(name)
@@ -834,6 +841,7 @@ class BuildColabBundleTests(SimpleTestCase):
             names,
             {
                 "riskengine/ml/train.py",
+                "riskengine/ml/artifacts/metrics.json",
                 "requirements.txt",
                 "data/processed/training_set.csv",
                 "data/processed/training_set.meta.json",
