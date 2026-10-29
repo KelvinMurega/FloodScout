@@ -61,6 +61,10 @@ deploy/certs/*
 docs/*
 !docs/DATA_DICTIONARY.md
 !docs/DEPLOYMENT.md
+# The engine's own docs, for examiners and the teams that consume the API.
+!docs/ENGINE_SPEC.md
+!docs/ARCHITECTURE.md
+!docs/FUTURE_WORK.md
 !docs/figures/
 
 # Written by scripts/windows/start-scheduler.ps1

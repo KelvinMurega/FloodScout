@@ -1,11 +1,20 @@
 # FloodScout
 
-**A machine learning-based geospatial risk scoring engine for flood monitoring in Kenya.**
+**FloodScout is a geospatial flood risk scoring engine for Kenya (U-CS 10).
+The dashboard and alerts are reference clients.**
 
-FloodScout scores the flood risk of each of Kenya's 47 counties and 290
-sub-counties every day, and shows the result on an interactive map. The
-scores come from a model trained on 26 years of recorded floods, rainfall,
-climate indices and terrain.
+The engine scores the flood risk of each of Kenya's 47 counties, 290
+sub-counties and 768 grid cells every day, and serves the scores through a
+REST API. The scores come from a model trained on 26 years of recorded
+floods, rainfall, climate indices and terrain. The engine is being extended
+from *when* a flood is likely (hazard) to *where* inside a county
+(susceptibility) and *who is there* (exposure): `docs/ENGINE_SPEC.md` says
+what it computes, what it does not, and what is still being built.
+
+The interactive map and the alert service show that the scores are usable.
+Other capstones own alerting (U-CS 13) and the dashboard (U-CS 17), so
+FloodScout's versions are frozen: bug and security fixes only
+(`docs/ARCHITECTURE.md`).
 
 Final year capstone project by Murega Kelvin Mutwiri, School of Computing
 and Engineering Sciences, Strathmore University. Supervised by
@@ -29,6 +38,8 @@ Dr. Deperias Kerre.
 
 ## What it does
 
+### The engine
+
 - **Scores every region daily.** Each county and sub-county gets a risk
   category (Low, Moderate, High or Very High) from the last 30 days of
   rainfall, the El Niño and Indian Ocean Dipole indices, the time of year
@@ -44,6 +55,18 @@ Dr. Deperias Kerre.
   national, and training on 23 counties would halve the rows it learns
   from. In the model README's learning curve, half the rows scored an
   average precision of 0.255 against 0.297 for all of them.
+- **Looks back and ahead.** It keeps the scores of earlier days, forecasts
+  every region for each of the next seven days from forecast rain, and
+  gives a seasonal outlook for the next three months.
+- **Explains each score.** Each prediction is split exactly into what each
+  group of inputs added or took away, in times the usual chance.
+- **Reports its own accuracy.** `riskengine/ml/artifacts/metrics.json`
+  records how the model did on years it was not trained on, including where
+  it is weak, and `GET /api/admin/analytics/` serves it to administrators
+  and analysts.
+
+### Reference clients (frozen)
+
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
   The colour shows, by default, the risk against an ordinary year for the
@@ -57,11 +80,9 @@ Dr. Deperias Kerre.
   floods recorded in Kenya since 1988 and NASA's satellite rainfall can be
   drawn over the risk, and a selected place lists the floods recorded there
   before.
-- **Looks back and ahead.** The dashboard keeps the scores of earlier days
-  with a 30-day history chart, forecasts every region for each of the next
-  seven days from forecast rain, and gives a seasonal outlook for the next
-  three months. A timeline with a Play button moves the map from 30 days
-  ago through to the end of the forecast.
+- **Looks back and ahead.** The dashboard draws a 30-day history chart, the
+  forecast and the outlook. A timeline with a Play button moves the map from
+  30 days ago through to the end of the forecast.
 - **Says what is going on.** A situation briefing, written from the data,
   says how many places are at each level, where risk is rising, what the
   forecast brings and whether the risk comes from rain or from the season
@@ -73,12 +94,11 @@ Dr. Deperias Kerre.
   also published as a Common Alerting Protocol (CAP 1.2) feed that other
   warning systems can read. A banner and badges on the map show what is in
   force, and an administrator can issue or cancel alerts by hand.
-- **Explains each score.** "Why this score" splits each prediction exactly
-  into what each group of inputs added or took away, in times the usual
-  chance, with a sentence saying what drove it. The inputs themselves are
-  listed too, each against its usual value.
-- **Reports its own accuracy.** A model performance panel shows how the model
-  did on years it was not trained on, including where it is weak.
+- **Explains each score.** "Why this score" draws the engine's explanation,
+  with a sentence saying what drove it. The inputs themselves are listed
+  too, each against its usual value.
+- **Reports its own accuracy.** A model performance panel shows the engine's
+  accuracy figures.
 - **Exports.** The view on screen can be printed as a report or downloaded
   as a CSV file.
 - **Lets an administrator rescore.** A System Administrator can sign in and
@@ -93,14 +113,17 @@ Dr. Deperias Kerre.
 
 ## How it is built
 
-Four tiers, as designed in Chapter 4 of the project proposal:
+Three tiers, as designed in Chapter 4 of the project proposal:
 
 | Tier | Technology | Where |
 |---|---|---|
 | Data | PostgreSQL 16 with PostGIS 3.4 | `geodata/`, `riskengine/models.py` |
-| Machine learning | scikit-learn (Random Forest), trained on Google Colab | `riskengine/ml/`, `notebooks/` |
-| Application | Django 5.2 and Django REST Framework | `api/`, `accounts/`, `riskengine/` |
+| Application | Django 5.2 and Django REST Framework, with the risk engine inside it: a scikit-learn Random Forest, trained offline on Google Colab and loaded from `riskengine/ml/artifacts/` | `riskengine/`, `api/`, `geodata/`, `accounts/`, `alerts/` |
 | Client | Leaflet.js, built with Vite | `frontend/` |
+
+Training is not a tier: it runs on Colab from `notebooks/`, and only the
+model file and its metrics come back into the repo. `docs/ARCHITECTURE.md`
+shows which modules are the engine and which are frozen reference clients.
 
 The whole stack runs in Docker. GitHub Actions runs the lint, both test
 suites and the dashboard build on every pull request.
@@ -406,7 +429,7 @@ not as an outline.
 `riskengine/ml/README.md` has the full evaluation, the known limits and a log
 of every experiment. Read it before presenting a result. Every score and API
 response carries the `model_version` that produced it, and the dashboard's
-model performance panel shows these figures from `GET /api/model-performance/`.
+model performance panel shows these figures from `GET /api/admin/analytics/`.
 
 ### Earth Engine (optional)
 
@@ -450,7 +473,8 @@ FloodScout/
 ├── notebooks/      train_flood_model.ipynb, the Colab training run with
 │                   its evaluation charts
 ├── data/           raw/, processed/ and external/; not committed
-└── docs/           The data dictionary and the figures
+└── docs/           The engine spec, the architecture, the data dictionary,
+                    the deployment guide and the figures
 ```
 
 The four Django apps map onto the Class Diagram and ERD in Chapter 4
@@ -459,30 +483,42 @@ The docstring on each model says which.
 
 ## Status
 
-As of 19 October 2026.
+As of 29 October 2026.
+
+**The engine**
 
 | Area | State |
 |---|---|
+| Hazard model | Done. Random Forest trained on Colab, cross-validated by year, tested once on 2017 to 2021 (that test is now closed), checked against satellite extents. |
+| Daily scoring | Done. Counties, sub-counties and a 768-cell grid (0.25°), with the 7-day forecast and the seasonal outlook. Missed days are caught up. |
 | Data pipeline | Done. 47 counties and 290 sub-counties with real terrain, rainfall and drainage. |
-| Model and evaluation | Done. Trained on Colab, cross-validated by year, tested on 2017 to 2021 and checked against satellite extents. |
-| API and dashboard | Done. Daily scores, seasonal outlook, search, history, inputs, report and CSV export. |
-| Risk by area | Built (PR #78). A 768-square grid (0.25°, about 28 km) scored daily from each square's own rain; "Colour by: Area" on the map. |
-| Daily refresh | Done locally (PR #77). Missed days are caught up, failures retry hourly, and a Windows scheduled task starts Docker and the scheduler at sign-in and each morning. |
-| Model performance panel | Done (PR #79), on the administrator's analytics page. |
-| Map layers | Built (PR #81): basemaps, rivers, the 100-year flood zone, past floods, NASA satellite rain, and four colour themes. |
-| Forecast and explanation | Built (PR #82): the 7-day forecast, "Why this score", the situation briefing with hotspots, and the timeline. |
-| Alerts | Built (PR #83): rules, email and SMS delivery with double opt-in, the CAP 1.2 feed, the alerts page and the administrator's controls. |
-| Profile and accounts | Built (PR #84): registration, the profile page, password change, the users table and the activity log. |
-| Sign-in pages | Built on `feat/auth-pages`: sign-in and sign-up pages, password reset, and Google, Microsoft and GitHub sign-in. |
+| Training pipeline, snapshots, model registry | In progress (refocus I1 to I4). |
+| Static geospatial layers (HAND, TWI, distance to river, flood zone, land cover, soil, population, built-up) | Not started (refocus Phase B). |
+| Susceptibility model | Not started (refocus Phase C). The protocol is committed before any training. |
+| Exposure and the combined risk index | Not started (refocus Phase D). |
+| Versioned API (`/api/v1/`, OpenAPI schema, API keys) | Not started (refocus Phase E). |
+| Monitoring, shadow scoring, model cards | Not started (refocus I5 to I7, Phase G). |
+| Deployment | Done 28 October 2026. API at `https://api.floodscout.me`, dashboard at `https://floodscout.me`. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
-| Deployment | Not started. The system runs locally only. |
-| Performance and user testing | Not started. Both need the deployed system. |
-| Report | In progress. Chapter 5 is drafted; the other chapters are open. |
+
+**Reference clients (frozen: bug and security fixes only)**
+
+| Area | State |
+|---|---|
+| Dashboard | Done: map, simple view, map layers, history, timeline, explanation, briefing, themes, phone layout, report and CSV export. |
+| Alerts | Done: rules, email and SMS with double opt-in, the CAP 1.2 feed, where-you-live alerts, the administrator's controls. |
+| Accounts | Done: sign-in and sign-up pages, Google, Microsoft and GitHub sign-in, profiles, the Analyst role, the activity log. |
+
+**Still open:** performance testing on the deployed API, user testing, and
+the report.
 
 ## Documentation
 
 | Document | What it holds |
 |---|---|
+| `docs/ENGINE_SPEC.md` | What the engine computes: components, inputs, outputs, spatial units, cadence, limits and scope |
+| `docs/ARCHITECTURE.md` | The tiers, the engine and its reference clients, and the freeze |
+| `docs/FUTURE_WORK.md` | What is out of scope, kept instead of built |
 | `riskengine/ml/README.md` | The model: inputs, evaluation, limits and the experiments log |
 | `docs/DATA_DICTIONARY.md` | Every data source, its fields and its licence |
 | `docs/figures/` | The evaluation charts and the dashboard screenshots |
