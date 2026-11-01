@@ -1099,31 +1099,52 @@ docker compose run --rm web python manage.py score_regions        # today, into 
 docker compose run --rm web python manage.py flood_outlook        # the months ahead, into RiskOutlook
 ```
 
-The shipped model is trained on Google Colab. Commit your work, then:
+The shipped model is trained on Google Colab, through the pipeline. A run
+is decided by a committed config in `configs/` (TOML): the training set and
+its SHA-256, the inputs, the folds, the settings grids, the seeds, the
+primary metric and the promotion margin. `pipeline/hazard.py` checks the
+config against the settings `train.py` fixes in code and refuses to run on
+any difference, so a change to one is a change to both. The 2017 to 2021
+final test is closed: no config can open it, and `train_model` no longer
+scores it.
 
 ```bash
-docker compose run --rm web python manage.py build_colab_bundle
+# Check a config against the code and its training set, without training:
+docker compose run --rm web python -m riskengine.ml.pipeline train --model hazard     --config riskengine/ml/configs/hazard_rf_20261007.toml --check
+# Commit your work, then pack the code and that config's training set:
+docker compose run --rm web python manage.py build_colab_bundle     --config riskengine/ml/configs/hazard_rf_20261007.toml
 ```
 
 This writes `data/processed/colab_bundle_<commit>.tar.gz`: the committed
-code, the training set, a `COMMIT` file and the SHA-256 of the training
-set. It refuses to run with uncommitted changes. Put the file in Google
-Drive under `MyDrive/FloodScout/data/`, open
-`notebooks/train_flood_model.ipynb` in Colab and run it all. It runs the
-same `train.py` and writes each run to its own folder,
-`MyDrive/FloodScout/runs/<run id>/`:
+code, the config's training set at its own path, a `COMMIT` file, a
+`CONFIG` file and the SHA-256 of the training set. It refuses to run with
+uncommitted or untracked changes. Put the file in Google Drive under
+`MyDrive/FloodScout/data/`, open `notebooks/train_flood_model.ipynb` in
+Colab and run it all. The notebook only unpacks the bundle, calls the
+pipeline and saves what it wrote, into `MyDrive/FloodScout/runs/<run id>/`:
 
 | File | What it is |
 |---|---|
-| `flood_model.joblib`, `metrics.json` | The two files that go in `artifacts/` |
+| `flood_model.joblib`, `metrics.json` | The model and its evaluation, in the format of `artifacts/` |
+| `config.toml` | The config the run used, byte for byte |
+| `summary.md` | The run's primary metric against the served model's, and whether that comparison is fair (same training set) |
+| `ledger_line.md` | The run's line for `experiments.md` |
 | `figures/` | The charts, which go in `docs/figures/` |
-| `run.json` | Run id, commit, bundle, training set SHA-256, Python, processor, training time |
+| `run.json` | Run id, commit, bundle, config, training set SHA-256, Python, processor, training time |
 | `log.txt` | What the training printed |
 | `environment.txt` | `pip freeze` of the Colab session |
 
 The run id is the UTC start time and the first seven characters of the
-commit, and `metrics.json` records it. Commit the executed notebook with the
-two files, so the recorded code matches the run.
+commit, and `metrics.json` records it. Bring back `metrics.json`,
+`config.toml` and `summary.md` into `runs/<run id>/` and the ledger line
+into `experiments.md`, for every run, kept or not. The model file stays in
+Drive; git ignores it under `runs/`.
+
+A run never replaces the served model. It is a candidate until a promotion
+PR copies its `flood_model.joblib` and `metrics.json` into `artifacts/`,
+after the comparison, the guard metrics and a shadow period. The same
+`python -m riskengine.ml.pipeline train` works locally, writing into
+`runs/` and adding its line to `experiments.md` itself.
 
 `infer()` loads `artifacts/flood_model.joblib` when it exists and falls back
 to the old heuristic when it does not. `RiskScore.model_version` says which

@@ -5,9 +5,10 @@ held-out years, searching each one's settings over a small grid, refits the
 best on everything, and writes it to riskengine/ml/artifacts/ where
 `infer()` picks it up. Run `build_training_set` first.
 
-notebooks/train_flood_model.ipynb does the same thing on Google Colab, by
-calling the same `riskengine.ml.train`. The shipped model comes from that
-notebook; this command is for checking a change locally.
+notebooks/train_flood_model.ipynb does the same thing on Google Colab,
+through `python -m riskengine.ml.pipeline` and a committed config. The
+shipped model comes from that notebook; this command is for checking a
+change locally, and it overwrites riskengine/ml/artifacts/.
 """
 
 from __future__ import annotations
@@ -24,17 +25,8 @@ class Command(BaseCommand):
     help = "Compare the three models on held-out years and save the best."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--test-from",
-            type=int,
-            default=train.FINAL_TEST_FROM,
-            metavar="YEAR",
-            help=(
-                "Years from this one on are set aside as the final test and scored once "
-                f"(default {train.FINAL_TEST_FROM}). 0 skips the final test."
-            ),
-        )
-
+        # There is no final test option: the 2017 to 2021 test was closed on
+        # 29 October 2026 (riskengine/ml/experiments.md) and is never scored again.
         parser.add_argument(
             "--no-tune",
             action="store_true",
@@ -69,7 +61,7 @@ class Command(BaseCommand):
             TRAINING_SET_PATH,
             oni,
             dmi,
-            test_from=options["test_from"] or None,
+            test_from=None,
             tune_models=not options["no_tune"],
             seeds=tuple(options["seeds"]),
         )
