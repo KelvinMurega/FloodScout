@@ -32,8 +32,9 @@ the *where*.
   Surface Water `occurrence` of 90% or more, or the GFD band `jrc_perm_water`.
 - **Flooded pixel**: GFD `flooded` = 1, not permanent water.
 - **Dry pixel**: GFD `flooded` = 0, not permanent water, and GFD
-  `clear_perc` of 50 or more, so that a pixel hidden by cloud for most of the
-  event is not counted as dry. Pixels with `clear_perc` under 50 are dropped.
+  `clear_perc` of 0.5 or more, so that a pixel hidden by cloud for most of the
+  event is not counted as dry. Pixels with `clear_perc` under 0.5 are dropped.
+  The band is a fraction from 0 to 1, despite its name.
 - **Sample size per event**: all flooded pixels up to 3,000, drawn at random
   if there are more, and 3,000 dry pixels drawn at random. Every pixel keeps
   its **sampling weight** (pixels of its class in the event area, divided by
