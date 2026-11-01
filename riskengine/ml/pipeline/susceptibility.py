@@ -32,11 +32,13 @@ def check(config: RunConfig, root: Path | None = None) -> Path:
     return hazard.check_training_set(config, root)
 
 
-def run(config: RunConfig, run_id: str, log=print) -> tuple[object, dict]:
+def run(
+    config: RunConfig, run_id: str, log=print, checkpoints: Path | None = None
+) -> tuple[object, dict]:
     path = check(config)
     with open(config.path, "rb") as handle:
         settings = tomllib.load(handle)
-    layer, metrics = train.run(evaluate.load_sample(path), settings, log)
+    layer, metrics = train.run(evaluate.load_sample(path), settings, log, checkpoints)
     metrics["provenance"] = {
         "git_commit": hazard_train.git_commit(),
         "run_id": run_id,
