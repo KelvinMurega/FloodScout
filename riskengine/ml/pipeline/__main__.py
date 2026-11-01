@@ -1,4 +1,4 @@
-"""python -m riskengine.ml.pipeline train --model hazard --config <file.toml> [--check]"""
+"""python -m riskengine.ml.pipeline train --model <name> --config <file.toml> [--check]"""
 
 from __future__ import annotations
 
@@ -7,7 +7,20 @@ import sys
 from pathlib import Path
 
 from . import config as run_config
-from . import hazard, runs
+from . import hazard, runs, susceptibility
+
+
+def run_susceptibility(config, args) -> int:
+    if args.check:
+        path = susceptibility.check(config)
+        print(f"{config.path.name} matches {path.name}.")
+        return 0
+    run = runs.run_id()
+    layer, metrics = susceptibility.run(config, run)
+    folder = susceptibility.write(run, config, layer, metrics, args.runs_dir)
+    print(f"Wrote {folder}")
+    print((folder / "summary.md").read_text(encoding="utf-8"))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
             raise run_config.ConfigError(
                 f"--model {args.model}, but {args.config.name} is a {config.model} config."
             )
+        if config.model == "susceptibility":
+            return run_susceptibility(config, args)
         if args.check:
             path = hazard.check(config)
             print(f"{config.path.name} matches train.py and {path.name}.")
