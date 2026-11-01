@@ -1,0 +1,664 @@
+{
+  "file": "susceptibility_sample_v1.csv",
+  "sha256": "7d45d82705eabdb5060db9b1fe3ea3932938ef1721418ae610f3d9ee5d24119c",
+  "protocol_version": 1,
+  "rows": 117350,
+  "near_lake_rows": 22750,
+  "events": [
+    {
+      "event": 1917,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Embu",
+        "Homa Bay",
+        "Isiolo",
+        "Kajiado",
+        "Kilifi",
+        "Kisumu",
+        "Lamu",
+        "Machakos",
+        "Marsabit",
+        "Migori",
+        "Murang'a",
+        "Nakuru",
+        "Nyandarua",
+        "Samburu",
+        "Siaya",
+        "Taita Taveta",
+        "Tana River",
+        "Turkana",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 4296478,
+        "1": 3385
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 2952,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Elgeyo-Marakwet",
+        "Homa Bay",
+        "Kisumu",
+        "Marsabit",
+        "Migori",
+        "Narok",
+        "Samburu",
+        "Siaya",
+        "Trans Nzoia",
+        "Turkana",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 1065119,
+        "1": 1151
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 1151
+      }
+    },
+    {
+      "event": 3078,
+      "counties": [
+        "Embu",
+        "Garissa",
+        "Isiolo",
+        "Kajiado",
+        "Kilifi",
+        "Kirinyaga",
+        "Kitui",
+        "Kwale",
+        "Lamu",
+        "Machakos",
+        "Makueni",
+        "Meru",
+        "Mombasa",
+        "Murang'a",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River",
+        "Tharaka"
+      ],
+      "pixels_in_area": {
+        "0": 2817901,
+        "1": 4040
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3123,
+      "counties": [
+        "Busia",
+        "Elgeyo-Marakwet",
+        "Homa Bay",
+        "Kisumu",
+        "Migori",
+        "Narok",
+        "Siaya",
+        "Trans Nzoia",
+        "Uasin Gishu"
+      ],
+      "pixels_in_area": {
+        "0": 356334,
+        "1": 507
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 507
+      }
+    },
+    {
+      "event": 3146,
+      "counties": [
+        "Baringo",
+        "Mandera",
+        "Marsabit",
+        "Samburu",
+        "Turkana",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 907904,
+        "1": 3221
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3170,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Homa Bay",
+        "Kisumu",
+        "Marsabit",
+        "Migori",
+        "Nakuru",
+        "Narok",
+        "Nyandarua",
+        "Samburu",
+        "Siaya",
+        "Trans Nzoia",
+        "Turkana",
+        "Uasin Gishu",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 1664438,
+        "1": 12363
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3235,
+      "counties": [
+        "Embu",
+        "Garissa",
+        "Isiolo",
+        "Kajiado",
+        "Kiambu",
+        "Kilifi",
+        "Kirinyaga",
+        "Kitui",
+        "Kwale",
+        "Lamu",
+        "Machakos",
+        "Makueni",
+        "Meru",
+        "Mombasa",
+        "Murang'a",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 2814482,
+        "1": 4303
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3287,
+      "counties": [
+        "Garissa",
+        "Isiolo",
+        "Laikipia",
+        "Mandera",
+        "Marsabit",
+        "Meru",
+        "Samburu",
+        "Wajir"
+      ],
+      "pixels_in_area": {
+        "0": 3022986,
+        "1": 842
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 842
+      }
+    },
+    {
+      "event": 3863,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Homa Bay",
+        "Kisumu",
+        "Marsabit",
+        "Migori",
+        "Nandi",
+        "Samburu",
+        "Siaya",
+        "Turkana",
+        "Uasin Gishu",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 973900,
+        "1": 1267
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 1267
+      }
+    },
+    {
+      "event": 3875,
+      "counties": [
+        "Baringo",
+        "Bungoma",
+        "Busia",
+        "Elgeyo-Marakwet",
+        "Homa Bay",
+        "Kisumu",
+        "Marsabit",
+        "Migori",
+        "Nandi",
+        "Narok",
+        "Samburu",
+        "Siaya",
+        "Trans Nzoia",
+        "Turkana",
+        "Uasin Gishu",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 1489114,
+        "1": 7452
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3881,
+      "counties": [
+        "Baringo",
+        "Elgeyo-Marakwet",
+        "Garissa",
+        "Isiolo",
+        "Laikipia",
+        "Mandera",
+        "Marsabit",
+        "Meru",
+        "Nakuru",
+        "Nyandarua",
+        "Samburu",
+        "Turkana",
+        "Wajir",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 3487412,
+        "1": 18080
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3886,
+      "counties": [
+        "Kajiado",
+        "Kilifi",
+        "Makueni",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 763387,
+        "1": 243
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 243
+      }
+    },
+    {
+      "event": 3917,
+      "counties": [
+        "Busia",
+        "Embu",
+        "Garissa",
+        "Homa Bay",
+        "Isiolo",
+        "Kajiado",
+        "Kericho",
+        "Kilifi",
+        "Kirinyaga",
+        "Kisumu",
+        "Kitui",
+        "Kwale",
+        "Lamu",
+        "Machakos",
+        "Makueni",
+        "Meru",
+        "Migori",
+        "Mombasa",
+        "Murang'a",
+        "Nairobi",
+        "Nakuru",
+        "Nandi",
+        "Nyeri",
+        "Siaya",
+        "Taita Taveta",
+        "Tana River",
+        "Tharaka",
+        "Trans Nzoia",
+        "Uasin Gishu"
+      ],
+      "pixels_in_area": {
+        "0": 2734635,
+        "1": 3579
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 3980,
+      "counties": [
+        "Busia",
+        "Homa Bay",
+        "Kisumu",
+        "Migori",
+        "Narok",
+        "Siaya",
+        "Uasin Gishu"
+      ],
+      "pixels_in_area": {
+        "0": 321777,
+        "1": 241
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 241
+      }
+    },
+    {
+      "event": 3981,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Homa Bay",
+        "Kisumu",
+        "Marsabit",
+        "Migori",
+        "Nakuru",
+        "Narok",
+        "Nyandarua",
+        "Samburu",
+        "Siaya",
+        "Turkana",
+        "Uasin Gishu",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 1316205,
+        "1": 6440
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 4022,
+      "counties": [
+        "Baringo",
+        "Busia",
+        "Embu",
+        "Garissa",
+        "Homa Bay",
+        "Isiolo",
+        "Kajiado",
+        "Kiambu",
+        "Kilifi",
+        "Kisumu",
+        "Kitui",
+        "Kwale",
+        "Laikipia",
+        "Machakos",
+        "Makueni",
+        "Mandera",
+        "Marsabit",
+        "Meru",
+        "Migori",
+        "Mombasa",
+        "Murang'a",
+        "Nairobi",
+        "Nakuru",
+        "Nyandarua",
+        "Nyeri",
+        "Samburu",
+        "Siaya",
+        "Taita Taveta",
+        "Tana River",
+        "Turkana",
+        "Wajir",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 6084806,
+        "1": 7029
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 3000
+      }
+    },
+    {
+      "event": 4055,
+      "counties": [
+        "Garissa",
+        "Isiolo",
+        "Laikipia",
+        "Lamu",
+        "Marsabit",
+        "Samburu",
+        "Tana River",
+        "Wajir"
+      ],
+      "pixels_in_area": {
+        "0": 2695526,
+        "1": 404
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 404
+      }
+    },
+    {
+      "event": 4094,
+      "counties": [
+        "Homa Bay",
+        "Kisumu",
+        "Migori",
+        "Siaya",
+        "Uasin Gishu"
+      ],
+      "pixels_in_area": {
+        "0": 183769,
+        "1": 200
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 200
+      }
+    },
+    {
+      "event": 4137,
+      "counties": [
+        "Kajiado",
+        "Kilifi",
+        "Kitui",
+        "Kwale",
+        "Makueni",
+        "Mombasa",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 912059,
+        "1": 452
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 452
+      }
+    },
+    {
+      "event": 4140,
+      "counties": [
+        "Kajiado",
+        "Kilifi",
+        "Kitui",
+        "Kwale",
+        "Makueni",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 908746,
+        "1": 437
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 437
+      }
+    },
+    {
+      "event": 4317,
+      "counties": [
+        "Embu",
+        "Garissa",
+        "Kajiado",
+        "Kiambu",
+        "Kilifi",
+        "Kitui",
+        "Kwale",
+        "Lamu",
+        "Machakos",
+        "Makueni",
+        "Meru",
+        "Mombasa",
+        "Murang'a",
+        "Nairobi",
+        "Nyandarua",
+        "Nyeri",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 2774859,
+        "1": 2035
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 2035
+      }
+    },
+    {
+      "event": 4324,
+      "counties": [
+        "Busia",
+        "Homa Bay",
+        "Kajiado",
+        "Kilifi",
+        "Kisumu",
+        "Machakos",
+        "Makueni",
+        "Migori",
+        "Nairobi",
+        "Siaya",
+        "Taita Taveta",
+        "Tana River",
+        "Trans Nzoia",
+        "Uasin Gishu",
+        "West Pokot"
+      ],
+      "pixels_in_area": {
+        "0": 1146806,
+        "1": 1757
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 1757
+      }
+    },
+    {
+      "event": 4357,
+      "counties": [
+        "Kajiado",
+        "Kilifi",
+        "Kitui",
+        "Kwale",
+        "Machakos",
+        "Makueni",
+        "Mombasa",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 962673,
+        "1": 823
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 823
+      }
+    },
+    {
+      "event": 4472,
+      "counties": [
+        "Embu",
+        "Garissa",
+        "Isiolo",
+        "Kajiado",
+        "Kilifi",
+        "Kirinyaga",
+        "Kitui",
+        "Kwale",
+        "Lamu",
+        "Machakos",
+        "Makueni",
+        "Meru",
+        "Nairobi",
+        "Taita Taveta",
+        "Tana River"
+      ],
+      "pixels_in_area": {
+        "0": 2371261,
+        "1": 1770
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 1770
+      }
+    },
+    {
+      "event": 4602,
+      "counties": [
+        "Busia",
+        "Homa Bay",
+        "Kisumu",
+        "Siaya"
+      ],
+      "pixels_in_area": {
+        "0": 129978,
+        "1": 221
+      },
+      "pixels_drawn": {
+        "0": 3000,
+        "1": 221
+      }
+    }
+  ]
+}

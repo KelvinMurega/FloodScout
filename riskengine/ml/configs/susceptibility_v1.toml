@@ -2,13 +2,15 @@
 # riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md, which wins if the two disagree.
 #
 # Committed before any pixel was sampled. The pipeline learns this model name
-# with the susceptibility code, in its own PR.
+# with the susceptibility code.
 
 model = "susceptibility"
 protocol = "riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md"
 protocol_version = 1
 
 [data]
+training_set = "data/processed/susceptibility_sample_v1.csv"
+sha256 = "7d45d82705eabdb5060db9b1fe3ea3932938ef1721418ae610f3d9ee5d24119c"
 labels = "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
 pixel_metres = 250
 min_flooded_pixels_per_event = 200
@@ -58,9 +60,20 @@ min_samples_leaf = [100]
 early_stopping = [false]
 
 [promotion]
+primary_metric = "within_county_roc_auc"
 # Ship the model only if it beats the best baseline by this much on event CV
 # and is not below that baseline on block CV.
 margin = 0.03
+
+[sensitivity.lakes]
+# A second score, reported beside the primary one. It never enters the decision.
+# Lake Turkana and the soda lakes rise and fall, so their shores can pass the
+# permanent-water mask. Fixed on 1 November 2026, before anything was scored:
+# drop pixels within this distance of a water body of this size that holds
+# water in at least this share of observations.
+occurrence = 25
+min_area_km2 = 10
+buffer_metres = 2000
 
 [test]
 events = ["FL20231124KEN", "FL20240426KEN"]

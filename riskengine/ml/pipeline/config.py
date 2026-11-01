@@ -10,7 +10,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-MODELS = ("hazard",)
+MODELS = ("hazard", "susceptibility")
 
 
 class ConfigError(Exception):

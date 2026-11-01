@@ -27,7 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from riskengine.ml import train
 from riskengine.ml.pipeline import config as pipeline_config
-from riskengine.ml.pipeline import hazard
+from riskengine.ml.pipeline import hazard, susceptibility
 
 from .build_training_set import TRAINING_SET_PATH
 
@@ -78,7 +78,8 @@ def build_bundle(
     if config is not None:
         try:
             run_config = pipeline_config.load(root / config)
-            training_set = hazard.check(run_config, root)
+            checks = {"hazard": hazard.check, "susceptibility": susceptibility.check}
+            training_set = checks[run_config.model](run_config, root)
         except pipeline_config.ConfigError as exc:
             raise BundleError(str(exc)) from exc
         dataset_name = run_config.value("data", "training_set")
@@ -100,7 +101,9 @@ def build_bundle(
     with tarfile.open(path, "w:gz") as bundle:
         with tarfile.open(fileobj=io.BytesIO(code)) as archive:
             for member in archive:
-                left_out = member.name.startswith(LEFT_OUT) and member.name.endswith(LEFT_OUT_SUFFIX)
+                left_out = member.name.startswith(LEFT_OUT) and member.name.endswith(
+                    LEFT_OUT_SUFFIX
+                )
                 if left_out or not (member.isfile() or member.isdir()):
                     continue
                 bundle.addfile(member, archive.extractfile(member) if member.isfile() else None)

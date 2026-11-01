@@ -39,7 +39,9 @@ def differences(config: RunConfig) -> list[str]:
             found.append(f"{label}: config has {in_config!r}, train.py has {in_code!r}")
 
     compare("[cv] folds", config.value("cv", "folds"), train.CV_FOLDS)
-    compare("[selection] random_state", config.value("selection", "random_state"), train.RANDOM_STATE)
+    compare(
+        "[selection] random_state", config.value("selection", "random_state"), train.RANDOM_STATE
+    )
     compare(
         "[selection] probability_bands",
         tuple(config.value("selection", "probability_bands")),
@@ -68,6 +70,11 @@ def check(config: RunConfig, root: Path | None = None) -> Path:
         raise ConfigError(
             f"{config.path.name} does not describe what train.py does:\n  " + "\n  ".join(problems)
         )
+    return check_training_set(config, root)
+
+
+def check_training_set(config: RunConfig, root: Path | None = None) -> Path:
+    """The config's training set, once its file and SHA-256 are confirmed."""
     path = training_set_path(config, root)
     if not path.is_file():
         raise ConfigError(f"Training set {path} not found.")
@@ -112,7 +119,9 @@ def run(
         seeds=tuple(config.value("selection", "seeds")),
     )
     metrics["config"] = config.name
-    return HazardRun(data=data, chosen=chosen, artifact=artifact, metrics=metrics, training_set=path)
+    return HazardRun(
+        data=data, chosen=chosen, artifact=artifact, metrics=metrics, training_set=path
+    )
 
 
 def primary_score(config: RunConfig, metrics: dict) -> float:
