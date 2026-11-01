@@ -140,3 +140,18 @@ class TrainingTests(SimpleTestCase):
         layer = train.fit_baseline_layer(pixels(), "hand")
         low_ground, high_ground = layer.predict_proba([[-1.0], [-20.0]])[:, 1]
         self.assertGreater(low_ground, high_ground)
+
+    def test_the_whole_protocol_runs_and_reaches_a_decision(self):
+        settings = sample.load_config()
+        settings["selection"]["seeds"] = [0]
+        settings["selection"]["grids"]["hist-gradient-boosting"]["max_iter"] = [20]
+        settings["selection"]["grids"]["hist-gradient-boosting"]["min_samples_leaf"] = [20]
+        layer, metrics = train.run(pixels(), settings, log=lambda message: None)
+        self.assertIn(metrics["decision"]["ship"], ("model", "best-baseline"))
+        self.assertEqual(metrics["best_baseline"], "hand")
+        self.assertEqual(len(metrics["candidates"]), 8)
+        self.assertEqual(len(metrics["event_cv"]["per_event"]), 2)
+        self.assertIn(
+            "model, block CV", metrics["sensitivity_without_lakes"]["within_county_roc_auc"]
+        )
+        self.assertIsNotNone(layer)
