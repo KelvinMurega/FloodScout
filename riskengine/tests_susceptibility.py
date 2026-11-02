@@ -1,8 +1,14 @@
 """The susceptibility rules, on made-up pixels. No Earth Engine and no network."""
 
+import json
+import tempfile
+from pathlib import Path
+from unittest import mock
+
 import numpy as np
 from django.test import SimpleTestCase
 
+from riskengine.ml.pipeline import susceptibility
 from riskengine.ml.susceptibility import evaluate, sample, train
 
 
@@ -155,3 +161,33 @@ class TrainingTests(SimpleTestCase):
             "model, block CV", metrics["sensitivity_without_lakes"]["within_county_roc_auc"]
         )
         self.assertIsNotNone(layer)
+
+    def boosting_only(self):
+        """Weighted boosting behaves differently, and it leads on the real sample."""
+        settings = sample.load_config()
+        settings["selection"]["seeds"] = [0]
+        boosting = settings["selection"]["grids"]["hist-gradient-boosting"]
+        boosting |= {"max_iter": [20], "min_samples_leaf": [20], "learning_rate": [0.1]}
+        boosting["max_leaf_nodes"] = [15]
+        del settings["selection"]["grids"]["logreg"]
+        return settings
+
+    def test_boosting_runs_the_protocol_to_a_written_run_folder(self):
+        layer, metrics = train.run(pixels(), self.boosting_only(), log=lambda message: None)
+        self.assertTrue(metrics["partial_dependence"]["hand"]["as_expected"])
+        config = mock.Mock(path=sample.CONFIG_PATH)
+        metrics["provenance"] = {"git_commit": "abc", "training_set_sha256": "def"}
+        with tempfile.TemporaryDirectory() as folder:
+            written = susceptibility.write("run", config, layer, metrics, Path(folder))
+            self.assertTrue(json.loads((written / "metrics.json").read_text())["rows"])
+            self.assertTrue((written / susceptibility.MODEL_FILE).exists())
+            self.assertIn("Decision", (written / "summary.md").read_text())
+
+    def test_a_checkpoint_is_used_instead_of_training_again(self):
+        settings = self.boosting_only()
+        with tempfile.TemporaryDirectory() as folder:
+            quiet = {"log": lambda message: None, "checkpoints": Path(folder)}
+            _, first = train.run(pixels(), settings, **quiet)
+            with mock.patch.object(train, "event_cv", side_effect=AssertionError("trained")):
+                _, second = train.run(pixels(), settings, **quiet)
+        self.assertEqual(first["candidates"], second["candidates"])

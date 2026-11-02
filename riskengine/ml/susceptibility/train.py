@@ -5,8 +5,11 @@ Runs on Colab through the pipeline. Nothing here reads the UNOSAT test.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from sklearn.base import clone
@@ -23,6 +26,8 @@ from . import evaluate
 EXPECTED_SIGNS = {"hand": -1, "dist_river": -1, "twi": 1}
 MAX_LOGREG_ITERATIONS = 2000
 PERMUTATION_REPEATS = 5
+SIGN_CHECK_ROWS = 5000
+SIGN_CHECK_GRID = 20
 
 
 @dataclass(frozen=True)
@@ -138,13 +143,26 @@ def permutation_importance(model, data, features, seed: int) -> dict:
     return falls
 
 
-def sign_check(model, data, features) -> dict:
-    """Does partial dependence move the way physics says it should?"""
+def sign_check(model, data, features, seed: int = 0) -> dict:
+    """Does partial dependence move the way physics says it should?
+
+    Averaged with the sampling weights, so it describes the real mix of pixels.
+    Weights rule out scikit-learn's fast method, so it runs on a fixed subset.
+    """
     inputs = matrix(data, features)
+    size = min(SIGN_CHECK_ROWS, len(inputs))
+    rows = np.random.default_rng(seed).choice(len(inputs), size=size, replace=False)
     result = {}
     for feature, expected in EXPECTED_SIGNS.items():
         curve = partial_dependence(
-            model, inputs, [features.index(feature)], kind="average", percentiles=(0.05, 0.95)
+            model,
+            inputs[rows],
+            [features.index(feature)],
+            sample_weight=data["weight"][rows],
+            kind="average",
+            method="brute",
+            percentiles=(0.05, 0.95),
+            grid_resolution=SIGN_CHECK_GRID,
         )
         values = curve["average"][0]
         moved = float(values[-1] - values[0])
@@ -179,7 +197,22 @@ def sensitivity(data: dict, event_predictions, block_predictions) -> dict:
     }
 
 
-def run(data: dict, settings: dict, log=print) -> tuple[object, dict]:
+def event_cv_saved(data, features, candidate: Candidate, seeds, checkpoints: Path | None):
+    """`event_cv`, kept in `checkpoints` so that a crash later on loses nothing."""
+    if checkpoints is None:
+        return event_cv(data, features, candidate, seeds)
+    name = hashlib.sha256(candidate.name.encode()).hexdigest()[:16]
+    scores, predictions = checkpoints / f"{name}.json", checkpoints / f"{name}.npy"
+    if scores.exists() and predictions.exists():
+        return json.loads(scores.read_text()), np.load(predictions)
+    outcome, predicted = event_cv(data, features, candidate, seeds)
+    checkpoints.mkdir(parents=True, exist_ok=True)
+    np.save(predictions, predicted)
+    scores.write_text(json.dumps(outcome))
+    return outcome, predicted
+
+
+def run(data: dict, settings: dict, log=print, checkpoints: Path | None = None):
     """The whole protocol. Returns (the layer to ship, its metrics)."""
     features = settings["data"]["features"]
     seeds = settings["selection"]["seeds"]
@@ -191,8 +224,8 @@ def run(data: dict, settings: dict, log=print) -> tuple[object, dict]:
     options = candidates(settings["selection"]["grids"])
     results, predictions = {}, {}
     for candidate in options:
-        results[candidate.name], predictions[candidate.name] = event_cv(
-            data, features, candidate, seeds
+        results[candidate.name], predictions[candidate.name] = event_cv_saved(
+            data, features, candidate, seeds, checkpoints
         )
         log(f"{candidate.name}: {results[candidate.name]['mean']}")
 
