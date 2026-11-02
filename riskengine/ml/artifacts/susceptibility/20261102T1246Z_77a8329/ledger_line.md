@@ -1,0 +1,1 @@
+| 20261102T1246Z_77a8329 | 2026-11-02 | susceptibility | `susceptibility_v1.toml` | hist-gradient-boosting[learning_rate=0.05,max_leaf_nodes=31,max_iter=300,min_samples_leaf=100,early_stopping=False] | within_county_roc_auc 0.7918 | ship model |

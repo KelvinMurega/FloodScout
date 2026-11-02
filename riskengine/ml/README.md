@@ -1086,6 +1086,57 @@ the river and soil inputs of Phase 2 add. The comparison should be rerun
 with them in the model: the mapped labels may help once the model has an
 input that can tell the wet counties from the dry ones.
 
+### Susceptibility, run 20261102T1246Z_77a8329 (candidate)
+
+The first complete run of `SUSCEPTIBILITY_PROTOCOL.md`, on Colab from commit
+`77a8329`, 2 November 2026: 3,547 seconds. The model, `metrics.json`, the
+config, the summary and the three charts are in
+`artifacts/susceptibility/20261102T1246Z_77a8329/`; the executed notebook is
+`notebooks/train_susceptibility.ipynb`. A first run on 1 November crashed in
+the sign check after scoring the candidates; this run reused those scores
+from the Drive checkpoints, so the numbers are the same.
+
+Within-county ROC AUC, every pixel predicted by a model that never saw its
+event:
+
+| | All pixels | Away from large lakes |
+|---|---|---|
+| Selected: boosting, learning rate 0.05, 31 leaves | **0.7918** | 0.6455 |
+| The same, 0.5 degree blocks | 0.7761 | 0.6300 |
+| HAND, the best baseline | 0.7176 | 0.6005 |
+| Distance to river | 0.616 | 0.5686 |
+| 100-year flood zone | 0.627 | 0.5491 |
+| Boosting, learning rate 0.05, 15 leaves | 0.7541 | |
+| Boosting, learning rate 0.1, 15 and 31 leaves | 0.6718, 0.6437 | |
+| Logistic regression, every C | 0.676 | |
+
+- **Rule 1 says ship the model.** 0.7918 is above 0.7176 + 0.03, and 0.7761
+  on blocks is not below HAND.
+- The model beats HAND on 20 of the 25 events. Brier score 0.00364.
+- Permutation importance: elevation 0.183, HAND 0.167, slope 0.157,
+  distance to river 0.064, TWI 0.057, flood zone 0.055, upstream area less.
+
+**The sign check failed on TWI, and the reason is the check, not the
+physics.** Partial dependence falls with HAND and with distance to river, as
+it should, and falls with TWI (−0.037 across the 5th to 95th percentile),
+which it should not. Checked afterwards on the sample and the run's model:
+
+- In the data TWI goes the right way: on its own it ranks flooded above dry
+  pixels inside county-events at 0.569, and the weighted flooded share rises
+  from 0.0016 in the lowest TWI decile to 0.0036 in the highest.
+- TWI is ln(upstream area / tan(slope)), and upstream area and slope are
+  both features. Rebuilt from them it correlates with TWI at 1.000. Moving
+  TWI with the other two held still describes pixels that cannot exist, so
+  that curve has no physical reading.
+- Moving upstream area and letting TWI follow it, as on the ground, gives a
+  U-shaped curve that ends where it starts (−0.0007). The model has no
+  wetness effect of its own; HAND and elevation carry it.
+
+Accepted by Kelvin on 2 November 2026. Rule 3 says a reason found does not
+reopen rule 1, so the decision stays. A protocol v2 should drop TWI or the
+upstream area and slope pair, or check the joint change. The UNOSAT test has
+not been scored.
+
 ## Running it
 
 ```bash

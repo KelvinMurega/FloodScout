@@ -45,3 +45,4 @@ Outcome is `candidate` when a run is written, then `champion`, `shadow`,
 |---|---|---|---|---|---|---|
 | 20261007T1353Z_07abff3 | 2026-10-07 | hazard | `hazard_rf_20261007.toml` (written afterwards) | random-forest | average_precision 0.2535 | champion |
 | 20261009T1051Z_8058da0 | 2026-10-09 | hazard | none (county-mean rainfall, before the pipeline) | gradient-boosting | average_precision 0.2782 | rejected: final test and UNOSAT disagreed with CV |
+| 20261102T1246Z_77a8329 | 2026-11-02 | susceptibility | `susceptibility_v1.toml` | hist-gradient-boosting[learning_rate=0.05,max_leaf_nodes=31,max_iter=300,min_samples_leaf=100,early_stopping=False] | within_county_roc_auc 0.7918 | candidate: rule 1 says ship the model; TWI sign check explained (README); waits for the one UNOSAT look |
