@@ -70,3 +70,57 @@ export function ago(iso, now = new Date()) {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   return then.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
+
+/**
+ * The messages sent to someone, one entry per alert, level and kind, with
+ * the channels it went by: [{ key, alert, level, kind, at, channels }],
+ * newest first. `deliveries` is auth/me/alerts' list, already newest first.
+ */
+export function groupDeliveries(deliveries) {
+  const groups = new Map();
+  for (const d of deliveries) {
+    const key = `${d.alert.id}:${d.level}:${d.kind}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, alert: d.alert, level: d.level, kind: d.kind, at: d.sent_at, channels: [] };
+      groups.set(key, group);
+    }
+    if (!group.channels.some((c) => c.channel === d.channel)) {
+      group.channels.push({ channel: d.channel, outcome: d.outcome });
+    }
+  }
+  return [...groups.values()];
+}
+
+/** The entries split by month, newest first: [["November 2026", entries]]. */
+export function byMonth(entries) {
+  const months = new Map();
+  for (const entry of entries) {
+    const label = new Date(entry.at).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    if (!months.has(label)) months.set(label, []);
+    months.get(label).push(entry);
+  }
+  return [...months.entries()];
+}
+
+/**
+ * What is left to set up on an account, as checks: [{ id, label, done }].
+ * `me` is auth/me, `home` auth/me/home (or null), `ways` the sign-in methods
+ * (or null when they could not be loaded).
+ */
+export function accountChecks(me, home, ways) {
+  const checks = [
+    { id: "email", label: "Confirm your email", done: Boolean(me.email && me.email_verified) },
+    { id: "phone", label: "Add a phone for SMS alerts", done: Boolean(me.phone) },
+    { id: "home", label: "Turn on warnings for where you live", done: Boolean(home?.region && home.alerts_on) },
+  ];
+  if (ways) {
+    const linked = ways.providers.filter((p) => p.linked).length;
+    checks.push({
+      id: "ways",
+      label: "Have a second way to sign in",
+      done: (ways.has_password ? 1 : 0) + linked >= 2,
+    });
+  }
+  return checks;
+}

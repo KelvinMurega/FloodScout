@@ -1,9 +1,14 @@
 /**
  * The account page (#/profile), shown in place of the map.
  *
- *   #/profile            your details, password, alerts and recent activity
- *   #/profile/users      System Administrator: every account, role and on/off
- *   #/profile/activity   System Administrator: what everyone has done
+ *   #/profile              at a glance, what is left to set up, where you
+ *                          live and your details
+ *   #/profile/alerts       the places you get alerts for and every alert
+ *                          sent to you (the account menu's "Flood alerts")
+ *   #/profile/security     password, sign-in methods and recent activity
+ *   #/profile/users        System Administrator: every account, role and on/off
+ *   #/profile/subscribers  System Administrator: everyone signed up for alerts
+ *   #/profile/activity     System Administrator: what everyone has done
  *
  * Signed out, it sends the person to the sign-in page and back. What it
  * shows is what the API returns; the API checks every change.
@@ -11,6 +16,7 @@
 
 import {
   changePassword,
+  fetchHome,
   fetchSocialAccounts,
   fetchSubscribers,
   startSocialSignIn,
@@ -18,22 +24,38 @@ import {
   fetchActivity,
   fetchMe,
   fetchMyActivity,
+  fetchMyAlerts,
   fetchMySubscriptions,
   fetchUsers,
   removeMySubscription,
   updateMe,
   updateUser,
 } from "../api.js";
-import { ROLE_LABELS, activityText, ago, displayName, initials } from "./format.js";
+import { LEVEL_LABELS } from "../alerts/format.js";
+import { codeBox } from "../auth/code.js";
+import {
+  ROLE_LABELS,
+  accountChecks,
+  activityText,
+  ago,
+  byMonth,
+  displayName,
+  groupDeliveries,
+  initials,
+} from "./format.js";
 import { renderHomeCard } from "./home.js";
 import "./profile.css";
 
 const TABS = [
-  { id: "", label: "My profile" },
+  { id: "", label: "Overview" },
+  { id: "alerts", label: "My flood alerts" },
+  { id: "security", label: "Sign-in & security" },
   { id: "users", label: "Users", admin: true },
   { id: "subscribers", label: "Subscribers", admin: true },
   { id: "activity", label: "Activity log", admin: true },
 ];
+
+const LEVELS = { advisory: "Advisories and up", watch: "Watches and warnings", warning: "Warnings only" };
 
 let lastRender = null;
 
@@ -82,8 +104,19 @@ function card(parent, title, subtitle) {
 
 /* ------------------------------------------------------------ my profile */
 
-function renderDetails(parent, me, onSaved) {
+function renderDetails(parent, me, onSaved, onConfirmed) {
   const box = card(parent, "Your details", "Your email and phone are used for alerts you ask for, and are not shown to others.");
+  box.id = "profile-details";
+  // An email not yet confirmed gets no warnings; confirm it here, unless
+  // the card for where they live already offers it (home.js).
+  if (me.email && !me.email_verified && !me.home_region) {
+    const confirm = el("div", "profile-confirm");
+    confirm.append(
+      el("p", "profile-confirm__title", "Your email is not confirmed yet"),
+      codeBox({ email: me.email, sent: false, onConfirmed: () => onConfirmed?.() }),
+    );
+    box.append(confirm);
+  }
   const form = el("form", "alerts-form profile-grid");
   const first = input("text", me.first_name, { autocomplete: "given-name" });
   const last = input("text", me.last_name, { autocomplete: "family-name" });
@@ -224,52 +257,391 @@ async function renderSignInMethods(parent, methods) {
   }
 }
 
-async function renderSubscriptions(parent) {
-  const box = card(parent, "Your flood alerts", "The places you get alerts for, by email or SMS.");
-  const list = el("div", "profile-list");
-  list.append(el("p", "alerts-form__hint", "Loading…"));
-  const more = el("a", "auth__button", "Get alerts for another place");
-  more.href = "#/alerts/subscribe/";
-  box.append(list, more);
-  let rows;
-  try {
-    rows = await fetchMySubscriptions();
-  } catch (error) {
-    list.replaceChildren(el("p", "alerts-form__hint", `Could not load them: ${error.message}`));
-    return;
+/* ------------------------------------------------------ my flood alerts */
+
+function pill(level) {
+  return el("span", `alert-pill alert-pill--${level}`, LEVEL_LABELS[level]?.replace("Flood ", "") ?? level);
+}
+
+function when(node, iso) {
+  node.dateTime = iso;
+  node.title = new Date(iso).toLocaleString();
+  return node;
+}
+
+/** One tile of figures; `href` makes the whole tile a link. */
+function tile(parent, label, value, note, { href, tone } = {}) {
+  const node = el(href ? "a" : "div", `admin-tile profile-tile${tone ? ` profile-tile--${tone}` : ""}`);
+  if (href) node.href = href;
+  node.append(el("p", "admin-tile__label", label), el("p", "admin-tile__value", value));
+  if (note) node.append(el("p", "admin-tile__note", note));
+  parent.append(node);
+  return node;
+}
+
+function loading(parent) {
+  const holder = el("div");
+  holder.append(el("p", "alerts-form__hint", "Loading…"));
+  parent.append(holder);
+  return holder;
+}
+
+/** ago() mid-sentence: "just now", else as it is ("5 minutes ago", "3 Oct 2026"). */
+function inline(text) {
+  return text === "Just now" ? "just now" : text;
+}
+
+/** "By email to w@…" for a subscription. */
+function channelText(row) {
+  const ways = [row.email && `email to ${row.email}`, row.phone && `SMS to ${row.phone}`].filter(Boolean);
+  return ways.length ? `By ${ways.join(" and ")}` : "No email or phone";
+}
+
+function subscriptionItem(row, received, onStopped) {
+  const item = el("article", "profile-sub");
+  const head = el("div", "profile-sub__head");
+  const title = el("div", "profile-sub__title");
+  if (row.is_home) title.append(el("span", "profile-badge profile-badge--home", "Where you live"));
+  title.append(el("strong", null, row.regions.join(", ") || "No places"));
+  const state = row.confirmed
+    ? el("span", "profile-badge profile-badge--on", "Active")
+    : el("span", "profile-badge profile-badge--waiting", "Waiting for the code");
+  head.append(title, state);
+
+  const facts = el("dl", "profile-sub__facts");
+  for (const [term, value] of [
+    ["Alerts for", LEVELS[row.min_level] ?? row.min_level],
+    ["Sent", channelText(row)],
+    ["Received", received ? `${received} alert${received === 1 ? "" : "s"}` : "None yet"],
+    ["Since", new Date(row.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })],
+  ]) {
+    const pair = el("div");
+    pair.append(el("dt", null, term), el("dd", null, value));
+    facts.append(pair);
   }
-  list.replaceChildren();
-  if (rows.length === 0) {
-    list.append(el("p", "alerts-form__hint", "None yet. Alerts you sign up for with this account's email appear here."));
-    return;
+
+  const actions = el("div", "profile-sub__actions");
+  if (row.is_home) {
+    const change = el("a", "link-button", "Change where you live");
+    change.href = "#/profile";
+    actions.append(change);
   }
-  const levels = { advisory: "Advisories and up", watch: "Watches and warnings", warning: "Warnings only" };
-  for (const row of rows) {
-    const item = el("div", "profile-list__item");
-    const text = el("div");
-    text.append(
-      el("strong", null, row.is_home ? `Where you live: ${row.regions.join(", ")}` : row.regions.join(", ")),
+  const stop = el("button", "auth__button", row.is_home ? "Turn off" : "Stop these alerts");
+  stop.type = "button";
+  const message = el("span", "alerts-form__hint");
+  stop.addEventListener("click", async () => {
+    stop.disabled = true;
+    try {
+      await removeMySubscription(row.id);
+      item.remove();
+      onStopped?.();
+    } catch (error) {
+      message.textContent = error.message;
+      stop.disabled = false;
+    }
+  });
+  actions.append(stop, message);
+  item.append(head, facts, actions);
+  return item;
+}
+
+function deliveryItem(entry) {
+  const item = el("li", `profile-sent profile-sent--${entry.kind === "cancel" ? "cancel" : entry.level}`);
+  const marker = el("span", "profile-sent__marker");
+  marker.setAttribute("aria-hidden", "true");
+  const main = el("div", "profile-sent__main");
+  const top = el("div", "profile-sent__top");
+  top.append(entry.kind === "cancel" ? el("span", "profile-badge", "All clear") : pill(entry.level));
+  const link = el("a", "profile-sent__headline", entry.kind === "cancel" ? `Cancelled: ${entry.alert.headline}` : entry.alert.headline);
+  link.href = `#/alerts/${entry.alert.id}`;
+  top.append(link);
+
+  const meta = el("div", "profile-sent__meta");
+  meta.append(el("span", null, entry.alert.region));
+  for (const c of entry.channels) {
+    const ok = c.outcome === "sent";
+    const chip = el(
+      "span",
+      `profile-channel${ok ? "" : " profile-channel--failed"}`,
+      `${c.channel === "sms" ? "SMS" : "Email"} ${ok ? "delivered" : "failed"}`,
+    );
+    chip.prepend(el("span", "profile-channel__mark", ok ? "✓ " : "✕ "));
+    meta.append(chip);
+  }
+  if (entry.kind !== "cancel") {
+    meta.append(
       el(
         "span",
-        "alerts-form__hint",
-        `${levels[row.min_level]} · ${[row.email && "email", row.phone && "SMS"].filter(Boolean).join(" and ")}` +
-          `${row.confirmed ? "" : " · waiting for the code"}`,
+        `profile-sent__status${entry.alert.status === "active" ? " profile-sent__status--active" : ""}`,
+        entry.alert.status === "active" ? "Still in force" : entry.alert.status === "cancelled" ? "Since cancelled" : "Now over",
       ),
     );
-    const stop = el("button", "auth__button", "Stop");
-    stop.type = "button";
-    stop.addEventListener("click", async () => {
-      stop.disabled = true;
-      try {
-        await removeMySubscription(row.id);
-        item.remove();
-      } catch (error) {
-        stop.textContent = error.message;
-      }
-    });
-    item.append(text, stop);
-    list.append(item);
   }
+
+  main.append(top, meta);
+  const at = when(el("time", "profile-sent__when", ago(entry.at)), entry.at);
+  item.append(marker, main, at);
+  return item;
+}
+
+/** Every alert sent to you, by month, a page at a time. */
+function sentList(parent, entries) {
+  if (entries.length === 0) {
+    const empty = el("div", "profile-empty");
+    empty.append(
+      el("p", "profile-empty__title", "Nothing has been sent to you yet"),
+      el(
+        "p",
+        "alerts-form__hint",
+        "When a flood alert is issued for one of your places, it is listed here with how it reached you. No news is good news.",
+      ),
+    );
+    parent.append(empty);
+    return;
+  }
+  const PAGE_SIZE = 20;
+  const list = el("div", "profile-sent-list");
+  const more = el("button", "auth__button profile-more", "Show older alerts");
+  more.type = "button";
+  let shown = 0;
+  const draw = () => {
+    shown += PAGE_SIZE;
+    list.replaceChildren();
+    for (const [month, rows] of byMonth(entries.slice(0, shown))) {
+      const group = el("section", "profile-month");
+      group.append(el("h4", "profile-month__title", month));
+      const ol = el("ol", "profile-sent-group");
+      for (const row of rows) ol.append(deliveryItem(row));
+      group.append(ol);
+      list.append(group);
+    }
+    more.hidden = shown >= entries.length;
+  };
+  more.addEventListener("click", draw);
+  draw();
+  parent.append(list, more);
+}
+
+async function renderMyAlerts(body) {
+  const tiles = el("div", "admin-tiles profile-glance");
+  body.append(tiles);
+  const now = el("div");
+  body.append(now);
+  const columns = el("div", "profile-columns profile-columns--alerts");
+  const left = el("div", "profile-column");
+  const right = el("div", "profile-column");
+  columns.append(left, right);
+  body.append(columns);
+
+  const subsBox = card(left, "What you are subscribed to", "The places you get flood alerts for, and how they reach you.");
+  const subsHolder = loading(subsBox);
+  const sentBox = card(right, "Sent to you", "Every flood alert that went to you, newest first. Open one to read it in full.");
+  const sentHolder = loading(sentBox);
+
+  const [subs, alerts] = await Promise.all([
+    fetchMySubscriptions().catch((error) => error),
+    fetchMyAlerts().catch((error) => error),
+  ]);
+
+  // The tiles: the four things someone checks first.
+  const groups = alerts instanceof Error ? [] : groupDeliveries(alerts.deliveries);
+  const reached = groups.filter((g) => g.kind !== "cancel" && g.channels.some((c) => c.outcome === "sent"));
+  const failed = alerts instanceof Error ? 0 : alerts.deliveries.filter((d) => d.outcome === "failed").length;
+  const places = subs instanceof Error ? [] : [...new Set(subs.filter((s) => s.confirmed).flatMap((s) => s.regions))];
+  const inForce = alerts instanceof Error ? [] : alerts.in_force;
+  tile(tiles, "Places watched", `${places.length}`, places.length ? places.slice(0, 2).join(", ") + (places.length > 2 ? "…" : "") : "None yet");
+  tile(tiles, "Alerts received", `${reached.length}`, reached.length ? `Latest: ${ago(reached[0].at)}` : "None yet");
+  tile(tiles, "In force now", `${inForce.length}`, inForce.length ? "In your places" : "All quiet in your places", {
+    tone: inForce.length ? "alert" : "good",
+  });
+  tile(tiles, "Failed to send", `${failed}`, failed ? "Check your email and phone" : "Every message got through", {
+    tone: failed ? "warn" : undefined,
+  });
+
+  // Alerts in force for your places, above everything else.
+  if (inForce.length) {
+    const box = el("section", "admin-callout admin-callout--danger profile-now");
+    box.append(el("p", "admin-callout__title", inForce.length === 1 ? "A flood alert is in force for one of your places" : `${inForce.length} flood alerts are in force for your places`));
+    const list = el("ul", "profile-now__list");
+    for (const a of inForce) {
+      const li = el("li");
+      const link = el("a", null, a.headline);
+      link.href = `#/alerts/${a.id}`;
+      li.append(pill(a.level), link);
+      list.append(li);
+    }
+    box.append(list);
+    now.append(box);
+  }
+
+  // Your subscriptions.
+  if (subs instanceof Error) {
+    subsHolder.replaceChildren(el("p", "alerts-form__hint", `Could not load them: ${subs.message}`));
+  } else {
+    subsHolder.replaceChildren();
+    const list = el("div", "profile-subs");
+    // Alerts that reached each subscription, by any channel.
+    const counts = new Map();
+    for (const d of alerts instanceof Error ? [] : alerts.deliveries) {
+      if (d.outcome !== "sent" || d.kind === "cancel") continue;
+      counts.set(d.subscription, (counts.get(d.subscription) ?? new Set()).add(`${d.alert.id}:${d.level}`));
+    }
+    // Where you live first: it is the one that comes by itself.
+    const ordered = [...subs].sort((a, b) => Number(b.is_home) - Number(a.is_home));
+    for (const row of ordered) {
+      list.append(subscriptionItem(row, counts.get(row.id)?.size ?? 0, () => {
+        if (!list.children.length) list.replaceWith(noSubscriptions());
+      }));
+    }
+    subsHolder.append(ordered.length ? list : noSubscriptions());
+    const add = el("a", "auth__button auth__button--primary", "Get alerts for another place");
+    add.href = "#/alerts/subscribe/";
+    const browse = el("a", "auth__button", "See all alerts in force");
+    browse.href = "#/alerts";
+    const actions = el("div", "profile-actions");
+    actions.append(add, browse);
+    subsBox.append(actions);
+  }
+
+  // What has been sent.
+  if (alerts instanceof Error) {
+    sentHolder.replaceChildren(el("p", "alerts-form__hint", `Could not load them: ${alerts.message}`));
+  } else {
+    sentHolder.replaceChildren();
+    sentList(sentHolder, groups);
+    if (alerts.stopped.length) {
+      const stopped = card(left, "Alerts you stopped", "Kept only as a count; the messages themselves are no longer linked to you.");
+      const ul = el("ul", "profile-stopped");
+      for (const s of alerts.stopped) {
+        const li = el("li");
+        li.append(
+          el("strong", null, s.places.join(", ") || "Some places"),
+          el(
+            "span",
+            "alerts-form__hint",
+            `${s.how} · ${s.alerts_received} alert${s.alerts_received === 1 ? "" : "s"} received · stopped ${inline(ago(s.stopped_at))}`,
+          ),
+        );
+        ul.append(li);
+      }
+      stopped.append(ul);
+    }
+  }
+}
+
+function noSubscriptions() {
+  const empty = el("div", "profile-empty");
+  empty.append(
+    el("p", "profile-empty__title", "You are not subscribed to any alerts"),
+    el(
+      "p",
+      "alerts-form__hint",
+      "Turn on warnings for where you live on the Overview, or pick any place to get its alerts by email or SMS.",
+    ),
+  );
+  return empty;
+}
+
+/* ------------------------------------------------------------- overview */
+
+/** The four tiles and the set-up checklist at the top of the Overview. */
+async function renderGlance(body, me, ways) {
+  const tiles = el("div", "admin-tiles profile-glance");
+  const setup = el("div");
+  body.append(tiles, setup);
+  const [home, subs, alerts, methods] = await Promise.all([
+    fetchHome().catch(() => null),
+    fetchMySubscriptions().catch(() => null),
+    fetchMyAlerts().catch(() => null),
+    ways,
+  ]);
+
+  const homeOn = home?.region && home.alerts_on;
+  tile(
+    tiles,
+    "Warnings where you live",
+    !home?.region ? "Not set" : homeOn ? (home.receiving ? "On" : "Almost") : "Off",
+    home?.region ? `${home.region_name}, ${home.county_name}` : "Tell us where you live below",
+    { tone: homeOn && home.receiving ? "good" : "warn", href: "#/profile" },
+  ).addEventListener("click", (event) => {
+    event.preventDefault();
+    document.getElementById("profile-home")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  const places = subs ? new Set(subs.filter((s) => s.confirmed).flatMap((s) => s.regions)).size : null;
+  tile(tiles, "Places watched", places ?? "—", subs ? `${subs.length} subscription${subs.length === 1 ? "" : "s"}` : "Could not load", {
+    href: "#/profile/alerts",
+  });
+  const groups = alerts ? groupDeliveries(alerts.deliveries).filter((g) => g.kind !== "cancel") : [];
+  tile(tiles, "Alerts received", alerts ? `${groups.length}` : "—", groups.length ? `Latest: ${ago(groups[0].at)}` : "None yet", {
+    href: "#/profile/alerts",
+  });
+  const inForce = alerts?.in_force.length ?? 0;
+  tile(tiles, "In force now", alerts ? `${inForce}` : "—", inForce ? "In your places: open them" : "All quiet in your places", {
+    href: "#/profile/alerts",
+    tone: inForce ? "alert" : "good",
+  });
+
+  const checks = accountChecks(me, home, methods);
+  const done = checks.filter((c) => c.done).length;
+  if (done === checks.length) return;
+  const box = el("section", "admin-card profile-setup");
+  const head = el("header", "profile-setup__head");
+  const text = el("div");
+  text.append(
+    el("h3", "admin-card__title", "Finish setting up your account"),
+    el("p", "admin-card__subtitle", "Each step makes sure a flood warning can reach you when it matters."),
+  );
+  const meter = el("div", "profile-meter");
+  meter.setAttribute("role", "img");
+  meter.setAttribute("aria-label", `${done} of ${checks.length} done`);
+  const bar = el("span", "profile-meter__bar");
+  bar.style.width = `${(done / checks.length) * 100}%`;
+  meter.append(bar);
+  head.append(text, el("span", "profile-setup__count", `${done} of ${checks.length} done`));
+  const where = { email: "profile-details", phone: "profile-details", home: "profile-home", ways: null };
+  const list = el("ul", "profile-checks");
+  for (const check of checks) {
+    const li = el("li", `profile-check${check.done ? " profile-check--done" : ""}`);
+    li.append(el("span", "profile-check__mark", check.done ? "✓" : ""), el("span", null, check.label));
+    if (!check.done) {
+      const go = el("a", "link-button profile-check__go", "Do it");
+      go.href = where[check.id] ? "#/profile" : "#/profile/security";
+      if (where[check.id]) {
+        go.addEventListener("click", (event) => {
+          event.preventDefault();
+          document.getElementById(where[check.id])?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+      li.append(go);
+    }
+    list.append(li);
+  }
+  box.append(head, meter, list);
+  setup.append(box);
+}
+
+/** A short "your alerts" card on the Overview, pointing to the full tab. */
+async function renderAlertsPreview(parent) {
+  const box = card(parent, "Your latest flood alerts", "The last few alerts sent to you.");
+  const holder = loading(box);
+  const all = el("a", "auth__button", "See all your alerts and subscriptions");
+  all.href = "#/profile/alerts";
+  box.append(all);
+  let alerts;
+  try {
+    alerts = await fetchMyAlerts();
+  } catch (error) {
+    holder.replaceChildren(el("p", "alerts-form__hint", `Could not load them: ${error.message}`));
+    return;
+  }
+  const latest = groupDeliveries(alerts.deliveries).slice(0, 3);
+  if (!latest.length) {
+    holder.replaceChildren(el("p", "alerts-form__hint", "None sent to you yet. No news is good news."));
+    return;
+  }
+  const ol = el("ol", "profile-sent-group profile-sent-group--compact");
+  for (const row of latest) ol.append(deliveryItem(row));
+  holder.replaceChildren(ol);
 }
 
 function activityList(rows, { withUser = false } = {}) {
@@ -528,10 +900,12 @@ export async function showProfile(root, { slug, user, onUserChange }) {
   const page = el("div", "admin-page profile-page");
   const head = el("header", "admin-head profile-head");
   const avatar = el("span", "profile-avatar", initials(user));
-  const titles = el("div");
+  const titles = el("div", "profile-head__titles");
   const name = el("h2", "admin-head__title", displayName(user));
-  const lede = el("p", "admin-head__lede", ROLE_LABELS[user.role] ?? "");
-  titles.append(el("p", "admin-head__eyebrow", "Your account"), name, lede);
+  const badges = el("div", "profile-head__badges");
+  badges.append(el("span", "profile-badge profile-badge--role", ROLE_LABELS[user.role] ?? ""));
+  const lede = el("p", "admin-head__lede");
+  titles.append(el("p", "admin-head__eyebrow", "Your account"), name, badges, lede);
   const who = el("div", "profile-head__who");
   who.append(avatar, titles);
   const back = el("a", "auth__button auth__button--primary", "Back to the map");
@@ -563,10 +937,12 @@ export async function showProfile(root, { slug, user, onUserChange }) {
     return;
   }
   if (lastRender?.slug !== slug) return;
+  if (me.organisation) badges.append(el("span", "profile-badge", me.organisation));
+  if (me.home_region_name) badges.append(el("span", "profile-badge", `Lives in ${me.home_region_name}`));
   lede.textContent =
-    `${ROLE_LABELS[me.role] ?? me.role}${me.organisation ? ` · ${me.organisation}` : ""}` +
-    ` · member since ${new Date(me.date_joined).toLocaleDateString(undefined, { month: "long", year: "numeric" })}` +
-    (me.last_login ? ` · last signed in ${ago(me.last_login)}` : "");
+    `@${me.username} · member since ${new Date(me.date_joined).toLocaleDateString(undefined, { month: "long", year: "numeric" })}` +
+    (me.last_login ? ` · last signed in ${inline(ago(me.last_login))}` : "");
+  const again = () => showProfile(root, { slug, user, onUserChange });
 
   if (admin && tab === "users") {
     await renderUsers(body, me);
@@ -581,25 +957,43 @@ export async function showProfile(root, { slug, user, onUserChange }) {
     return;
   }
 
-  // First on the page: where the person lives, which is what makes the
-  // warnings come by themselves.
-  renderHomeCard(body, me);
+  if (tab === "alerts") {
+    await renderMyAlerts(body);
+    return;
+  }
 
   const columns = el("div", "profile-columns");
   const left = el("div", "profile-column");
   const right = el("div", "profile-column");
   columns.append(left, right);
-  body.append(columns);
   const methods = fetchSocialAccounts().catch(() => null);
-  renderDetails(left, me, (saved) => {
-    name.textContent = displayName(saved);
-    avatar.textContent = initials(saved);
-    onUserChange?.({ ...user, ...saved });
-  });
-  renderPassword(left, methods);
-  renderSignInMethods(right, methods);
-  renderSubscriptions(right);
-  renderMyActivity(right);
+
+  if (tab === "security") {
+    body.append(columns);
+    renderPassword(left, methods);
+    renderSignInMethods(right, methods);
+    renderMyActivity(right);
+    return;
+  }
+
+  // The Overview: how things stand, what is left to do, then where the
+  // person lives, which is what makes the warnings come by themselves.
+  renderGlance(body, me, methods);
+  const homeSlot = el("div", "profile-home-slot");
+  homeSlot.id = "profile-home";
+  body.append(homeSlot, columns);
+  renderHomeCard(homeSlot, me, { onChange: again });
+  renderDetails(
+    left,
+    me,
+    (saved) => {
+      name.textContent = displayName(saved);
+      avatar.textContent = initials(saved);
+      onUserChange?.({ ...user, ...saved });
+    },
+    again,
+  );
+  renderAlertsPreview(right);
 }
 
 export function hideProfile() {

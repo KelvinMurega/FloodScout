@@ -1,12 +1,15 @@
 """The profile page's API: registering, one's own details and password, one's
 alerts, and the administrator's users and activity log."""
 
+import datetime as dt
+
 from django.core.cache import cache
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from alerts.models import Subscriber
+from alerts.models import Alert, Delivery, Level, Subscriber
 from riskengine.tests import make_region
 
 from .models import ActivityLog, User
@@ -197,6 +200,59 @@ class MySubscriptionTests(_Signed):
             status.HTTP_404_NOT_FOUND,
         )
         self.assertTrue(Subscriber.objects.filter(pk=theirs.pk).exists())
+
+
+class MyAlertsTests(_Signed):
+    def alert(self, region, **fields):
+        return Alert.objects.create(
+            region=region,
+            level=Level.WATCH,
+            basis="observed",
+            headline=f"Flood watch for {region}",
+            description="d",
+            instruction="i",
+            onset=dt.date(2026, 11, 1),
+            expires=timezone.now() + dt.timedelta(days=1),
+            **fields,
+        )
+
+    def test_lists_only_what_reached_ones_own_subscriptions(self):
+        alpha, beta = make_region("Alpha"), make_region("Beta")
+        mine = Subscriber.objects.create(user=self.user, email="w@example.com", confirmed=True)
+        mine.regions.add(alpha)
+        theirs = Subscriber.objects.create(email="someone@example.com", confirmed=True)
+        theirs.regions.add(beta)
+        ours = self.alert(alpha)
+        ended = self.alert(beta, status=Alert.Status.EXPIRED)
+        for sub, alert, outcome in [
+            (mine, ours, Delivery.Outcome.SENT),
+            (theirs, ended, Delivery.Outcome.SENT),
+        ]:
+            Delivery.objects.create(
+                alert=alert, subscriber=sub, channel="email", level=Level.WATCH, outcome=outcome
+            )
+        Delivery.objects.create(
+            alert=ours, subscriber=mine, channel="sms", level=Level.WATCH, outcome="skipped"
+        )
+
+        self.sign_in(self.user)
+        data = self.client.get("/api/auth/me/alerts/").data
+        self.assertEqual([(d["alert"]["id"], d["channel"]) for d in data["deliveries"]], [(ours.id, "email")])
+        self.assertEqual(data["deliveries"][0]["subscription"], mine.id)
+        self.assertEqual([a["id"] for a in data["in_force"]], [ours.id])
+        self.assertEqual(data["stopped"], [])
+
+    def test_a_stopped_subscription_is_kept_as_a_count(self):
+        sub = Subscriber.objects.create(user=self.user, email="w@example.com", confirmed=True)
+        sub.regions.add(make_region("Alpha"))
+        self.sign_in(self.user)
+        self.client.delete(f"/api/auth/me/subscriptions/{sub.id}/")
+        data = self.client.get("/api/auth/me/alerts/").data
+        self.assertEqual(data["deliveries"], [])
+        self.assertEqual([s["places"] for s in data["stopped"]], [["Alpha"]])
+
+    def test_needs_a_sign_in(self):
+        self.assertEqual(self.client.get("/api/auth/me/alerts/").status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class AdminUsersTests(_Signed):

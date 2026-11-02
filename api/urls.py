@@ -8,6 +8,7 @@ from accounts.views import (
     HomeView,
     MeView,
     MyActivityView,
+    MyAlertsView,
     MySubscriptionsView,
     MySubscriptionView,
     ObtainTokenView,
@@ -69,6 +70,7 @@ urlpatterns = [
     path("auth/me/home/search/", HomeSearchView.as_view(), name="auth-my-home-search"),
     path("auth/me/home/locate/", HomeLocateView.as_view(), name="auth-my-home-locate"),
     path("auth/verify/", VerifyContactView.as_view(), name="auth-verify"),
+    path("auth/me/alerts/", MyAlertsView.as_view(), name="auth-my-alerts"),
     path("auth/me/subscriptions/", MySubscriptionsView.as_view(), name="auth-my-subscriptions"),
     path(
         "auth/me/subscriptions/<int:pk>/",
