@@ -402,6 +402,15 @@ export function fetchMySubscriptions() {
   return authedGet("auth/me/subscriptions/");
 }
 
+/**
+ * What the signed-in user's subscriptions have been sent, newest first, the
+ * alerts in force for their places, and what they stopped:
+ * { deliveries, in_force, stopped }.
+ */
+export function fetchMyAlerts() {
+  return authedGet("auth/me/alerts/");
+}
+
 /** Stop one of the signed-in user's alert subscriptions. */
 export function removeMySubscription(id) {
   return sendJson("DELETE", `auth/me/subscriptions/${id}/`);

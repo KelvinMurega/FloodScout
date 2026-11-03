@@ -87,7 +87,7 @@ export function initAuth(root, { onRescored, onUserChange = () => {} }) {
     list.append(
       el("p", "auth__menu-who", `${user.username} · ${ROLE_LABELS[user.role] ?? (user.is_administrator ? ROLE_LABELS.admin : ROLE_LABELS.user)}`),
       menuLink("My profile", "#/profile"),
-      menuLink("Flood alerts", "#/alerts"),
+      menuLink("Flood alerts", "#/profile/alerts"),
     );
 
     const message = el("span", "auth__message", note);

@@ -23,7 +23,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from alerts import stopping
-from alerts.models import Subscriber, Unsubscription
+from alerts.models import Alert, Delivery, Subscriber, Unsubscription
 
 from . import home, social, verification
 from .activity import PAGE, record
@@ -251,6 +251,74 @@ class MySubscriptionsView(APIView):
                 }
                 for sub in my_subscriptions(request.user)
             ]
+        )
+
+
+class MyAlertsView(APIView):
+    """GET what the signed-in user's subscriptions have been sent, newest first.
+
+    One row per message: an alert reaching them at a level on one channel, or
+    the word that it was cancelled. Also, for each subscription, the alerts in
+    force for its places now, and the subscriptions they stopped. A stopped
+    subscription's messages are kept unnamed (alerts/stopping.py), so they
+    are counted there and not listed here.
+    """
+
+    permission_classes = [IsAuthenticated]
+    LIMIT = 200
+
+    def get(self, request):
+        subs = list(my_subscriptions(request.user))
+        sent = (
+            Delivery.objects.filter(subscriber__in=subs)
+            .exclude(outcome=Delivery.Outcome.SKIPPED)
+            .select_related("alert__region")
+            .order_by("-sent_at", "-id")[: self.LIMIT]
+        )
+        region_ids = {region.id for sub in subs for region in sub.regions.all()}
+        in_force = Alert.objects.filter(
+            status=Alert.Status.ACTIVE, region_id__in=region_ids
+        ).select_related("region")
+
+        def alert(row):
+            return {
+                "id": row.id,
+                "headline": row.headline,
+                "region": str(row.region),
+                "region_id": row.region_id,
+                "level": row.level,
+                "status": row.status,
+                "issued_at": row.issued_at,
+                "ended_at": row.ended_at,
+            }
+
+        return Response(
+            {
+                "deliveries": [
+                    {
+                        "id": d.id,
+                        "subscription": d.subscriber_id,
+                        "channel": d.channel,
+                        "level": d.level,
+                        "kind": d.kind,
+                        "outcome": d.outcome,
+                        "sent_at": d.sent_at,
+                        "alert": alert(d.alert),
+                    }
+                    for d in sent
+                ],
+                "in_force": [alert(row) for row in in_force],
+                "stopped": [
+                    {
+                        "places": u.places,
+                        "how": u.get_how_display(),
+                        "alerts_received": u.alerts_received,
+                        "subscribed_at": u.subscribed_at,
+                        "stopped_at": u.stopped_at,
+                    }
+                    for u in Unsubscription.objects.filter(user=request.user)
+                ],
+            }
         )
 
 
