@@ -63,10 +63,14 @@
             <span class="app__subtitle">Flood risk across Kenya&rsquo;s counties and sub-counties</span>
           </span>
         </a>
+        <!-- On a narrow screen the actions below fold into a menu (navmenu.js). -->
+        <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="app-actions" aria-label="Menu">
+          <svg class="nav-toggle__icon" viewBox="0 0 20 20" aria-hidden="true"><path class="nav-toggle__bars" d="M3 5h14M3 10h14M3 15h14" /><path class="nav-toggle__close" d="M5 5l10 10M15 5L5 15" /></svg>
+        </button>
         <!-- Filled from the model_version actually present in the data, never
              hardcoded, so it cannot drift from what the API returned. -->
         <p class="provenance" id="provenance" role="status" tabindex="0" hidden></p>
-        <div class="app__actions">
+        <div class="app__actions" id="app-actions">
           <!-- The view on screen as a printed report or a CSV file (wireframe 4.10). -->
           <div class="report-actions">
             <a class="auth__button auth__button--quiet" href="#/alerts">

@@ -76,6 +76,7 @@ import { searchRegions } from "./search.js";
 import { KENYA_SLUG, alertSummary, countySlug, overviewScope, regionSummaries } from "./focus.js";
 import { hideSimple, showSimple } from "./simple/simple.js";
 import { chooseView, viewFor } from "./viewmode.js";
+import { initNavMenu } from "./navmenu.js";
 import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
 import {
   THEMES,
@@ -2877,6 +2878,11 @@ async function load() {
   // Before the data, so the analytics page works even if the map's data
   // does not load. route() leaves the map views until it has.
   window.addEventListener("hashchange", route);
+  initNavMenu(
+    document.querySelector(".app__header"),
+    document.getElementById("nav-toggle"),
+    document.getElementById("app-actions"),
+  );
 
   // Before the data, so an administrator can still sign in and rescore when
   // there are no scores to show yet.
