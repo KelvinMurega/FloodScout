@@ -172,7 +172,7 @@ function shell(root, { title, lede, body, footer }) {
       for (const point of [
         "Daily risk scores from a model trained on 26 years of floods",
         "A 7-day forecast, and why each place scores as it does",
-        "Flood alerts by email or SMS for the places you choose",
+        "Flood alerts by email for the places you choose",
       ]) {
         list.append(el("li", null, point));
       }

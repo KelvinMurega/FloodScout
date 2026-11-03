@@ -1,8 +1,8 @@
 /**
  * "Get flood alerts" in one click for someone signed in.
  *
- * The alerts go to the email and phone on their profile (POST
- * alerts/subscribe/me/). If those have never been confirmed, a six-digit
+ * The alerts go to the email on their profile (POST
+ * alerts/subscribe/me/). If it has never been confirmed, a six-digit
  * code is asked for once, right here; after that every press is instant.
  * Signed out, the button is a link to the form on the alerts page.
  */
@@ -16,12 +16,9 @@ function el(tag, className, text) {
   return node;
 }
 
-/** "by email to k…@gmail.com and SMS to +2547…678" from a subscription summary. */
+/** "by email to k…@gmail.com" from a subscription summary. */
 export function channelsText(summary) {
-  const parts = [];
-  if (summary.email) parts.push(`email to ${summary.email}`);
-  if (summary.phone) parts.push(`SMS to ${summary.phone}`);
-  return parts.length ? `by ${parts.join(" and ")}` : "";
+  return summary.email ? `by email to ${summary.email}` : "";
 }
 
 /**
@@ -39,7 +36,7 @@ export function quickAlertControl(places, user, { label } = {}) {
     const hint = el("p", "quick-alert__hint");
     const signIn = el("a", null, "Sign in");
     signIn.href = `#/signin?next=${encodeURIComponent(location.hash || "#/")}`;
-    hint.append(signIn, " to get them in one click, with the email and phone on your account.");
+    hint.append(signIn, " to get them in one click, with the email on your account.");
     wrap.append(link, hint);
     return wrap;
   }

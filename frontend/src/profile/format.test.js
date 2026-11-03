@@ -69,10 +69,9 @@ test("account checks say what is left", () => {
     checks.map((c) => [c.id, c.done]),
     [
       ["email", true],
-      ["phone", false],
       ["home", true],
       ["ways", false],
     ],
   );
-  assert.equal(accountChecks(me, null, null).length, 3);
+  assert.equal(accountChecks(me, null, null).length, 2);
 });

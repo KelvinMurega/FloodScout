@@ -4,7 +4,9 @@ Email goes through Django's mail settings. With no SMTP server configured,
 messages are written as files under data/outbox/ (see settings.py), so the
 whole flow can be shown and checked without sending anything.
 
-SMS goes through Africa's Talking, the SMS gateway most Kenyan services use.
+Alerts go by email only. SMS is used just to confirm the phone number on a
+profile (accounts/verification.py), through Africa's Talking, the SMS
+gateway most Kenyan services use.
 Its REST call, as its own SDK makes it:
 
     POST https://api.africastalking.com/version1/messaging
@@ -128,15 +130,3 @@ def send_sms(to: str, message: str) -> Result:
     return Result(
         "sent" if ok else "failed", f"{first.get('status')} {first.get('messageId', '')}"[:300]
     )
-
-
-def sms_text(level_label: str, where: str, reason: str, link: str) -> str:
-    """An alert as one SMS of at most 160 characters."""
-    head = f"FloodScout {level_label.upper()}: {where}. "
-    tail = f" Not official. Stop: {link}"
-    room = SMS_MAX_CHARS - len(head) - len(tail)
-    if room < 10:
-        return (head + tail)[:SMS_MAX_CHARS]
-    if len(reason) > room:
-        reason = reason[: room - 1].rstrip() + "…"
-    return head + reason + tail

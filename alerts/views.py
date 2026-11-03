@@ -54,7 +54,7 @@ MAX_CONFIRM_ATTEMPTS = 5
 CODE_LIFETIME = dt.timedelta(hours=1)
 MAX_REGIONS = 10
 CODES_USED_UP = (
-    "This email or phone has been sent all the codes it can get today. Try again tomorrow."
+    "This email has been sent all the codes it can get today. Try again tomorrow."
 )
 
 
@@ -198,28 +198,19 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["post"], permission_classes=[IsAdministrator])
     def test(self, request):
-        """Send a test message to an address or number the administrator gives."""
+        """Send a test email to an address the administrator gives."""
         email = str(request.data.get("email") or "").strip()
-        phone = str(request.data.get("phone") or "").strip()
-        if not email and not phone:
-            raise ValidationError({"detail": "Give an email address or a phone number."})
-        results = {}
-        if email:
-            results["email"] = vars(
+        if not email:
+            raise ValidationError({"detail": "Give an email address."})
+        results = {
+            "email": vars(
                 channels.send_email(
                     email,
                     "FloodScout test message",
                     "This is a test of FloodScout's alert email. Nothing is wrong.",
                 )
             )
-        if phone:
-            try:
-                number = channels.normalise_phone(phone)
-            except channels.PhoneError as exc:
-                raise ValidationError({"phone": str(exc)}) from exc
-            results["sms"] = vars(
-                channels.send_sms(number, "FloodScout test message. Nothing is wrong.")
-            )
+        }
         record(request, ActivityLog.Action.ALERT_TEST, channels=list(results))
         return Response(results)
 
@@ -248,14 +239,8 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
                     "with_email": Subscriber.objects.filter(confirmed=True)
                     .exclude(email="")
                     .count(),
-                    "with_phone": Subscriber.objects.filter(confirmed=True)
-                    .exclude(phone="")
-                    .count(),
                 },
                 "deliveries_7d": deliveries,
-                "sms_configured": channels.sms_configured(),
-                "sms_sandbox": channels.sms_configured()
-                and channels.sms_url().count("sandbox") > 0,
                 "last_run": _run_dict(last) if last else None,
             }
         )
@@ -352,29 +337,13 @@ def _region(value) -> Region:
 
 
 class SubscribeSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=False, allow_blank=True)
-    phone = serializers.CharField(required=False, allow_blank=True, max_length=24)
+    email = serializers.EmailField()
     regions = serializers.ListField(
         child=serializers.IntegerField(), min_length=1, max_length=MAX_REGIONS
     )
     min_level = serializers.ChoiceField(choices=Level.choices, default=Level.WATCH)
 
-    def validate_phone(self, value):
-        if not value:
-            return ""
-        try:
-            return channels.normalise_phone(value)
-        except channels.PhoneError as exc:
-            raise serializers.ValidationError(str(exc)) from exc
-
     def validate(self, data):
-        if not data.get("email") and not data.get("phone"):
-            raise serializers.ValidationError("Give an email address, a phone number, or both.")
-        if data.get("phone") and not data.get("email") and not channels.sms_configured():
-            raise serializers.ValidationError(
-                "Text messages are not set up on this server yet, so the code cannot be sent "
-                "to a phone. Give an email address as well."
-            )
         found = Region.objects.filter(pk__in=data["regions"])
         if found.count() != len(set(data["regions"])):
             raise serializers.ValidationError({"regions": "One of these places does not exist."})
@@ -383,14 +352,13 @@ class SubscribeSerializer(serializers.Serializer):
 
 
 def _send_code(subscriber: Subscriber) -> list[str]:
-    """Send the confirmation code by every channel given; the channels it went by.
+    """Email the confirmation code; ["email"] when it went, [] when it did not.
 
-    Raises Throttled, sending nothing, when the email or phone has already
-    had its codes for the day.
+    Raises Throttled, sending nothing, when the email has already had its
+    codes for the day.
     """
-    for to in (subscriber.email, subscriber.phone):
-        if to and not channels.take_code_allowance(to):
-            raise Throttled(detail=CODES_USED_UP)
+    if subscriber.email and not channels.take_code_allowance(subscriber.email):
+        raise Throttled(detail=CODES_USED_UP)
     sent = []
     if subscriber.email:
         result = channels.send_email(
@@ -402,14 +370,6 @@ def _send_code(subscriber: Subscriber) -> list[str]:
         )
         if result.outcome == "sent":
             sent.append("email")
-    if subscriber.phone:
-        result = channels.send_sms(
-            subscriber.phone,
-            f"Your FloodScout code is {subscriber.confirm_code}. If you did not ask for flood "
-            "alerts, ignore this.",
-        )
-        if result.outcome == "sent":
-            sent.append("sms")
     return sent
 
 
@@ -421,8 +381,7 @@ def subscribe(request):
     data.is_valid(raise_exception=True)
     values = data.validated_data
     subscriber = Subscriber.objects.create(
-        email=values.get("email", ""),
-        phone=values.get("phone", ""),
+        email=values["email"],
         min_level=values["min_level"],
         user=request.user if request.user.is_authenticated else None,
     )
@@ -435,7 +394,7 @@ def subscribe(request):
     if not sent:
         subscriber.delete()
         return Response(
-            {"detail": "The code could not be sent. Check the address or number and try again."},
+            {"detail": "The code could not be sent. Check the address and try again."},
             status=status.HTTP_502_BAD_GATEWAY,
         )
     return Response(
@@ -488,7 +447,7 @@ class MeSubscribeSerializer(serializers.Serializer):
 
 
 def _mark_verified(subscriber: Subscriber) -> None:
-    """A confirmed code proves the account's email and phone reach its owner."""
+    """A confirmed code proves the account's email reaches its owner."""
     user = subscriber.user
     if user is None:
         return
@@ -500,9 +459,6 @@ def _mark_verified(subscriber: Subscriber) -> None:
     ):
         user.email_verified = True
         fields.append("email_verified")
-    if subscriber.phone and subscriber.phone == user.phone and not user.phone_verified:
-        user.phone_verified = True
-        fields.append("phone_verified")
     if fields:
         user.save(update_fields=fields)
         from accounts.home import sync_home_subscription  # accounts imports alerts
@@ -524,13 +480,12 @@ def _send_active(subscriber: Subscriber, regions) -> int:
 @permission_classes([IsAuthenticated])
 @throttle_classes([ScopedRateThrottle])
 def subscribe_me(request):
-    """A signed-in user's "Get alerts": their profile's email and phone, no form.
+    """A signed-in user's "Get alerts": their profile's email, no form.
 
     The account has one subscription, and each press adds places to it.
-    When its email and phone are verified (by Google or GitHub, or by an
-    earlier code) it starts at once; otherwise a code goes to them first,
-    once, and confirming it marks them verified for every later press. SMS
-    is used only once it is set up on the server.
+    When its email is verified (by Google or GitHub, or by an earlier code)
+    it starts at once; otherwise a code goes to it first, once, and
+    confirming it marks it verified for every later press.
     """
     data = MeSubscribeSerializer(data=request.data)
     data.is_valid(raise_exception=True)
@@ -541,14 +496,8 @@ def subscribe_me(request):
 
     user = request.user
     email = user.email
-    phone = user.phone if channels.sms_configured() else ""
-    if not email and not phone:
-        message = (
-            "Text messages are not set up on this server yet. Add an email to your profile."
-            if user.phone
-            else "Add an email or a phone number to your profile first."
-        )
-        raise ValidationError({"detail": message})
+    if not email:
+        raise ValidationError({"detail": "Alerts go by email. Add an email to your profile first."})
 
     subscriber = (
         Subscriber.objects.filter(user=user, is_home=False)
@@ -557,11 +506,11 @@ def subscribe_me(request):
     )
     if subscriber is None:
         subscriber = Subscriber(user=user)
-    contacts_changed = subscriber.email != email or subscriber.phone != phone
-    subscriber.email, subscriber.phone = email, phone
+    contacts_changed = subscriber.email != email or bool(subscriber.phone)
+    subscriber.email, subscriber.phone = email, ""
     if "min_level" in wanted:
         subscriber.min_level = wanted["min_level"]
-    trusted = (not email or user.email_verified) and (not phone or user.phone_verified)
+    trusted = user.email_verified
     if trusted:
         if not subscriber.confirmed:
             subscriber.confirmed, subscriber.confirmed_at = True, timezone.now()
@@ -581,7 +530,7 @@ def subscribe_me(request):
     sent_by = _send_code(subscriber)
     if not sent_by:
         return Response(
-            {"detail": "The code could not be sent. Check the email and phone on your profile."},
+            {"detail": "The code could not be sent. Check the email on your profile."},
             status=status.HTTP_502_BAD_GATEWAY,
         )
     return Response(
@@ -597,7 +546,6 @@ def _subscriber_summary(subscriber: Subscriber) -> dict:
     return {
         "confirmed": subscriber.confirmed,
         "email": subscriber.email,
-        "phone": subscriber.phone,
         "min_level": subscriber.min_level,
         "regions": [str(region) for region in subscriber.regions.all()],
         "unsubscribe": engine.unsubscribe_link(subscriber),

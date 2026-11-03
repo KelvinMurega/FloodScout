@@ -8,9 +8,9 @@ that point falls in. `sync_home_subscription` keeps one alerts subscription
   places    the home sub-county and its county, since alerts are issued for
             both
   level     the person's choice, watches and warnings by default
-  contacts  only the email and phone that are verified (accounts/
-            verification.py); a contact that is not verified yet is left
-            out, and the subscription waits until one is
+  contact   the account's email once it is verified (accounts/
+            verification.py); alerts go by email only, and the
+            subscription waits until the email is verified
 
 So every alert the rules issue for that sub-county or county, from today's
 score or from the 7-day forecast, reaches them by itself (alerts/engine.py
@@ -35,7 +35,7 @@ from django.contrib.gis.geos import Point
 from django.core.cache import cache
 from django.utils import timezone
 
-from alerts import channels, stopping
+from alerts import stopping
 from alerts.models import Subscriber, Unsubscription
 from geodata.models import Region
 
@@ -148,11 +148,9 @@ def home_places(user: User) -> list[Region]:
     return places
 
 
-def verified_contacts(user: User) -> tuple[str, str]:
-    """(email, phone) the alerts may go to: verified, and SMS only once set up."""
-    email = user.email if user.email and user.email_verified else ""
-    phone = user.phone if user.phone and user.phone_verified and channels.sms_configured() else ""
-    return email, phone
+def verified_email(user: User) -> str:
+    """The email the alerts may go to: the account's, once verified."""
+    return user.email if user.email and user.email_verified else ""
 
 
 def sync_home_subscription(user: User) -> Subscriber | None:
@@ -168,12 +166,12 @@ def sync_home_subscription(user: User) -> Subscriber | None:
             stopping.stop(existing, Unsubscription.How.HOME_OFF)
         return None
 
-    email, phone = verified_contacts(user)
+    email = verified_email(user)
     subscriber = existing or Subscriber(user=user, is_home=True)
     was_confirmed = bool(existing and existing.confirmed)
-    subscriber.email, subscriber.phone = email, phone
+    subscriber.email, subscriber.phone = email, ""
     subscriber.min_level = user.home_alert_level
-    subscriber.confirmed = bool(email or phone)
+    subscriber.confirmed = bool(email)
     if subscriber.confirmed and not subscriber.confirmed_at:
         subscriber.confirmed_at = timezone.now()
     subscriber.save()
@@ -196,7 +194,7 @@ def home_summary(user: User) -> dict:
     """The home as the profile page shows it."""
     region = user.home_region
     sub = Subscriber.objects.filter(user=user, is_home=True).first()
-    email, phone = verified_contacts(user)
+    email = verified_email(user)
     return {
         "address": user.home_address,
         "lat": user.home_point.y if user.home_point else None,
@@ -209,6 +207,5 @@ def home_summary(user: User) -> dict:
         "alert_level": user.home_alert_level,
         "receiving": bool(sub and sub.confirmed),
         "by_email": email,
-        "by_sms": phone,
         "email_waiting": bool(user.email and not user.email_verified),
     }

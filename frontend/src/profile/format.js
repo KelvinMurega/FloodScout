@@ -111,7 +111,6 @@ export function byMonth(entries) {
 export function accountChecks(me, home, ways) {
   const checks = [
     { id: "email", label: "Confirm your email", done: Boolean(me.email && me.email_verified) },
-    { id: "phone", label: "Add a phone for SMS alerts", done: Boolean(me.phone) },
     { id: "home", label: "Turn on warnings for where you live", done: Boolean(home?.region && home.alerts_on) },
   ];
   if (ways) {

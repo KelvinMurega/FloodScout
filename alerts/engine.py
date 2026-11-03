@@ -88,36 +88,17 @@ def email_body(alert: Alert, subscriber: Subscriber, kind: str) -> tuple[str, st
 
 
 def deliver(alert: Alert, subscriber: Subscriber, kind: str = "alert") -> Sent:
-    """Send `alert` to `subscriber` on each channel they gave, once per level and kind."""
+    """Email `alert` to `subscriber`, once per level and kind.
+
+    Alerts go by email only. A phone on an older subscription is ignored.
+    """
     tally = Sent()
-    targets = []
-    if subscriber.email:
-        targets.append(Delivery.Channel.EMAIL)
-    if subscriber.phone:
-        targets.append(Delivery.Channel.SMS)
-    for channel in targets:
-        if Delivery.objects.filter(
-            alert=alert, subscriber=subscriber, channel=channel, level=alert.level, kind=kind
-        ).exists():
-            continue
-        if channel == Delivery.Channel.EMAIL:
-            subject, body = email_body(alert, subscriber, kind)
-            result = channels.send_email(subscriber.email, subject, body)
-        else:
-            reason = (
-                "cancelled by an administrator"
-                if kind == "cancel"
-                else alert.reasons[0]["text"]
-                if alert.reasons
-                else alert.headline
-            )
-            text = channels.sms_text(
-                ("Cancelled " if kind == "cancel" else "") + alert.get_level_display(),
-                str(alert.region),
-                reason,
-                unsubscribe_link(subscriber),
-            )
-            result = channels.send_sms(subscriber.phone, text)
+    channel = Delivery.Channel.EMAIL
+    if subscriber.email and not Delivery.objects.filter(
+        alert=alert, subscriber=subscriber, channel=channel, level=alert.level, kind=kind
+    ).exists():
+        subject, body = email_body(alert, subscriber, kind)
+        result = channels.send_email(subscriber.email, subject, body)
         Delivery.objects.create(
             alert=alert,
             subscriber=subscriber,

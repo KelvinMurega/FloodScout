@@ -90,7 +90,7 @@ Dr. Deperias Kerre.
 - **Warns people.** Every morning fixed rules read the scores and the
   forecast and issue, raise or end a flood advisory, watch or warning for
   each county and sub-county. Anyone can ask for alerts for up to ten places
-  by email or SMS (Africa's Talking), confirmed with a code. Every alert is
+  by email, confirmed with a code. Every alert is
   also published as a Common Alerting Protocol (CAP 1.2) feed that other
   warning systems can read. A banner and badges on the map show what is in
   force, and an administrator can issue or cancel alerts by hand.
@@ -320,17 +320,17 @@ its county reaches them by itself, marked "Where you live", with no alerts
 page or form (`accounts/home.py`). They choose the level, and can turn it off.
 
 Signed in, "Get flood alerts" on a place, an alert or the alerts page uses
-the email and phone on the person's profile, with no form. If they are
-verified (by Google, or by a code once) it starts at once and sends any alert
-already in force; otherwise a six-digit code is asked for the first time
-only. Changing the email or phone on the profile asks for a code again.
+the email on the person's profile, with no form. If it is verified (by
+Google, or by a code once) it starts at once and sends any alert already in
+force; otherwise a six-digit code is asked for the first time only. Changing
+the email on the profile asks for a code again.
 
 Email is sent through SMTP when `EMAIL_HOST` is set in `.env` (Gmail works
-with an app password) and is otherwise written to `data/outbox/`. SMS goes
-through Africa's Talking: create a free sandbox app, put its key in
-`AT_API_KEY` and leave `AT_USERNAME=sandbox`, and the messages appear in the
-Africa's Talking simulator. Without a key, SMS is skipped and recorded as
-skipped. Set `PUBLIC_API_URL` and `DASHBOARD_URL` to where the API and the
+with an app password) and is otherwise written to `data/outbox/`. Alerts go
+by email only. SMS (Africa's Talking) is used just to confirm the phone
+number on a profile: put a sandbox key in `AT_API_KEY` and leave
+`AT_USERNAME=sandbox`, and the codes appear in the Africa's Talking
+simulator. Set `PUBLIC_API_URL` and `DASHBOARD_URL` to where the API and the
 dashboard are reached, for the links in messages.
 
 The feeds are open: `GET /api/alerts/` (JSON), `GET /api/alerts/feed/` (Atom)
@@ -506,7 +506,7 @@ As of 29 October 2026.
 | Area | State |
 |---|---|
 | Dashboard | Done: map, simple view, map layers, history, timeline, explanation, briefing, themes, phone layout, report and CSV export. |
-| Alerts | Done: rules, email and SMS with double opt-in, the CAP 1.2 feed, where-you-live alerts, the administrator's controls. |
+| Alerts | Done: rules, email with double opt-in, the CAP 1.2 feed, where-you-live alerts, the administrator's controls. |
 | Accounts | Done: sign-in and sign-up pages, Google, Microsoft and GitHub sign-in, profiles, the Analyst role, the activity log. |
 
 **Still open:** performance testing on the deployed API, user testing, and

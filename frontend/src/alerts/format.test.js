@@ -8,7 +8,6 @@ import {
   errorMessage,
   filterAlerts,
   groupByLevel,
-  normalisePhone,
   placeOptions,
 } from "./format.js";
 
@@ -44,15 +43,6 @@ test("filtering matches the place or its county", () => {
   assert.equal(filterAlerts(ALERTS, "kisumu").length, 1);
   assert.equal(filterAlerts(ALERTS, "GAR").length, 1);
   assert.equal(filterAlerts(ALERTS, "  ").length, 3);
-});
-
-test("phone numbers are read the way Kenyans write them", () => {
-  for (const raw of ["0712 345 678", "712345678", "254712345678", "+254 712-345-678"]) {
-    assert.equal(normalisePhone(raw), "+254712345678");
-  }
-  assert.equal(normalisePhone("0110123456"), "+254110123456");
-  assert.equal(normalisePhone("0812345678"), null);
-  assert.equal(normalisePhone(""), null);
 });
 
 test("each county is followed by its sub-counties", () => {

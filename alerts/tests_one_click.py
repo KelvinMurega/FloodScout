@@ -102,24 +102,24 @@ class OneClickTests(APITestCase):
         self.sign_in(bare)
         response = self.press(self.alpha)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add an email or a phone number", str(response.data))
+        self.assertIn("Add an email to your profile", str(response.data))
 
-    def test_a_phone_alone_waits_for_sms_to_be_set_up(self):
+    def test_a_phone_alone_is_not_enough(self):
         phone_only = User.objects.create_user("phone", password="x", phone="+254712345678")
         self.sign_in(phone_only)
         response = self.press(self.alpha)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Text messages are not set up", str(response.data))
+        self.assertIn("Alerts go by email", str(response.data))
 
     @override_settings(AT_API_KEY="key", AT_USERNAME="sandbox")
-    def test_with_sms_set_up_a_verified_phone_is_used_too(self):
+    def test_a_verified_phone_is_not_used_even_with_sms_set_up(self):
         self.user.phone = "+254712345678"
         self.user.email_verified = self.user.phone_verified = True
         self.user.save()
         self.sign_in()
         response = self.press(self.alpha)
-        self.assertEqual(response.data["phone"], "+254712345678")
         self.assertTrue(response.data["confirmed"])
+        self.assertEqual(Subscriber.objects.get().phone, "")
 
     def test_unknown_places_are_refused(self):
         self.sign_in()
