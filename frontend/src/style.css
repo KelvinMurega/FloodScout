@@ -1817,6 +1817,31 @@ body:not(.is-admin) .app {
     padding: 10px 12px;
     font-size: 14px;
   }
+
+  /* Signed in, the account sits beside the menu button (navmenu.js) as just
+     its avatar; its menu opens under it, leftwards, as on a wide screen. */
+  .app__header > .auth {
+    margin-left: auto;
+  }
+
+  .app__header > .auth + .nav-toggle {
+    margin-left: 0;
+  }
+
+  .app__header > .auth .auth__menu-button {
+    padding: 5px;
+    border-radius: 50%;
+  }
+
+  .app__header > .auth .auth__who,
+  .app__header > .auth .auth__menu-button > span:last-child {
+    display: none;
+  }
+
+  .app__header > .auth .profile-avatar--small {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 /* A phone: the header and the banner give the first screen back to the map. */

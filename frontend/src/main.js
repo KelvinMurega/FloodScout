@@ -2882,6 +2882,7 @@ async function load() {
     document.querySelector(".app__header"),
     document.getElementById("nav-toggle"),
     document.getElementById("app-actions"),
+    document.getElementById("auth"),
   );
 
   // Before the data, so an administrator can still sign in and rescore when
