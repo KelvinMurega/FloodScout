@@ -63,7 +63,7 @@ class AnalyticsPermissionTests(APITestCase):
         self.client.force_authenticate(admin)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(set(response.data), {"model", "satellite_check", "health"})
+        self.assertEqual(set(response.data), {"model", "satellite_check", "health", "live"})
 
 
 class AnalyticsModelTests(APITestCase):

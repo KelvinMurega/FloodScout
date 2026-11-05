@@ -24,6 +24,7 @@ from .briefing import briefing
 from .context import CHANGE_DAYS, map_context
 from .forecast import latest_issue
 from .inputs import score_inputs
+from .live import live_record
 from .ml import infer as scorer
 from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
 from .performance import load_performance
@@ -367,12 +368,15 @@ def admin_analytics(request):
     is scoring, which was never evaluated). `satellite_check`: its scores
     against floodwater UNOSAT mapped from satellite images. `health`: whether
     the pipeline is keeping the map current, worked out from the database now.
+    `live`: the daily scores since against floods ReliefWeb reported.
     """
+    model = load_performance() if scorer._MODEL else None
     return Response(
         {
-            "model": load_performance() if scorer._MODEL else None,
+            "model": model,
             "satellite_check": satellite_check() if scorer._MODEL else None,
             "health": system_health(),
+            "live": live_record(model["errors"] if model else None),
         }
     )
 

@@ -235,3 +235,7 @@ GITHUB_CLIENT_SECRET = env("GITHUB_CLIENT_SECRET", default="")
 
 # CAP status of the published alerts. "Exercise" says they are not official.
 CAP_STATUS = env("CAP_STATUS", default="Exercise")
+
+# ReliefWeb flood reports, for the model's live record (riskengine/live.py).
+# Its API answers only app names it has approved; empty means not fetched.
+RELIEFWEB_APPNAME = env("RELIEFWEB_APPNAME", default="")
