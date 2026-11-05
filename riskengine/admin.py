@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.http import HttpResponseRedirect
 
-from .models import RiskOutlook, RiskScore
+from .models import ReportedFlood, RiskOutlook, RiskScore
 from .scoring import NoRegionsError, score_regions
 
 RESCORE_ACTION = "rescore_all_regions"
@@ -57,3 +57,16 @@ class RiskScoreAdmin(admin.ModelAdmin):
 
 
 admin.site.register(RiskOutlook)
+
+
+@admin.register(ReportedFlood)
+class ReportedFloodAdmin(admin.ModelAdmin):
+    """The counties matched in ReliefWeb flood reports. A wrong match (a
+    county named for another reason) can be deleted here; the next fetch
+    adds it back only if the report is still in its window, so delete it
+    again or narrow the report text rule in geodata/services/reliefweb.py."""
+
+    list_display = ("published", "county", "title", "source")
+    list_filter = ("county",)
+    search_fields = ("title", "county__name")
+    date_hierarchy = "published"

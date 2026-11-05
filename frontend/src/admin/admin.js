@@ -825,8 +825,74 @@ function renderDrivers(body, { model }) {
   inputs.append(chips);
 }
 
-function renderErrors(body, { model }) {
+/** The live record: daily scores against the floods ReliefWeb reported since (riskengine/live.py). */
+function renderLive(body, live) {
+  if (!live) return;
+  const section = card(
+    body,
+    "Live record",
+    "Since the map went live: each finished county-month, warned or not, against the floods reported that month",
+    { wide: true },
+  );
+  if (!live.switched_on) {
+    section.append(
+      el(
+        "p",
+        "admin-empty",
+        "Not switched on. ReliefWeb's API answers only approved app names: request one, then set RELIEFWEB_APPNAME in the server's .env.",
+      ),
+    );
+    return;
+  }
+  const totals = live.totals;
+  if (!totals.county_months) {
+    section.append(el("p", "admin-empty", "No month has finished since scoring began. The first figures appear when one does."));
+    return;
+  }
+  const tiles = grid(section, "admin-tiles");
+  const training = live.training;
+  tile(
+    tiles,
+    "Floods caught",
+    totals.recall === null ? "No floods reported" : percent(totals.recall, 0),
+    `${count(totals.caught)} of ${count(totals.floods)}` + (training ? ` · ${percent(training.recall, 0)} when evaluated` : ""),
+  );
+  tile(
+    tiles,
+    "Warnings followed by a report",
+    totals.precision === null ? "No warnings" : percent(totals.precision, 0),
+    `${count(totals.false_alarms)} without one` + (training?.precision != null ? ` · ${percent(training.precision, 0)} when evaluated` : ""),
+  );
+  tile(tiles, "County-months counted", count(totals.county_months), `From ${day(live.first_month).replace(/^1 /, "")}`);
+
+  section.append(
+    el(
+      "p",
+      "admin-card__subtitle",
+      `A warning is a daily chance of ${percent(live.threshold, 0)} or more at any point in the month, as in the evaluation. A flood is a ReliefWeb report that names the county. Floods nobody reported count as false alarms, so that share is a lower bound.`,
+    ),
+  );
+
+  numbers(
+    section,
+    ["Month", "County-months", "Floods reported", "Caught", "Missed", "False alarms"],
+    live.by_month.map((r) => [day(r.month).replace(/^1 /, ""), count(r.county_months), count(r.floods), count(r.caught), count(r.missed), count(r.false_alarms)]),
+  );
+  if (live.reports.length) {
+    const rows = live.reports.map((r) => {
+      const link = el("a", null, r.title);
+      link.href = r.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      return [day(r.published), r.county, link, r.source || "–"];
+    });
+    numbers(section, ["Published", "County", "Report", "Source"], rows, `Show the ${count(live.reports.length)} report matches`);
+  }
+}
+
+function renderErrors(body, { model, live }) {
   if (!model) return renderNoModel(body);
+  renderLive(body, live);
   const colours = palette();
   const errors = model.errors;
   if (!errors?.by_month) {
@@ -836,7 +902,7 @@ function renderErrors(body, { model }) {
   const threshold = percent(errors.threshold, 0);
   callout(
     body,
-    "Where the misses are",
+    "When it was evaluated: where the misses are",
     `Counted with a warning at a predicted chance of ${threshold} or more, across the cross-validation folds. Misses that cluster in a month or a county point at what the inputs cannot see there.`,
   );
 

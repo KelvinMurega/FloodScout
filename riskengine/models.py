@@ -151,3 +151,32 @@ class RiskForecast(models.Model):
 
     def __str__(self) -> str:
         return f"{self.region} — {self.risk_category} on {self.target_date} (issued {self.issued_on})"
+
+
+class ReportedFlood(models.Model):
+    """A county named in a ReliefWeb flood report: the ground truth the live
+    record (riskengine/live.py) scores the model against.
+
+    Written by `fetch_flood_reports`, one row per report and county. A report
+    naming three counties is three rows. The match is by name in the report's
+    text, so it is coarse; see geodata/services/reliefweb.py.
+    """
+
+    reliefweb_id = models.PositiveIntegerField()
+    county = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="reported_floods")
+    published = models.DateField(help_text="The date the report carries")
+    title = models.CharField(max_length=300)
+    url = models.URLField(max_length=500)
+    source = models.CharField(max_length=200, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-published", "county__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reliefweb_id", "county"], name="unique_reportedflood_report_county"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.county} — {self.published:%Y-%m-%d} — {self.title[:60]}"

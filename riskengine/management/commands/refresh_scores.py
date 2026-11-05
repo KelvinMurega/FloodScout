@@ -16,7 +16,8 @@ back on, scored from the rain that actually fell on them.
 
 After the scores, the next seven days are forecast from forecast rain
 (`forecast_scores`), and the alerts are brought up to date and sent
-(`issue_alerts`). When `seed_grid` has laid an area grid, its cells are
+(`issue_alerts`). Flood reports are fetched from ReliefWeb for the live
+record (`fetch_flood_reports`). When `seed_grid` has laid an area grid, its cells are
 scored too, with the same catching up.
 
 The seasonal outlook is not refreshed here. The forecast behind it is issued
@@ -158,6 +159,13 @@ class Command(BaseCommand):
         # Issue, upgrade and end the alerts from the new scores and forecast,
         # and send them to the people who asked.
         call_command("issue_alerts", stdout=self.stdout, stderr=self.stderr)
+
+        # Floods reported since, for the model's live record. Like the
+        # forecast, a failed fetch is reported but does not fail the refresh.
+        try:
+            call_command("fetch_flood_reports", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:
+            self.stderr.write(self.style.WARNING(f"Flood reports skipped: {exc}"))
 
         # The area grid, once `seed_grid` has laid one. It fetches its own
         # rainfall, at the cells' centres.
