@@ -14,6 +14,9 @@ the purpose needs). The record cannot be used to message the person again.
 
 from __future__ import annotations
 
+from django.apps import apps
+from django.contrib.auth import get_user_model
+
 from .models import Delivery, Subscriber, Unsubscription
 
 
@@ -42,7 +45,21 @@ def masked_contact(subscriber: Subscriber) -> str:
 
 
 def stop(subscriber: Subscriber, how: str) -> Unsubscription:
-    """Record that `subscriber` stopped their alerts, keep the delivery totals, and delete them."""
+    """Record that `subscriber` stopped their alerts, keep the delivery totals, and delete them.
+
+    When the person stops an automatic subscription themselves (by the link
+    in an email, or on their profile), the profile remembers it, or the next
+    sync would bring it back: home warnings or the saved place's warnings are
+    turned off. A stop made by the sync itself (HOME_OFF, PLACE_OFF) already
+    follows the profile.
+    """
+    if how not in (Unsubscription.How.HOME_OFF, Unsubscription.How.PLACE_OFF):
+        if subscriber.is_home and subscriber.user_id:
+            get_user_model().objects.filter(pk=subscriber.user_id).update(home_alerts=False)
+        if subscriber.saved_place_id:
+            apps.get_model("accounts", "SavedPlace").objects.filter(
+                pk=subscriber.saved_place_id
+            ).update(alerts_on=False)
     deliveries = Delivery.objects.filter(subscriber=subscriber)
     received = deliveries.filter(kind="alert", outcome=Delivery.Outcome.SENT).count()
     record = Unsubscription.objects.create(

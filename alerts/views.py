@@ -500,7 +500,9 @@ def subscribe_me(request):
         raise ValidationError({"detail": "Alerts go by email. Add an email to your profile first."})
 
     subscriber = (
-        Subscriber.objects.filter(user=user, is_home=False)
+        # Not the automatic ones for the home or a saved place: those follow
+        # the profile and would be overwritten by the next sync.
+        Subscriber.objects.filter(user=user, is_home=False, saved_place__isnull=True)
         .order_by("-confirmed", "-created_at")
         .first()
     )

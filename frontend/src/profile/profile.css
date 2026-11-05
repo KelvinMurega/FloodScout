@@ -860,3 +860,40 @@ a.profile-tile:focus-visible {
     grid-column: 2;
   }
 }
+
+/* --- My places --------------------------------------------------------- */
+
+.profile-places-slot {
+  margin-top: 16px;
+}
+
+.places-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.places-list__item {
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 10px;
+}
+
+.places-list__title {
+  margin: 0 0 2px;
+}
+
+.places-list__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 6px;
+}
+
+.places-list__level {
+  width: auto;
+  max-width: 100%;
+}

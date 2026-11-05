@@ -112,6 +112,8 @@ class ActivityLog(models.Model):
         PASSWORD_RESET = "password_reset", "Reset their password by email"
         CONTACT_VERIFIED = "contact_verified", "Confirmed their email or phone"
         HOME_SET = "home_set", "Set where they live"
+        PLACE_SAVED = "place_saved", "Saved a place for warnings"
+        PLACE_REMOVED = "place_removed", "Removed a saved place"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -229,3 +231,42 @@ class ContactCode(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["user", "channel"], name="one_code_per_contact")
         ]
+
+
+class SavedPlace(models.Model):
+    """A place a signed-in person wants warnings for besides home: a school,
+    a farm, a parent's house. Kept in step with one alert subscription by
+    accounts/places.py, as the home is by accounts/home.py.
+
+    The point is rounded to about 100 m, as the home's is.
+    """
+
+    LIMIT = 5
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="saved_places")
+    label = models.CharField(max_length=40)
+    address = models.CharField(max_length=255, blank=True)
+    point = gis_models.PointField(srid=4326, null=True, blank=True)
+    region = models.ForeignKey(
+        "geodata.Region",
+        on_delete=models.CASCADE,
+        related_name="+",
+        limit_choices_to={"level": "sub_county"},
+    )
+    alerts_on = models.BooleanField(default=True)
+    alert_level = models.CharField(
+        max_length=10,
+        default="watch",
+        choices=[
+            ("advisory", "Advisories and up"),
+            ("watch", "Watches and warnings"),
+            ("warning", "Warnings only"),
+        ],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.region}) for {self.user}"
