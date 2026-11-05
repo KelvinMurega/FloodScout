@@ -2,8 +2,8 @@
  * The flood alerts page (#/alerts), shown in place of the map.
  *
  * Open to everyone: the alerts in force, most severe first, each with what
- * triggered it and what to do; a form to get alerts by email or SMS for
- * chosen places; and the open CAP feed other systems can read.
+ * triggered it and what to do; a form to get alerts by email for chosen
+ * places; and the open CAP feed other systems can read.
  *
  * A System Administrator also sees the controls the API gives them: run the
  * rules now, issue or cancel an alert by hand, send a test message, and the
@@ -37,7 +37,6 @@ import {
   countByLevel,
   filterAlerts,
   groupByLevel,
-  normalisePhone,
   placeOptions,
 } from "./format.js";
 import { channelsText, quickAlertControl } from "./quick.js";
@@ -115,13 +114,6 @@ function renderSignUp(card, { preselect }) {
   const emailRow = el("label", "alerts-form__field");
   emailRow.append(el("span", "alerts-form__label", "Email"), email);
 
-  const phone = el("input", "alerts-form__input");
-  phone.type = "tel";
-  phone.autocomplete = "tel";
-  phone.placeholder = "0712 345 678";
-  const phoneRow = el("label", "alerts-form__field");
-  phoneRow.append(el("span", "alerts-form__label", "Phone (SMS)"), phone);
-
   const levels = el("fieldset", "alerts-form__levels");
   levels.append(el("legend", "alerts-form__label", "Tell me about"));
   const levelChoices = [
@@ -145,7 +137,7 @@ function renderSignUp(card, { preselect }) {
   const submit = el("button", "auth__button auth__button--primary", "Send me a code");
   submit.type = "submit";
 
-  form.append(placeRow, emailRow, phoneRow, levels, submit, message);
+  form.append(placeRow, emailRow, levels, submit, message);
   card.append(form);
 
   function renderChosen() {
@@ -192,22 +184,13 @@ function renderSignUp(card, { preselect }) {
       min_level: form.querySelector("input[name=min_level]:checked").value,
     };
     if (email.value.trim()) body.email = email.value.trim();
-    if (phone.value.trim()) {
-      const number = normalisePhone(phone.value);
-      if (!number) {
-        message.textContent = "Enter a Kenyan mobile number, for example 0712 345 678.";
-        message.classList.add("alerts-form__message--error");
-        return;
-      }
-      body.phone = number;
-    }
     if (body.regions.length === 0) {
       message.textContent = "Choose at least one place.";
       message.classList.add("alerts-form__message--error");
       return;
     }
-    if (!body.email && !body.phone) {
-      message.textContent = "Give an email address, a phone number, or both.";
+    if (!body.email) {
+      message.textContent = "Give an email address.";
       message.classList.add("alerts-form__message--error");
       return;
     }
@@ -225,9 +208,7 @@ function renderSignUp(card, { preselect }) {
 }
 
 function renderConfirm(card, form, result, body) {
-  const by = result.code_sent_by
-    .map((channel) => (channel === "email" ? `email to ${body.email}` : `text to ${body.phone}`))
-    .join(" and ");
+  const by = `email to ${body.email}`;
   const box = el("form", "alerts-form");
   const code = el("input", "alerts-form__input alerts-form__input--code");
   code.inputMode = "numeric";
@@ -275,18 +256,18 @@ function renderConfirm(card, form, result, body) {
 
 /**
  * Signed in: choose places, press once. The alerts go to the profile's email
- * and phone (quick.js); a different address uses the full form.
+ * (quick.js); a different address uses the full form.
  */
 function renderSignedInSignUp(card, { preselect, user }) {
   const box = el("div", "alerts-form");
-  const contacts = channelsText({ email: user.email, phone: user.phone });
+  const contacts = channelsText({ email: user.email });
   box.append(
     el(
       "p",
       "alerts-form__lede",
       contacts
         ? `Signed in as ${user.username}: alerts go ${contacts}, as on your profile.`
-        : `Signed in as ${user.username}. Add an email or phone to your profile to get alerts.`,
+        : `Signed in as ${user.username}. Add an email to your profile to get alerts.`,
     ),
   );
   const chosen = new Map();
@@ -332,7 +313,7 @@ function renderSignedInSignUp(card, { preselect, user }) {
     })
     .catch(() => pickerWrap.replaceChildren(el("span", "alerts-form__hint", "Could not load the places.")));
 
-  const other = el("button", "link-button", "Use a different email or phone");
+  const other = el("button", "link-button", "Use a different email");
   other.type = "button";
   other.addEventListener("click", () => {
     box.remove();
@@ -412,14 +393,13 @@ function renderAdmin(parent, { onChanged }) {
     .then((s) => {
       const items = [
         ["Subscribers", `${s.subscribers.confirmed} confirmed, ${s.subscribers.pending} waiting for a code`],
-        ["By email / SMS", `${s.subscribers.with_email} / ${s.subscribers.with_phone}`],
+        ["By email", `${s.subscribers.with_email}`],
         [
           "Messages, last 7 days",
           s.deliveries_7d.length
             ? s.deliveries_7d.map((d) => `${d.count} ${d.channel} ${d.outcome}`).join(", ")
             : "None",
         ],
-        ["SMS", s.sms_configured ? (s.sms_sandbox ? "Africa's Talking sandbox" : "Africa's Talking, live") : "Not set up (no AT_API_KEY)"],
         [
           "Last run",
           s.last_run
@@ -458,16 +438,16 @@ function renderAdmin(parent, { onChanged }) {
   // A test message.
   const testBox = el("form", "alerts-admin__tool");
   const testTo = el("input", "alerts-form__input");
-  testTo.placeholder = "Your email or phone";
-  testTo.setAttribute("aria-label", "Email or phone for the test");
+  testTo.type = "email";
+  testTo.placeholder = "Your email";
+  testTo.setAttribute("aria-label", "Email for the test");
   const testNote = el("p", "alerts-form__message");
-  const testSend = el("button", "auth__button", "Send a test message");
+  const testSend = el("button", "auth__button", "Send a test email");
   testSend.type = "submit";
-  testBox.append(el("p", "alerts-form__label", "Test the channels"), testTo, testSend, testNote);
+  testBox.append(el("p", "alerts-form__label", "Test the email"), testTo, testSend, testNote);
   testBox.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const value = testTo.value.trim();
-    const body = value.includes("@") ? { email: value } : { phone: value };
+    const body = { email: testTo.value.trim() };
     try {
       const result = await sendTestAlert(body);
       testNote.textContent = Object.entries(result)
@@ -550,7 +530,7 @@ export async function showAlerts(root, { slug, user, onShowOnMap }) {
     el(
       "p",
       "admin-head__lede",
-      "Issued automatically every morning from the day's risk scores and the 7-day forecast, and sent by email and SMS " +
+      "Issued automatically every morning from the day's risk scores and the 7-day forecast, and sent by email " +
         "to everyone who asks for a place. FloodScout is a university research system: official warnings come from the " +
         "Kenya Meteorological Department and the National Disaster Operations Centre.",
     ),
@@ -580,7 +560,7 @@ export async function showAlerts(root, { slug, user, onShowOnMap }) {
   const signHead = el("header", "admin-card__head");
   signHead.append(
     el("h3", "admin-card__title", "Get alerts"),
-    el("p", "admin-card__subtitle", "By email, SMS or both, for up to ten places. We send a code first so no one can sign up someone else."),
+    el("p", "admin-card__subtitle", "By email, for up to ten places. We send a code first so no one can sign up someone else."),
   );
   signUp.append(signHead);
   if (user) renderSignedInSignUp(signUp, { preselect, user });

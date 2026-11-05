@@ -148,13 +148,6 @@ class PhoneTests(SimpleTestCase):
             with self.assertRaises(channels.PhoneError):
                 channels.normalise_phone(raw)
 
-    def test_an_sms_fits_in_one_message(self):
-        text = channels.sms_text(
-            "Flood warning", "Nyando (Kisumu)", "x" * 300, "https://e.x/u/" + "t" * 32
-        )
-        self.assertLessEqual(len(text), channels.SMS_MAX_CHARS)
-        self.assertTrue(text.startswith("FloodScout FLOOD WARNING: Nyando (Kisumu). "))
-        self.assertIn("Not official.", text)
 
 
 class _Response:
@@ -238,10 +231,10 @@ class EngineTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Flood watch for Alpha County")
         self.assertIn("/alerts/unsubscribe/", mail.outbox[0].body)
-        # SMS has no key here: recorded as skipped, not failed.
+        # Alerts go by email only: the subscriber's phone gets nothing.
         self.assertEqual(
             dict(Delivery.objects.values_list("channel", "outcome")),
-            {"email": "sent", "sms": "skipped"},
+            {"email": "sent"},
         )
 
     @mock.patch("alerts.rules.heavy_week_lines", lambda: {"Alpha": {"10": 100.0}})
@@ -509,21 +502,20 @@ class AlertAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Subscriber.objects.exists())
 
-    def test_a_phone_only_sign_up_needs_sms_to_be_set_up(self):
+    def test_a_phone_is_not_a_way_to_sign_up(self):
         response = self.client.post(
             "/api/alerts/subscribe/",
             {"phone": "0712345678", "regions": [self.region.id]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Text messages are not set up", str(response.data))
+        self.assertIn("email", response.data)
 
     def test_bad_sign_ups(self):
         for body in (
             {"regions": [self.region.id]},
             {"email": "me@example.com", "regions": []},
             {"email": "me@example.com", "regions": [999999]},
-            {"email": "me@example.com", "phone": "12", "regions": [self.region.id]},
         ):
             response = self.client.post("/api/alerts/subscribe/", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, body)
@@ -567,7 +559,7 @@ class AlertAPITests(APITestCase):
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
 
         stats = self.client.get("/api/alerts/stats/")
-        self.assertEqual(stats.data["sms_configured"], False)
+        self.assertNotIn("sms_configured", stats.data)
         self.assertIn("subscribers", stats.data)
 
         test = self.client.post("/api/alerts/test/", {"email": "boss@example.com"})

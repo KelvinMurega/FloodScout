@@ -293,8 +293,7 @@ function inline(text) {
 
 /** "By email to w@…" for a subscription. */
 function channelText(row) {
-  const ways = [row.email && `email to ${row.email}`, row.phone && `SMS to ${row.phone}`].filter(Boolean);
-  return ways.length ? `By ${ways.join(" and ")}` : "No email or phone";
+  return row.email ? `By email to ${row.email}` : "No email";
 }
 
 function subscriptionItem(row, received, onStopped) {
@@ -536,7 +535,7 @@ function noSubscriptions() {
     el(
       "p",
       "alerts-form__hint",
-      "Turn on warnings for where you live on the Overview, or pick any place to get its alerts by email or SMS.",
+      "Turn on warnings for where you live on the Overview, or pick any place to get its alerts by email.",
     ),
   );
   return empty;
@@ -828,7 +827,7 @@ async function renderSubscribers(body) {
   }
   holder.replaceChildren(tiles);
 
-  const people = card(body, "Subscribers", "Newest first. A failed alert is one the email or SMS service refused.");
+  const people = card(body, "Subscribers", "Newest first. A failed alert is one the email service refused.");
   people.append(
     data.subscribers.length
       ? labelledTable(

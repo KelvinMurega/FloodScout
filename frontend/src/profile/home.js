@@ -65,9 +65,7 @@ function statusLine(home, me) {
   }
   if (home.receiving) {
     line.classList.add("home-status--on");
-    const by = [home.by_email && `email to ${home.by_email}`, home.by_sms && `SMS to ${home.by_sms}`]
-      .filter(Boolean)
-      .join(" and ");
+    const by = `email to ${home.by_email}`;
     line.append(
       el("strong", null, `Warnings on for ${where}. `),
       `When a flood is likely there, FloodScout tells you by ${by}, without you asking.`,

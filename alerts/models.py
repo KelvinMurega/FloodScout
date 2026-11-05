@@ -3,7 +3,7 @@
 The answer to "how are you going to warn people": the risk engine's daily
 scores and 7-day forecast are read by fixed rules (alerts/rules.py) that
 issue, upgrade and end an alert per region. Each new or stronger alert is
-sent to everyone who subscribed to that region, by email and SMS, and is
+sent to everyone who subscribed to that region, by email, and is
 published as an open Common Alerting Protocol (CAP 1.2) feed for any other
 system to pick up.
 
@@ -153,7 +153,7 @@ class Delivery(models.Model):
 
     class Channel(models.TextChoices):
         EMAIL = "email", "Email"
-        SMS = "sms", "SMS"
+        SMS = "sms", "SMS"  # Alerts no longer go by SMS; kept for older rows.
 
     class Outcome(models.TextChoices):
         SENT = "sent", "Sent"

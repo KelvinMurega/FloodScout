@@ -1325,7 +1325,7 @@ function renderAlertBanner() {
   const links = el("span", "alert-banner__links");
   const see = el("a", "auth__button auth__button--primary", "See the alerts");
   see.href = "#/alerts";
-  const get = el("a", "auth__button", "Get alerts by SMS or email");
+  const get = el("a", "auth__button", "Get alerts by email");
   get.href = "#/alerts/subscribe/";
   links.append(see, get);
   els.alertBanner.replaceChildren(

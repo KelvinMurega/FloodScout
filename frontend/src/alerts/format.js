@@ -74,17 +74,6 @@ export function filterAlerts(alerts, query) {
 }
 
 /**
- * A Kenyan mobile number as +2547XXXXXXXX, or null. The server checks the
- * same way (alerts/channels.py); this only saves a round trip.
- */
-export function normalisePhone(raw) {
-  let digits = String(raw ?? "").replace(/[^\d+]/g, "").replace(/^\+/, "");
-  if (digits.startsWith("254")) digits = digits.slice(3);
-  else if (digits.startsWith("0")) digits = digits.slice(1);
-  return /^[17]\d{8}$/.test(digits) ? `+254${digits}` : null;
-}
-
-/**
  * Places for the sign-up picker: counties first, each followed by its
  * sub-counties, as [{ id, label, county }].
  */
