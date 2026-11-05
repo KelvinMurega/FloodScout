@@ -75,6 +75,8 @@ export function initAuth(root, { onRescored, onUserChange = () => {} }) {
     toggle.type = "button";
     toggle.setAttribute("aria-haspopup", "menu");
     toggle.setAttribute("aria-expanded", "false");
+    // A phone shows only the avatar (style.css), so the name is said here too.
+    toggle.setAttribute("aria-label", `Account: ${displayName(user)}`);
     toggle.append(
       el("span", "profile-avatar profile-avatar--small", initials(user)),
       el("span", "auth__who", displayName(user)),
