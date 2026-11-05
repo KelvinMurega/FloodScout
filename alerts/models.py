@@ -131,6 +131,16 @@ class Subscriber(models.Model):
     # The automatic subscription for where a signed-up user lives, kept in
     # step with their profile by accounts/home.py. At most one per user.
     is_home = models.BooleanField(default=False)
+    # The automatic subscription for one of the user's saved places
+    # (accounts/places.py). Deleting the place stops it first, recorded as
+    # an Unsubscription, then this goes with it.
+    saved_place = models.ForeignKey(
+        "accounts.SavedPlace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="subscriptions",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -197,6 +207,7 @@ class Unsubscription(models.Model):
         LINK = "link", "Unsubscribe link"
         PROFILE = "profile", "Removed on their profile"
         HOME_OFF = "home_off", "Turned off warnings for where they live"
+        PLACE_OFF = "place_off", "Turned off or removed a saved place"
 
     stopped_at = models.DateTimeField(auto_now_add=True)
     how = models.CharField(max_length=10, choices=How.choices)

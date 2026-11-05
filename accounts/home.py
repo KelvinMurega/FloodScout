@@ -138,14 +138,19 @@ def clear_home(user: User) -> None:
     sync_home_subscription(user)
 
 
+def alert_regions(region: Region | None) -> list[Region]:
+    """A sub-county and its county: alerts are issued for both."""
+    if region is None:
+        return []
+    places = [region]
+    if region.parent_id:
+        places.append(region.parent)
+    return places
+
+
 def home_places(user: User) -> list[Region]:
     """The sub-county and its county."""
-    if user.home_region is None:
-        return []
-    places = [user.home_region]
-    if user.home_region.parent_id:
-        places.append(user.home_region.parent)
-    return places
+    return alert_regions(user.home_region)
 
 
 def verified_email(user: User) -> str:
@@ -153,24 +158,27 @@ def verified_email(user: User) -> str:
     return user.email if user.email and user.email_verified else ""
 
 
-def sync_home_subscription(user: User) -> Subscriber | None:
-    """Make the user's home subscription match their profile; None when there is none.
+def sync_subscription(
+    user: User, existing: Subscriber | None, places: list[Region], *, on: bool, level: str, how: str, **identity
+) -> Subscriber | None:
+    """Make one automatic subscription match what the profile says; None when there is none.
 
-    A newly confirmed subscription is sent whatever alert is already in force
-    for the home, so someone who sets their home during a flood hears of it.
+    Shared by the home and the saved places (accounts/places.py). `identity`
+    marks a new row as the one it is (is_home=True, or saved_place=...).
+    A newly confirmed subscription, or one whose places changed, is sent
+    whatever alert is already in force there, so someone who saves a place
+    during a flood hears of it.
     """
-    existing = Subscriber.objects.filter(user=user, is_home=True).first()
-    places = home_places(user)
-    if not places or not user.home_alerts:
+    if not places or not on:
         if existing:
-            stopping.stop(existing, Unsubscription.How.HOME_OFF)
+            stopping.stop(existing, how)
         return None
 
     email = verified_email(user)
-    subscriber = existing or Subscriber(user=user, is_home=True)
+    subscriber = existing or Subscriber(user=user, **identity)
     was_confirmed = bool(existing and existing.confirmed)
     subscriber.email, subscriber.phone = email, ""
-    subscriber.min_level = user.home_alert_level
+    subscriber.min_level = level
     subscriber.confirmed = bool(email)
     if subscriber.confirmed and not subscriber.confirmed_at:
         subscriber.confirmed_at = timezone.now()
@@ -187,6 +195,27 @@ def sync_home_subscription(user: User) -> Subscriber | None:
         for alert in Alert.objects.filter(status=Alert.Status.ACTIVE, region__in=places):
             if subscriber.wants(alert.level):
                 deliver(alert, subscriber)
+    return subscriber
+
+
+def sync_home_subscription(user: User) -> Subscriber | None:
+    """Make the user's home subscription, and their saved places', match their profile.
+
+    Called wherever the home or the contact details change, so a newly
+    verified email starts the saved places' alerts too.
+    """
+    from .places import sync_places
+
+    subscriber = sync_subscription(
+        user,
+        Subscriber.objects.filter(user=user, is_home=True).first(),
+        home_places(user),
+        on=user.home_alerts,
+        level=user.home_alert_level,
+        how=Unsubscription.How.HOME_OFF,
+        is_home=True,
+    )
+    sync_places(user)
     return subscriber
 
 

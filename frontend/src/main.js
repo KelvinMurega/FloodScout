@@ -38,7 +38,9 @@ import {
   restoreSession,
   fetchBriefing,
   fetchExplanation,
+  addPlace,
   fetchFloodEvents,
+  fetchPlaces,
   fetchKmdWarnings,
   fetchFocusRegions,
   fetchForecast,
@@ -425,6 +427,90 @@ const mapLayers = initLayers(map, {
     return kmdWarnings;
   },
   onChange: () => renderLegend(),
+});
+
+// The signed-in person's saved places (profile, "My places"), as pins, and a
+// right-click or long press anywhere to save one more for flood warnings.
+const savedPlaces = L.layerGroup().addTo(map);
+
+async function showSavedPlaces() {
+  savedPlaces.clearLayers();
+  if (!state.user) return;
+  let places;
+  try {
+    places = await fetchPlaces();
+  } catch (error) {
+    console.error(error);
+    return;
+  }
+  for (const place of places) {
+    if (place.lat === null || place.lon === null) continue;
+    L.circleMarker([place.lat, place.lon], {
+      radius: 7,
+      color: DARK ? "#0d0d0d" : "#ffffff",
+      weight: 2,
+      fillColor: "#1f6feb",
+      fillOpacity: 0.95,
+    })
+      .bindTooltip(`${place.label} · ${place.region_name}`)
+      .addTo(savedPlaces);
+  }
+}
+
+function pinPopup(latlng) {
+  const box = el("form", "pin-popup");
+  if (!state.user) {
+    box.append(el("p", null, "Sign in to get flood warnings for this spot by email."));
+    const link = el("a", null, "Sign in");
+    link.href = `#/signin?next=${encodeURIComponent("#/profile")}`;
+    box.append(link);
+    return box;
+  }
+  const name = el("input", "pin-popup__name");
+  name.maxLength = 40;
+  name.placeholder = "Name it, e.g. School";
+  name.setAttribute("aria-label", "Name for this place");
+  const save = el("button", "auth__button auth__button--primary", "Get warnings here");
+  save.type = "submit";
+  const message = el("p", "pin-popup__message");
+  message.setAttribute("role", "status");
+  box.append(el("strong", null, "Flood warnings for this spot"), name, save, message);
+  box.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!name.value.trim()) {
+      message.textContent = "Give it a name first.";
+      return;
+    }
+    save.disabled = true;
+    message.textContent = "Saving…";
+    try {
+      const place = await addPlace({ label: name.value.trim(), lat: latlng.lat, lon: latlng.lng });
+      box.replaceChildren(
+        el("strong", null, `Saved: ${place.label}`),
+        el(
+          "p",
+          null,
+          place.receiving
+            ? `Warnings for ${place.region_name}, ${place.county_name} County will come by email.`
+            : `In ${place.region_name}, ${place.county_name} County. Confirm your email on your profile to get its warnings.`,
+        ),
+      );
+      const manage = el("a", null, "Manage my places");
+      manage.href = "#/profile";
+      box.append(manage);
+      showSavedPlaces();
+    } catch (error) {
+      message.textContent = error.message;
+      save.disabled = false;
+    }
+  });
+  setTimeout(() => name.focus(), 0);
+  return box;
+}
+
+// Leaflet fires contextmenu for a right-click and for a long press on touch.
+map.on("contextmenu", (event) => {
+  L.popup({ maxWidth: 260 }).setLatLng(event.latlng).setContent(pinPopup(event.latlng)).openOn(map);
 });
 
 /** The theme on screen: the one chosen, or "usual" where it means nothing. */
@@ -2950,6 +3036,7 @@ async function load() {
     },
     onUserChange: (user) => {
       state.user = user;
+      showSavedPlaces();
       // The detail panel's "Get flood alerts" depends on who is signed in.
       if (state.selectedRegionId !== null && !state.adminOpen) renderDetail(state.selectedRegionId);
       if (!user && isProfileSlug(currentSlug())) location.hash = "#/";
