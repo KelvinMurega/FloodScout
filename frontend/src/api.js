@@ -265,6 +265,11 @@ export function fetchFloodEvents(params) {
   return getJson(withParams("flood-events/", params));
 }
 
+/** What the susceptibility layer says about one region: { available, high_share, ... }. */
+export function fetchSusceptibility(regionId) {
+  return getJson(`regions/${regionId}/susceptibility/`);
+}
+
 /**
  * The Kenya Meteorological Department's flood-related warnings in force, as
  * GeoJSON areas. `{ region: id }` keeps the ones covering that region.

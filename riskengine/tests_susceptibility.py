@@ -1,193 +1,163 @@
-"""The susceptibility rules, on made-up pixels. No Earth Engine and no network."""
+"""The susceptibility layer per region: the sums, the build command and the endpoint."""
 
 import json
 import tempfile
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+import joblib
 import numpy as np
-from django.test import SimpleTestCase
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import TestCase
+from django.urls import reverse
 
-from riskengine.ml.pipeline import susceptibility
-from riskengine.ml.susceptibility import evaluate, sample, train
-
-
-def pixels(rows=1200, seed=0):
-    """Two events in two counties each, where low HAND floods more often."""
-    generator = np.random.default_rng(seed)
-    hand = generator.uniform(0, 30, rows)
-    flooded = (generator.uniform(0, 1, rows) < np.exp(-hand / 8)).astype(float)
-    return {
-        "event": np.tile([1.0, 2.0], rows // 2),
-        "county": np.repeat(["Busia", "Kisumu"], rows // 2),
-        "flooded": flooded,
-        "weight": np.where(flooded == 1, 1.0, 5.0),
-        "lon": generator.uniform(34, 36, rows),
-        "lat": generator.uniform(-1, 1, rows),
-        "hand": hand,
-        "twi": 20 - hand / 3 + generator.normal(0, 1, rows),
-        "log_upa": generator.uniform(0, 3, rows),
-        "dist_river": hand * 100 + generator.normal(0, 300, rows),
-        "elev": generator.uniform(1000, 1500, rows),
-        "slope": generator.uniform(0, 5, rows),
-        "flood_zone_100y": (hand < 3).astype(float),
-        "near_lake": (generator.uniform(0, 1, rows) < 0.2).astype(float),
-    }
+from geodata.models import Region
+from riskengine import susceptibility
+from riskengine.ml.susceptibility import layer
+from riskengine.ml.susceptibility.unosat_test import FEATURE_BANDS
+from riskengine.tests_analytics import make_region
 
 
-class ConfigTests(SimpleTestCase):
-    def test_config_matches_the_protocol(self):
-        config = sample.load_config()
-        self.assertEqual(config["protocol_version"], 1)
-        self.assertEqual(config["data"]["sampling_seed"], 20261029)
-        self.assertEqual(config["data"]["min_clear_perc"], 0.5)
-        self.assertEqual(config["promotion"]["margin"], 0.03)
-        self.assertEqual(len(config["data"]["features"]), 7)
+class HandModel:
+    """Susceptibility = the pixel's `hand` band read as a probability."""
 
-    def test_eight_candidates_in_a_fixed_order(self):
-        found = train.candidates(sample.load_config()["selection"]["grids"])
-        self.assertEqual(len(found), 8)
-        self.assertEqual(found, train.candidates(sample.load_config()["selection"]["grids"]))
+    def predict_proba(self, inputs):
+        p = np.clip(inputs[:, FEATURE_BANDS.index("hand")], 0, 1)
+        return np.column_stack([1 - p, p])
 
 
-class SamplingRuleTests(SimpleTestCase):
-    def test_an_event_needs_enough_flooded_pixels(self):
-        self.assertTrue(sample.is_usable({1: 150, 2: 50}, 200))
-        self.assertFalse(sample.is_usable({1: 199}, 200))
-
-    def test_only_counties_with_a_flooded_pixel_are_used(self):
-        self.assertEqual(sample.touched_counties({3: 1, 1: 40, 2: 0}), [1, 3])
-
-    def test_a_weight_says_how_many_pixels_a_drawn_one_stands_for(self):
-        self.assertEqual(sample.sampling_weight(912000, 3000), 304)
-
-    def test_a_class_with_nothing_drawn_is_an_error(self):
-        with self.assertRaises(ValueError):
-            sample.sampling_weight(10, 0)
+def pixels(sub_counties, hands, *, permanent=None, area=62_500.0):
+    n = len(sub_counties)
+    data = {name: np.ones(n, dtype=np.float32) for name in FEATURE_BANDS}
+    data["hand"] = np.asarray(hands, dtype=np.float32)
+    data["sub_county"] = np.asarray(sub_counties, dtype=np.float32)
+    data["permanent"] = np.asarray(permanent or [0] * n, dtype=np.float32)
+    data["near_lake"] = np.zeros(n, dtype=np.float32)
+    data["area_m2"] = np.full(n, area, dtype=np.float32)
+    data["col"] = np.arange(n, dtype=np.int32)
+    data["row"] = np.zeros(n, dtype=np.int32)
+    return data
 
 
-class MetricTests(SimpleTestCase):
-    def test_a_perfect_score_gets_one_and_its_reverse_gets_zero(self):
-        data = pixels()
-        self.assertEqual(evaluate.summary(data, data["flooded"])["within_county_roc_auc"], 1.0)
-        self.assertEqual(evaluate.summary(data, -data["flooded"])["within_county_roc_auc"], 0.0)
+class LayerTests(TestCase):
+    def test_sums_per_sub_county_and_county_leave_out_unusable_pixels(self):
+        raw = pixels([1, 1, 2, 2, 0], [0.2, 0.6, 0.9, 0.5, 1.0], permanent=[0, 0, 0, 1, 0])
+        scored = layer.usable_scores(raw, HandModel())
+        # Sub-county 0 is outside any sub-county; the permanent-water pixel goes too.
+        self.assertEqual(scored["sub_county"].tolist(), [1, 1, 2])
+        summary = layer.summarise(scored, line=0.6)
+        self.assertEqual(summary[1]["mean"], 0.4)
+        self.assertEqual(summary[1]["high_share"], 0.5)
+        self.assertEqual(summary[2]["high_share"], 1.0)
+        self.assertEqual(summary[0]["land_km2"], round(3 * 62_500 / 1e6, 2))
+        self.assertAlmostEqual(summary[0]["expected_km2"], (0.2 + 0.6 + 0.9) * 0.0625, places=2)
 
-    def test_a_county_event_with_too_few_pixels_is_left_out(self):
-        data = pixels(rows=400)
-        labels = data["flooded"].copy()
-        labels[data["county"] == "Busia"] = 0
-        table = evaluate.by_county_event({**data, "flooded": labels}, data["hand"])
-        self.assertNotIn("Busia", {row["county"] for row in table})
+    def test_the_high_line_is_kenyas_80th_percentile(self):
+        line = layer.high_line([np.arange(0, 50) / 100, np.arange(50, 100) / 100])
+        self.assertAlmostEqual(line, 0.792, places=3)
 
-    def test_class_weights_change_precision_but_not_the_area_under_the_curve(self):
-        data = pixels()
-        noisy = -data["hand"] + np.random.default_rng(1).normal(0, 20, len(data["hand"]))
-        even = evaluate.summary({**data, "weight": np.ones(len(data["hand"]))}, noisy)
-        weighted = evaluate.summary(data, noisy)
-        self.assertEqual(even["within_county_roc_auc"], weighted["within_county_roc_auc"])
-        self.assertNotEqual(
-            even["within_county_average_precision"], weighted["within_county_average_precision"]
-        )
-
-    def test_hand_is_the_best_baseline_when_low_ground_floods(self):
-        baselines = evaluate.score_baselines(pixels())
-        self.assertEqual(evaluate.best_baseline(baselines), "hand")
-        self.assertGreater(baselines["hand"]["within_county_roc_auc"], 0.7)
-
-    def test_the_sensitivity_score_drops_the_rows_near_a_lake(self):
-        data = pixels()
-        away, score = evaluate.without_lakes(data, data["hand"])
-        self.assertEqual(len(away["flooded"]), int((data["near_lake"] == 0).sum()))
-        self.assertEqual(len(score), len(away["flooded"]))
-        self.assertTrue((away["near_lake"] == 0).all())
-
-    def test_calibration_bins_hold_every_row(self):
-        data = pixels()
-        result = evaluate.calibration(data, np.linspace(0, 1, len(data["hand"])))
-        self.assertEqual(sum(row["rows"] for row in result["reliability"]), len(data["hand"]))
+    def test_ranks_run_within_a_level_most_flood_prone_first(self):
+        rows = [
+            {"level": "county", "high_share": 0.1},
+            {"level": "county", "high_share": 0.3},
+            {"level": "sub_county", "high_share": 0.2},
+            {"level": "sub_county", "high_share": None},
+        ]
+        layer.ranks(rows)
+        self.assertEqual([r.get("rank_in_kenya") for r in rows], [2, 1, 1, None])
+        self.assertEqual(rows[0]["of"], 2)
 
 
-class DecisionTests(SimpleTestCase):
-    def test_the_model_ships_when_it_clears_the_margin_and_the_blocks(self):
-        self.assertEqual(evaluate.decide(0.80, 0.75, 0.77, 0.75, 0.03)["ship"], "model")
-
-    def test_just_under_the_margin_ships_the_baseline(self):
-        self.assertEqual(evaluate.decide(0.79, 0.76, 0.77, 0.75, 0.03)["ship"], "best-baseline")
-
-    def test_losing_on_blocks_ships_the_baseline(self):
-        self.assertEqual(evaluate.decide(0.90, 0.74, 0.77, 0.75, 0.03)["ship"], "best-baseline")
-
-
-class TrainingTests(SimpleTestCase):
+class BuildCommandTests(TestCase):
     def setUp(self):
-        self.settings = sample.load_config()
-        self.features = self.settings["data"]["features"]
-        self.options = train.candidates(self.settings["selection"]["grids"])
-
-    def test_blocks_are_half_degree_squares(self):
-        blocks = train.block_ids(
-            {"lon": np.array([34.1, 34.4, 34.6]), "lat": np.array([0.1, 0.2, 0.1])}, 0.5
+        self.alpha = make_region("Alpha")
+        self.beta = make_region("Beta", offset=2.0)
+        for name, county, offset in (("Alpha North", "Alpha", 4.0), ("Beta West", "Beta", 6.0)):
+            sub = make_region(name, level=Region.Level.SUB_COUNTY, offset=offset)
+            sub.county_name = county
+            sub.save()
+        self.dir = Path(tempfile.mkdtemp())
+        self.run = self.dir / "run"
+        self.run.mkdir()
+        self.px = self.dir / "pixels"
+        self.px.mkdir()
+        joblib.dump({"model": HandModel(), "ship": "model"}, self.run / "susceptibility_model.joblib")
+        (self.px / "sub_counties.json").write_text(
+            json.dumps({"1": {"name": "Alpha North", "county": "Alpha"}, "2": {"name": "Beta West", "county": "Beta"}})
         )
-        self.assertEqual(blocks[0], blocks[1])
-        self.assertNotEqual(blocks[0], blocks[2])
+        np.savez(self.px / "Alpha.npz", **pixels([1, 1, 1, 1], [0.1, 0.2, 0.3, 0.9]))
 
-    def test_out_of_fold_never_leaves_a_pixel_unscored(self):
-        model = train.build(self.options[0], 0)
-        predicted = train.block_cv(pixels(), self.features, model, 0.5, 3)
-        self.assertFalse(np.isnan(predicted).any())
+    def build(self):
+        call_command("build_susceptibility", "--run", str(self.run), "--pixels", str(self.px), stdout=StringIO())
 
-    def test_low_ground_passes_the_sign_check(self):
-        data = pixels(rows=2000)
-        inputs = train.matrix(data, self.features)
-        model = train._fit(train.build(self.options[2], 0), inputs, data["flooded"], data["weight"])
-        self.assertTrue(train.sign_check(model, data, self.features)["hand"]["as_expected"])
+    def test_every_county_must_have_its_pixels(self):
+        with self.assertRaisesRegex(CommandError, "Beta"):
+            self.build()
 
-    def test_a_baseline_layer_keeps_the_order_of_its_score(self):
-        layer = train.fit_baseline_layer(pixels(), "hand")
-        low_ground, high_ground = layer.predict_proba([[-1.0], [-20.0]])[:, 1]
-        self.assertGreater(low_ground, high_ground)
-
-    def test_the_whole_protocol_runs_and_reaches_a_decision(self):
-        settings = sample.load_config()
-        settings["selection"]["seeds"] = [0]
-        settings["selection"]["grids"]["hist-gradient-boosting"]["max_iter"] = [20]
-        settings["selection"]["grids"]["hist-gradient-boosting"]["min_samples_leaf"] = [20]
-        layer, metrics = train.run(pixels(), settings, log=lambda message: None)
-        self.assertIn(metrics["decision"]["ship"], ("model", "best-baseline"))
-        self.assertEqual(metrics["best_baseline"], "hand")
-        self.assertEqual(len(metrics["candidates"]), 8)
-        self.assertEqual(len(metrics["event_cv"]["per_event"]), 2)
-        self.assertIn(
-            "model, block CV", metrics["sensitivity_without_lakes"]["within_county_roc_auc"]
+    def test_it_writes_one_row_per_region(self):
+        np.savez(self.px / "Beta.npz", **pixels([2, 2, 2, 2], [0.8, 0.85, 0.9, 0.95]))
+        self.build()
+        data = json.loads((self.run / "regions.json").read_text())
+        names = {(r["level"], r["name"]) for r in data["rows"]}
+        self.assertEqual(
+            names,
+            {("county", "Alpha"), ("county", "Beta"), ("sub_county", "Alpha North"), ("sub_county", "Beta West")},
         )
-        self.assertIsNotNone(layer)
+        beta = next(r for r in data["rows"] if r["name"] == "Beta West")
+        self.assertEqual(beta["rank_in_kenya"], 1)
+        self.assertEqual(data["high_percentile"], 80)
 
-    def boosting_only(self):
-        """Weighted boosting behaves differently, and it leads on the real sample."""
-        settings = sample.load_config()
-        settings["selection"]["seeds"] = [0]
-        boosting = settings["selection"]["grids"]["hist-gradient-boosting"]
-        boosting |= {"max_iter": [20], "min_samples_leaf": [20], "learning_rate": [0.1]}
-        boosting["max_leaf_nodes"] = [15]
-        del settings["selection"]["grids"]["logreg"]
-        return settings
+    def test_a_run_that_shipped_a_baseline_is_refused(self):
+        joblib.dump({"model": HandModel(), "ship": "hand"}, self.run / "susceptibility_model.joblib")
+        np.savez(self.px / "Beta.npz", **pixels([2], [0.5]))
+        with self.assertRaisesRegex(CommandError, "did not ship"):
+            self.build()
 
-    def test_boosting_runs_the_protocol_to_a_written_run_folder(self):
-        layer, metrics = train.run(pixels(), self.boosting_only(), log=lambda message: None)
-        self.assertTrue(metrics["partial_dependence"]["hand"]["as_expected"])
-        config = mock.Mock(path=sample.CONFIG_PATH)
-        metrics["provenance"] = {"git_commit": "abc", "training_set_sha256": "def"}
-        with tempfile.TemporaryDirectory() as folder:
-            written = susceptibility.write("run", config, layer, metrics, Path(folder))
-            self.assertTrue(json.loads((written / "metrics.json").read_text())["rows"])
-            self.assertTrue((written / susceptibility.MODEL_FILE).exists())
-            self.assertIn("Decision", (written / "summary.md").read_text())
 
-    def test_a_checkpoint_is_used_instead_of_training_again(self):
-        settings = self.boosting_only()
-        with tempfile.TemporaryDirectory() as folder:
-            quiet = {"log": lambda message: None, "checkpoints": Path(folder)}
-            _, first = train.run(pixels(), settings, **quiet)
-            with mock.patch.object(train, "event_cv", side_effect=AssertionError("trained")):
-                _, second = train.run(pixels(), settings, **quiet)
-        self.assertEqual(first["candidates"], second["candidates"])
+class EndpointTests(TestCase):
+    def setUp(self):
+        susceptibility._load.cache_clear()
+        self.addCleanup(susceptibility._load.cache_clear)
+        self.county = make_region("Kisumu")
+        self.sub = make_region("Nyando", level=Region.Level.SUB_COUNTY, offset=2.0)
+        self.sub.county_name = "Kisumu"
+        self.sub.save()
+        self.run = Path(tempfile.mkdtemp())
+
+    def get(self, region):
+        with mock.patch("riskengine.susceptibility.SHIPPED_RUN", self.run):
+            return self.client.get(reverse("region-susceptibility", args=[region.pk])).json()
+
+    def test_nothing_is_said_before_the_layer_is_built(self):
+        self.assertEqual(self.get(self.sub), {"available": False})
+
+    def test_a_sub_county_gets_its_numbers_its_countys_and_the_test_result(self):
+        row = {"mean": 0.2, "expected_km2": 41.0, "land_km2": 500.0, "rank_in_kenya": 12, "of": 290}
+        (self.run / "regions.json").write_text(
+            json.dumps(
+                {
+                    "run": "r1",
+                    "high_percentile": 80,
+                    "rows": [
+                        {**row, "level": "sub_county", "county": "Kisumu", "name": "Nyando", "high_share": 0.34},
+                        {**row, "level": "county", "county": "Kisumu", "name": "Kisumu", "high_share": 0.22},
+                    ],
+                }
+            )
+        )
+        (self.run / "unosat_test.json").write_text(
+            json.dumps(
+                {
+                    "date": "2026-11-05",
+                    "engine_sub_county_roc_auc": 0.461,
+                    "sub_county": {"model": {"within_county_roc_auc": 0.7}},
+                }
+            )
+        )
+        data = self.get(self.sub)
+        self.assertTrue(data["available"])
+        self.assertEqual((data["high_share"], data["county_high_share"]), (0.34, 0.22))
+        self.assertEqual(data["checked"]["sub_county_roc_auc"], 0.7)
+        self.assertIsNone(self.get(self.county)["county_high_share"])

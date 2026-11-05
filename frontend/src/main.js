@@ -39,6 +39,7 @@ import {
   fetchBriefing,
   fetchExplanation,
   fetchFloodEvents,
+  fetchSusceptibility,
   fetchKmdWarnings,
   fetchFocusRegions,
   fetchForecast,
@@ -1831,6 +1832,59 @@ async function renderKmd(regionId, container) {
   }
 }
 
+/** "1st", "2nd", "23rd". */
+function ordinal(n) {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th"}`;
+}
+
+/**
+ * Where inside this place the water goes, from the ground alone (the
+ * susceptibility layer, riskengine/susceptibility.py). Says nothing until
+ * the layer has been built. A slot keeps its place in the panel.
+ */
+async function renderSusceptibility(regionId, name, container) {
+  const slot = el("div", "susceptibility");
+  container.append(slot);
+  let s;
+  try {
+    s = await fetchSusceptibility(regionId);
+  } catch (error) {
+    console.error(error);
+    slot.remove();
+    return;
+  }
+  if (state.selectedRegionId !== regionId || !s.available || s.high_share === null) {
+    slot.remove();
+    return;
+  }
+  const share = Math.round(s.high_share * 100);
+  const fifth = 100 - s.high_percentile;
+  slot.append(el("p", "detail__subheading", "Where the water goes"));
+  let line = `${share}% of ${name}'s land is among Kenya's most flood-prone ${fifth === 20 ? "fifth" : `${fifth}%`}`;
+  if (s.county_high_share !== null) line += ` (its county as a whole: ${Math.round(s.county_high_share * 100)}%)`;
+  slot.append(el("p", "susceptibility__share", `${line}.`));
+  const facts = [];
+  if (s.rank_in_kenya) facts.push(`${ordinal(s.rank_in_kenya)} of ${s.of} in Kenya on that measure`);
+  facts.push(
+    `about ${Math.round(s.expected_km2).toLocaleString()} km² of its ${Math.round(s.land_km2).toLocaleString()} km² ` +
+      "would be expected under water when a large flood reaches it",
+  );
+  slot.append(el("p", "susceptibility__facts", `${facts.join("; ")}.`.replace(/^./, (c) => c.toUpperCase())));
+  const checked = s.checked
+    ? ` Checked once against UNOSAT satellite flood maps (November 2023, April 2024): it ranked the sub-counties that flooded at ${s.checked.sub_county_roc_auc.toFixed(2)}, against ${s.checked.engine_roc_auc.toFixed(2)} for rain alone and 0.50 for chance.`
+    : " Not yet checked against satellite flood maps.";
+  slot.append(
+    el(
+      "p",
+      "susceptibility__note",
+      "From the ground alone (height above the nearest river, slope, upstream area and the 100-year flood zone); it does not change with the weather." +
+        checked,
+    ),
+  );
+}
+
 /**
  * Large floods recorded in this place before (DFO, 1988 to 2021): how many,
  * the most recent, and the worst. A recorded flood's footprint is a circle
@@ -2136,6 +2190,7 @@ function renderDetail(regionId) {
     renderHistory(regionId, score, els.detail);
   }
   if (stored) renderInputs(regionId, score, els.detail);
+  renderSusceptibility(regionId, name, els.detail);
   renderPastFloods(regionId, els.detail);
 
   // Signed in, one click with the profile's email and phone; else the form.
