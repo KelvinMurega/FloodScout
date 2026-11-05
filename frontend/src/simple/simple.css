@@ -251,6 +251,14 @@
   background: var(--alert-watch-bg, #fff1db);
 }
 
+.simple__alert--kmd {
+  border-left-color: #d9480f;
+  border-style: dashed;
+  background: color-mix(in srgb, #d9480f 10%, transparent);
+  display: grid;
+  gap: 4px;
+}
+
 .simple__alert--advisory {
   border-left-color: var(--alert-advisory, #c9a800);
   background: var(--alert-advisory-bg, #fff9db);
