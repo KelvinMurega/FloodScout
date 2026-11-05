@@ -27,7 +27,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from geodata.models import Region
+from geodata.models import KmdWarning, Region
 from riskengine.models import RiskScore
 from riskengine.situation import newest_places
 
@@ -136,6 +136,36 @@ def expire_old(now=None) -> int:
     )
 
 
+def _local_day(when: dt.datetime) -> str:
+    local = timezone.localtime(when)
+    return f"{local:%A} {local.day} {local:%B}"
+
+
+def kmd_reason(warning: KmdWarning, now: dt.datetime) -> dict:
+    """ "KMD heavy rainfall advisory in force until Friday 30 October"."""
+    kind = "warning" if warning.severity in ("Severe", "Extreme") else "advisory"
+    when = f"from {_local_day(warning.onset)}" if warning.onset > now else "in force"
+    if warning.expires:
+        when += f" until {_local_day(warning.expires)}"
+    text = f"KMD {warning.event.lower()} {kind} {when}"
+    return {"kind": "kmd", "text": text, "url": warning.web or warning.url}
+
+
+def kmd_by_region(now: dt.datetime) -> dict[int, KmdWarning]:
+    """The flood-related KMD warning for each region it covers: the one that
+    lasts longest where two overlap."""
+    found: dict[int, KmdWarning] = {}
+    warnings = (
+        KmdWarning.in_force(now).filter(flood_related=True).prefetch_related("regions")
+    )
+    for warning in warnings:
+        for region_id in (r.pk for r in warning.regions.all()):
+            current = found.get(region_id)
+            if current is None or (warning.expires or now) > (current.expires or now):
+                found[region_id] = warning
+    return found
+
+
 def run_alerts(now=None) -> AlertRun:
     """One pass of the rules over the newest scores of every region."""
     now = now or timezone.now()
@@ -155,10 +185,15 @@ def run_alerts(now=None) -> AlertRun:
         alert.region_id: alert
         for alert in Alert.objects.filter(status=Alert.Status.ACTIVE).select_related("region")
     }
+    kmd = kmd_by_region(now)
     to_notify = []
     with transaction.atomic():
         for place in places:
             decision = decide(place, day)
+            # KMD's warning is named, never counted: it does not change the
+            # level, as there is no record of past KMD warnings to test that on.
+            if decision.level and place.region in kmd:
+                decision.reasons.append(kmd_reason(kmd[place.region], now))
             current = active.get(place.region)
             if current and current.basis == Alert.Basis.MANUAL:
                 continue

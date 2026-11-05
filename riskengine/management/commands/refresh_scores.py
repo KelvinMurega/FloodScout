@@ -16,7 +16,9 @@ back on, scored from the rain that actually fell on them.
 
 After the scores, the next seven days are forecast from forecast rain
 (`forecast_scores`), and the alerts are brought up to date and sent
-(`issue_alerts`). Flood reports are fetched from ReliefWeb for the live
+(`issue_alerts`), after reading the Kenya Meteorological Department's
+warnings (`fetch_kmd_warnings`), which a scheduled run also reads every
+hour in between. Flood reports are fetched from ReliefWeb for the live
 record (`fetch_flood_reports`). When `seed_grid` has laid an area grid, its cells are
 scored too, with the same catching up.
 
@@ -56,9 +58,14 @@ CHECK_SECONDS = 600
 # allowance comes back long before the next daily run.
 RETRY_SECONDS = 3600
 
+# How often, between daily refreshes, the Kenya Meteorological Department's
+# warnings are read again. They are small, and KMD can issue one at any hour.
+KMD_SECONDS = 3600
+
 # Indirection so tests can skip the wait and move the clock.
 _sleep = time.sleep
 _now = time.time
+_kmd_clock = time.time
 
 
 def days_to_score(today: dt.date, scored_days) -> list[dt.date]:
@@ -111,6 +118,8 @@ class Command(BaseCommand):
             raise CommandError("--every-hours must be positive.")
 
         last_run = None
+        # Each refresh reads KMD's warnings too; this times the reads between.
+        last_kmd = _kmd_clock()
         while True:
             if last_run is None or _now() - last_run >= every * 3600:
                 last_run = _now()
@@ -133,7 +142,19 @@ class Command(BaseCommand):
                     )
             if every is None:
                 return
+            if _kmd_clock() - last_kmd >= KMD_SECONDS:
+                last_kmd = _kmd_clock()
+                self.fetch_kmd()
             _sleep(min(CHECK_SECONDS, every * 3600))
+
+    def fetch_kmd(self):
+        """KMD's warnings. A failure is reported and does not stop anything:
+        the warnings already stored stay, and the next hour tries again."""
+        try:
+            call_command("fetch_kmd_warnings", stdout=self.stdout, stderr=self.stderr)
+        except (CommandError, DatabaseError) as exc:
+            connections.close_all()
+            self.stderr.write(self.style.WARNING(f"KMD warnings skipped: {exc}"))
 
     def refresh(self):
         # Between scheduled runs the connection sits idle for a day, and the
@@ -163,6 +184,9 @@ class Command(BaseCommand):
             call_command("forecast_scores", stdout=self.stdout, stderr=self.stderr)
         except CommandError as exc:
             self.stderr.write(self.style.WARNING(f"Forecast skipped: {exc}"))
+
+        # KMD's official warnings, so the alerts can name any in force.
+        self.fetch_kmd()
 
         # Issue, upgrade and end the alerts from the new scores and forecast,
         # and send them to the people who asked.
