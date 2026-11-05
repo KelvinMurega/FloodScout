@@ -22,6 +22,8 @@ MAX_PIXELS_INSIDE = 64
 # Pixels searched for the nearest river, about 64 km at 250 m.
 RIVER_SEARCH_PIXELS = 256
 LAKE_GRID_METRES = 250
+# A feature Earth Engine has no value for. JSON cannot carry NaN.
+MISSING = -9999
 
 
 def _onto(image, reducer, grid):
@@ -57,6 +59,28 @@ def feature_image(ee, grid, slope_floor_degrees, river_upstream_km2):
         elev,
         slope,
         flood_zone(ee, grid),
+    )
+
+
+def test_image(ee, grid, sub_counties, derived, permanent_water_occurrence, lakes):
+    """Everything the UNOSAT test needs for a pixel except its label.
+
+    The seven features, the pixel's sub-county number (0 outside Kenya), the
+    permanent water mask, the lake flag and the pixel's area in m². Every
+    band is unmasked, so a pixel with a missing feature reads as MISSING.
+    """
+    features = feature_image(
+        ee, grid, derived["slope_floor_degrees"], derived["river_upstream_km2"]
+    ).unmask(MISSING, False)
+    occurrence = ee.Image(SURFACE_WATER).select("occurrence").unmask(0)
+    permanent = occurrence.gte(permanent_water_occurrence).rename("permanent")
+    lake = near_lake(ee, lakes["occurrence"], lakes["min_area_km2"], lakes["buffer_metres"])
+    return ee.Image.cat(
+        features.toFloat(),
+        sub_counties.unmask(0).reproject(grid).toFloat(),
+        permanent.unmask(0).reproject(grid).toFloat(),
+        lake.unmask(0).reproject(grid).toFloat(),
+        ee.Image.pixelArea().reproject(grid).rename("area_m2").toFloat(),
     )
 
 
