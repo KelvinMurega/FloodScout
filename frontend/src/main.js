@@ -78,6 +78,7 @@ import { KENYA_SLUG, alertSummary, countySlug, overviewScope, regionSummaries } 
 import { hideSimple, showSimple } from "./simple/simple.js";
 import { chooseView, viewFor } from "./viewmode.js";
 import { initNavMenu } from "./navmenu.js";
+import { startOffline } from "./offline.js";
 import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
 import {
   THEMES,
@@ -2927,6 +2928,8 @@ async function load() {
   // Before the data, so the analytics page works even if the map's data
   // does not load. route() leaves the map views until it has.
   window.addEventListener("hashchange", route);
+  // Installable, and usable offline with the last map loaded (offline.js).
+  startOffline(document.querySelector(".app__header"));
   initNavMenu(
     document.querySelector(".app__header"),
     document.getElementById("nav-toggle"),
