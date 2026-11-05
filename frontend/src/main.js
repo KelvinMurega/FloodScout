@@ -1855,22 +1855,19 @@ async function renderSusceptibility(regionId, name, container) {
     slot.remove();
     return;
   }
-  if (state.selectedRegionId !== regionId || !s.available || s.high_share === null) {
+  if (state.selectedRegionId !== regionId || !s.available || s.mean === null) {
     slot.remove();
     return;
   }
-  const share = Math.round(s.high_share * 100);
-  const fifth = 100 - s.high_percentile;
+  const pct = (share) => `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`;
   slot.append(el("p", "detail__subheading", "Where the water goes"));
-  let line = `${share}% of ${name}'s land is among Kenya's most flood-prone ${fifth === 20 ? "fifth" : `${fifth}%`}`;
-  if (s.county_high_share !== null) line += ` (its county as a whole: ${Math.round(s.county_high_share * 100)}%)`;
+  let line = `About ${pct(s.mean)} of ${name}'s land would be expected under water when a large flood reaches it`;
+  if (s.rank_in_kenya) line += `: ${ordinal(s.rank_in_kenya)} of ${s.of} in Kenya`;
   slot.append(el("p", "susceptibility__share", `${line}.`));
   const facts = [];
-  if (s.rank_in_kenya) facts.push(`${ordinal(s.rank_in_kenya)} of ${s.of} in Kenya on that measure`);
-  facts.push(
-    `about ${Math.round(s.expected_km2).toLocaleString()} km² of its ${Math.round(s.land_km2).toLocaleString()} km² ` +
-      "would be expected under water when a large flood reaches it",
-  );
+  if (s.median_mean !== null) facts.push(`the middle ${s.of === 47 ? "county" : "sub-county"}: ${pct(s.median_mean)}`);
+  if (s.county_mean !== null) facts.push(`its county as a whole: ${pct(s.county_mean)}`);
+  facts.push(`about ${Math.round(s.expected_km2).toLocaleString()} km² of ${Math.round(s.land_km2).toLocaleString()} km²`);
   slot.append(el("p", "susceptibility__facts", `${facts.join("; ")}.`.replace(/^./, (c) => c.toUpperCase())));
   const checked = s.checked
     ? ` Checked once against UNOSAT satellite flood maps (November 2023, April 2024): it ranked the sub-counties that flooded at ${s.checked.sub_county_roc_auc.toFixed(2)}, against ${s.checked.engine_roc_auc.toFixed(2)} for rain alone and 0.50 for chance.`

@@ -60,14 +60,19 @@ class LayerTests(TestCase):
 
     def test_ranks_run_within_a_level_most_flood_prone_first(self):
         rows = [
-            {"level": "county", "high_share": 0.1},
-            {"level": "county", "high_share": 0.3},
-            {"level": "sub_county", "high_share": 0.2},
-            {"level": "sub_county", "high_share": None},
+            {"level": "county", "mean": 0.1},
+            {"level": "county", "mean": 0.3},
+            {"level": "sub_county", "mean": 0.2},
+            {"level": "sub_county", "mean": None},
         ]
         layer.ranks(rows)
         self.assertEqual([r.get("rank_in_kenya") for r in rows], [2, 1, 1, None])
         self.assertEqual(rows[0]["of"], 2)
+
+    def test_the_middle_regions_mean(self):
+        rows = [{"level": "sub_county", "mean": m} for m in (0.1, 0.4, 0.2, 0.3)]
+        self.assertEqual(layer.median_mean(rows), 0.25)
+        self.assertIsNone(layer.median_mean(rows, "county"))
 
 
 class BuildCommandTests(TestCase):
@@ -106,8 +111,8 @@ class BuildCommandTests(TestCase):
             {("county", "Alpha"), ("county", "Beta"), ("sub_county", "Alpha North"), ("sub_county", "Beta West")},
         )
         beta = next(r for r in data["rows"] if r["name"] == "Beta West")
-        self.assertEqual(beta["rank_in_kenya"], 1)
-        self.assertEqual(data["high_percentile"], 80)
+        self.assertEqual(beta["rank_in_kenya"], 1)  # the wetter of the two
+        self.assertEqual(data["median_mean"]["sub_county"], round((0.375 + 0.875) / 2, 4))
 
     def test_a_run_that_shipped_a_baseline_is_refused(self):
         joblib.dump({"model": HandModel(), "ship": "hand"}, self.run / "susceptibility_model.joblib")
@@ -134,15 +139,16 @@ class EndpointTests(TestCase):
         self.assertEqual(self.get(self.sub), {"available": False})
 
     def test_a_sub_county_gets_its_numbers_its_countys_and_the_test_result(self):
-        row = {"mean": 0.2, "expected_km2": 41.0, "land_km2": 500.0, "rank_in_kenya": 12, "of": 290}
+        row = {"expected_km2": 41.0, "land_km2": 500.0, "rank_in_kenya": 12, "of": 290}
         (self.run / "regions.json").write_text(
             json.dumps(
                 {
                     "run": "r1",
                     "high_percentile": 80,
+                    "median_mean": {"county": 0.01, "sub_county": 0.004},
                     "rows": [
-                        {**row, "level": "sub_county", "county": "Kisumu", "name": "Nyando", "high_share": 0.34},
-                        {**row, "level": "county", "county": "Kisumu", "name": "Kisumu", "high_share": 0.22},
+                        {**row, "level": "sub_county", "county": "Kisumu", "name": "Nyando", "high_share": 0.34, "mean": 0.064},
+                        {**row, "level": "county", "county": "Kisumu", "name": "Kisumu", "high_share": 0.22, "mean": 0.02},
                     ],
                 }
             )
@@ -158,6 +164,6 @@ class EndpointTests(TestCase):
         )
         data = self.get(self.sub)
         self.assertTrue(data["available"])
-        self.assertEqual((data["high_share"], data["county_high_share"]), (0.34, 0.22))
+        self.assertEqual((data["mean"], data["county_mean"], data["median_mean"]), (0.064, 0.02, 0.004))
         self.assertEqual(data["checked"]["sub_county_roc_auc"], 0.7)
-        self.assertIsNone(self.get(self.county)["county_high_share"])
+        self.assertIsNone(self.get(self.county)["county_mean"])

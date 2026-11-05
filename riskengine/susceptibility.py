@@ -59,7 +59,8 @@ def for_region(region, run: Path | None = None) -> dict | None:
         "land_km2": row["land_km2"],
         "rank_in_kenya": row.get("rank_in_kenya"),
         "of": row.get("of"),
-        "county_high_share": county["high_share"] if county and region.level != "county" else None,
+        "county_mean": county["mean"] if county and region.level != "county" else None,
+        "median_mean": data.get("median_mean", {}).get(region.level),
         "checked": (
             {
                 "sub_county_roc_auc": test["sub_county"]["model"]["within_county_roc_auc"],

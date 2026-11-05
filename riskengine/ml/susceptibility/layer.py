@@ -14,6 +14,14 @@ Refocus Phase D's aggregation rules, fixed here before the layer is shown:
 Usable means as in the test: in a sub-county, not permanent water, every
 feature present. A county is summed over all its sub-counties' pixels.
 
+Regions are ranked by **mean**, the share of their land expected under water.
+The high share was meant to lead, but the layer's scores are so skewed (most
+of Kenya is far from any river) that Kenya's 80th percentile is a chance of
+about 0.001: "above it" means flat lowland, and dry Tharaka and Kitui came
+first while Budalangi came seventh. That was seen in the scores alone, on 5
+November 2026, before any flood label was read; the high share is kept in
+the file but not shown.
+
 Plain NumPy, so every rule is tested without Earth Engine.
 """
 
@@ -68,7 +76,7 @@ def summarise(scored: dict, line: float) -> dict[int, dict]:
     return result
 
 
-def ranks(rows: list[dict], key: str = "high_share") -> None:
+def ranks(rows: list[dict], key: str = "mean") -> None:
     """Add `rank_in_kenya` (1 is the most flood-prone) to each row, among rows of its level."""
     for level in {row["level"] for row in rows}:
         same = sorted(
@@ -78,3 +86,12 @@ def ranks(rows: list[dict], key: str = "high_share") -> None:
         for position, row in enumerate(same, start=1):
             row["rank_in_kenya"] = position
             row["of"] = len(same)
+
+
+def median_mean(rows: list[dict], level: str = "sub_county") -> float | None:
+    """The middle region's mean, to compare one region with."""
+    values = sorted(row["mean"] for row in rows if row["level"] == level and row["mean"] is not None)
+    if not values:
+        return None
+    middle = len(values) // 2
+    return values[middle] if len(values) % 2 else round((values[middle - 1] + values[middle]) / 2, 4)

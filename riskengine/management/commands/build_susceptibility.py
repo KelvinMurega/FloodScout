@@ -99,11 +99,15 @@ class Command(BaseCommand):
             "model_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
             "high_line": round(line, 4),
             "high_percentile": layer.HIGH_PERCENTILE,
+            "median_mean": {
+                "county": layer.median_mean(rows, "county"),
+                "sub_county": layer.median_mean(rows, "sub_county"),
+            },
             "rows": rows,
         }
         out.write_text(json.dumps(body, indent=1) + "\n")
         subs = sum(row["level"] == "sub_county" for row in rows)
         self.stdout.write(
             f"Wrote {out}: {len(counties)} counties, {subs} sub-counties; "
-            f"Kenya's top {100 - layer.HIGH_PERCENTILE}% of land starts at {line:.3f}"
+            f"the middle sub-county's share expected under water is {layer.median_mean(rows):.2%}"
         )

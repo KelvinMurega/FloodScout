@@ -364,9 +364,9 @@ def region_susceptibility(request, region_id: int):
     """Where inside a region the water goes, from the ground alone.
 
     The shipped susceptibility layer summed up for one county or sub-county
-    (riskengine/susceptibility.py): the share of its land among Kenya's most
-    flood-prone fifth, its mean susceptibility, the area expected to go under
-    water if its county floods, and how far the layer has been checked.
+    (riskengine/susceptibility.py): the share of its land expected under
+    water when a large flood reaches it, its rank in Kenya, the middle
+    region's share and its county's, and how far the layer has been checked.
     `available` is false until `build_susceptibility` has been run.
     """
     region = get_object_or_404(Region, pk=region_id)
