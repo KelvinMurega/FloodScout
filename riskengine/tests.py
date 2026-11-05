@@ -13,6 +13,7 @@ from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -817,6 +818,10 @@ class RefreshScoresCommandTests(TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Closing the connection would end the test's transaction.
+        patcher = mock.patch(f"{self.COMMANDS}.connections")
+        self.connections = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _scored(self, day):
         RiskScore.objects.create(
@@ -963,6 +968,18 @@ class RefreshScoresCommandTests(TestCase):
     def test_the_interval_must_be_positive(self):
         with self.assertRaises(CommandError):
             call_command("refresh_scores", "--every-hours", "0", stdout=StringIO())
+
+    def test_each_run_starts_on_a_new_database_connection(self):
+        # The connection kept from yesterday's run may have been dropped.
+        with mock.patch(f"{self.COMMANDS}.call_command"):
+            call_command("refresh_scores", stdout=StringIO())
+        self.connections.close_all.assert_called()
+
+    def test_on_a_schedule_a_dropped_database_connection_is_retried_within_the_hour(self):
+        error = OperationalError("SSL error: unexpected eof while reading")
+        run, stderr = self._schedule([0, 600, 3600, 3600], error=error)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("unexpected eof", stderr)
 
 
 class TimesUsualTests(APITestCase):

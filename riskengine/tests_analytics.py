@@ -166,6 +166,18 @@ class SystemHealthTests(TestCase):
             score(region, TODAY - dt.timedelta(days=7))
         self.assertEqual(self.checks(system_health())["Risk scores"], "degraded")
 
+    def test_rainfall_up_to_yesterday_is_ok_and_four_days_back_a_warning(self, _today):
+        # Rain is fetched only for days that have ended, so before the
+        # morning's run the newest is from the day before yesterday.
+        for days, expected in ((2, "ok"), (4, "warning"), (5, "degraded")):
+            EnvironmentalData.objects.all().delete()
+            EnvironmentalData.objects.create(
+                region=self.kisumu,
+                record_date=TODAY - dt.timedelta(days=days),
+                rainfall_intensity=3.0,
+            )
+            self.assertEqual(self.checks(system_health())["Rainfall feed"], expected, days)
+
     def test_a_missing_region_lowers_coverage(self, _today):
         score(self.kisumu, TODAY)
         self.assertEqual(self.checks(system_health())["Coverage"], "degraded")
