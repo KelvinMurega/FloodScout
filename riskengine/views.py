@@ -32,6 +32,7 @@ from .scoring import NoRegionsError, score_regions, start_of_day
 from .season import times_season
 from .serializers import RiskForecastSerializer, RiskOutlookSerializer, RiskScoreSerializer
 from .situation import newest_places
+from .susceptibility import for_region as susceptibility_for
 from .why import explain_score
 
 # `inputs/` and `explain/` work a score out again from the stored rainfall,
@@ -356,6 +357,21 @@ def situation_briefing(request):
     body = briefing(places, date=day, area=area, unit=unit, oni=oni)
     body["forecast_issued_on"] = issued.isoformat() if issued else None
     return Response(body)
+
+
+@api_view(["GET"])
+def region_susceptibility(request, region_id: int):
+    """Where inside a region the water goes, from the ground alone.
+
+    The shipped susceptibility layer summed up for one county or sub-county
+    (riskengine/susceptibility.py): the share of its land expected under
+    water when a large flood reaches it, its rank in Kenya, the middle
+    region's share and its county's, and how far the layer has been checked.
+    `available` is false until `build_susceptibility` has been run.
+    """
+    region = get_object_or_404(Region, pk=region_id)
+    summary = susceptibility_for(region)
+    return Response({"available": summary is not None, **(summary or {})})
 
 
 @api_view(["GET"])
