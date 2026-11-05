@@ -31,6 +31,7 @@ import time
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import DatabaseError, connections
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -114,12 +115,14 @@ class Command(BaseCommand):
                 last_run = _now()
                 try:
                     self.refresh()
-                except CommandError as exc:
+                except (CommandError, DatabaseError) as exc:
                     if every is None:
                         raise
-                    # A failed fetch must not end the schedule: yesterday's
-                    # scores stay on the dashboard and a run tries again in
-                    # RETRY_SECONDS, not a whole interval later.
+                    # A failed fetch or a dropped database connection must
+                    # not end the schedule: yesterday's scores stay on the
+                    # dashboard and a run tries again in RETRY_SECONDS, not a
+                    # whole interval later.
+                    connections.close_all()
                     retry = min(RETRY_SECONDS, every * 3600)
                     last_run -= every * 3600 - retry
                     self.stderr.write(
@@ -132,6 +135,11 @@ class Command(BaseCommand):
             _sleep(min(CHECK_SECONDS, every * 3600))
 
     def refresh(self):
+        # Between scheduled runs the connection sits idle for a day, and the
+        # hosted database drops idle connections ("SSL error: unexpected eof
+        # while reading" on the first query). Start each run on a new one;
+        # Django opens it on the first query.
+        connections.close_all()
         today = timezone.localdate()
         days = region_days(today)
         self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")

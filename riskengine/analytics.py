@@ -38,22 +38,28 @@ TREND_DAYS = 30
 # The order statuses are ranked in; the page shows the worst one overall.
 STATUS_RANK = {"ok": 0, "warning": 1, "degraded": 2}
 
-# Days since the last stored day before a feed counts as late. Rainfall is
-# fetched up to today and scored the same day, so either one more than a day
-# old means a scheduled refresh did not run.
+# Days since the last stored day before a feed counts as late. Scores are
+# written for today by each daily run, so before that day's run the newest
+# are a day old. Rainfall is fetched only for days that have ended
+# (forecast_days=0), so its newest day is always one further back:
+# RAINFALL_LAG is added to its limits. One more than that means a scheduled
+# refresh did not run.
 FRESH_DAYS = 1
 STALE_DAYS = 3
+RAINFALL_LAG = 1
 
 CATEGORIES = [choice for choice, _ in RiskScore.RiskCategory.choices]
 
 
-def _freshness(name: str, last: dt.date | None, today: dt.date, what: str) -> dict:
+def _freshness(
+    name: str, last: dt.date | None, today: dt.date, what: str, lag: int = 0
+) -> dict:
     if last is None:
         return {"name": name, "status": "degraded", "detail": f"No {what} stored yet."}
     age = (today - last).days
-    if age <= FRESH_DAYS:
+    if age <= FRESH_DAYS + lag:
         status = "ok"
-    elif age <= STALE_DAYS:
+    elif age <= STALE_DAYS + lag:
         status = "warning"
     else:
         status = "degraded"
@@ -103,7 +109,7 @@ def system_health(today: dt.date | None = None) -> dict:
     )
 
     checks = [
-        _freshness("Rainfall feed", rain["last"], today, "rainfall"),
+        _freshness("Rainfall feed", rain["last"], today, "rainfall", lag=RAINFALL_LAG),
         _freshness("Risk scores", last_score_day, today, "set of scores"),
     ]
 
@@ -145,8 +151,9 @@ def system_health(today: dt.date | None = None) -> dict:
         "status": overall,
         "checks": checks,
         "rules": (
-            f"Rainfall and scores are ok up to {FRESH_DAYS} day old, a warning up to "
-            f"{STALE_DAYS} days and degraded after. Coverage is a warning below every "
+            f"Scores are ok up to {FRESH_DAYS} day old, a warning up to {STALE_DAYS} "
+            f"days and degraded after. Rainfall stops at yesterday, so it is allowed "
+            f"{RAINFALL_LAG} day more on each. Coverage is a warning below every "
             "region and degraded below 90%. The model is degraded when no trained model "
             "is loaded and a warning when the latest scores came from another version."
         ),
