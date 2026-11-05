@@ -32,6 +32,7 @@ from geodata.views import (
     FloodEventViewSet,
     FocusRegionViewSet,
     GeospatialFeatureViewSet,
+    KmdWarningViewSet,
     RegionViewSet,
 )
 from riskengine.views import (
@@ -57,6 +58,7 @@ router.register("risk-forecast", RiskForecastViewSet, basename="risk-forecast")
 router.register("alerts", AlertViewSet, basename="alert")
 router.register("admin/users", UserAdminViewSet, basename="admin-user")
 router.register("flood-events", FloodEventViewSet, basename="flood-event")
+router.register("kmd-warnings", KmdWarningViewSet, basename="kmd-warning")
 
 urlpatterns = [
     path("health/", views.health_check, name="health-check"),

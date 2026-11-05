@@ -1,5 +1,8 @@
+import datetime as dt
+
 from django.contrib.gis.db import models as gis_models
 from django.db import models
+from django.utils import timezone
 
 
 class Region(models.Model):
@@ -138,6 +141,60 @@ class FloodEvent(models.Model):
 
     def __str__(self) -> str:
         return f"DFO {self.dfo_id} ({self.began:%Y-%m-%d})"
+
+
+class KmdWarning(models.Model):
+    """An official warning or advisory from the Kenya Meteorological Department.
+
+    Read from KMD's CAP feed by `fetch_kmd_warnings` (geodata/services/kmd.py).
+    `regions` are the counties and sub-counties its polygons reach, worked
+    out once when it is stored. The map shows the flood-related ones in force
+    and FloodScout's own alerts name them, so the two never disagree without
+    saying so. They do not change FloodScout's alert levels: KMD keeps no
+    history of past warnings to test such a rule against.
+    """
+
+    identifier = models.CharField(max_length=200, unique=True, help_text="CAP identifier")
+    url = models.URLField(max_length=500, help_text="The CAP document")
+    msg_type = models.CharField(max_length=10, default="Alert")
+    sent = models.DateTimeField()
+    event = models.CharField(max_length=100)
+    severity = models.CharField(max_length=20, blank=True)
+    urgency = models.CharField(max_length=20, blank=True)
+    certainty = models.CharField(max_length=20, blank=True)
+    headline = models.TextField(blank=True)
+    description = models.TextField(blank=True)
+    instruction = models.TextField(blank=True)
+    area = models.TextField(blank=True, help_text="KMD's own description of the area")
+    web = models.URLField(max_length=500, blank=True, help_text="KMD's page for it")
+    onset = models.DateTimeField()
+    expires = models.DateTimeField(null=True, blank=True)
+    flood_related = models.BooleanField(default=False)
+    cancelled = models.BooleanField(
+        default=False, help_text="Withdrawn or replaced by a later KMD alert"
+    )
+    geom = gis_models.MultiPolygonField(srid=4326, null=True, blank=True)
+    regions = models.ManyToManyField(Region, related_name="kmd_warnings", blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    # How long an alert with no end time is kept in force.
+    OPEN_ENDED = dt.timedelta(days=7)
+
+    class Meta:
+        ordering = ["-sent"]
+
+    def __str__(self) -> str:
+        return f"KMD {self.event} ({self.onset:%Y-%m-%d})"
+
+    @classmethod
+    def in_force(cls, now: dt.datetime | None = None):
+        """Warnings not yet over: in force now or issued for the days ahead,
+        as KMD issues heavy-rain advisories a day or two before they start."""
+        now = now or timezone.now()
+        return cls.objects.filter(cancelled=False).filter(
+            models.Q(expires__gt=now)
+            | models.Q(expires__isnull=True, onset__gt=now - cls.OPEN_ENDED)
+        )
 
 
 class GridCell(models.Model):

@@ -15,6 +15,8 @@
  *              100-year flood zone (Copernicus GloFAS)
  *              Past floods (Dartmouth Flood Observatory, 1988 to 2021)
  *              Satellite rain (NASA GPM IMERG, the day on screen)
+ *              KMD warnings (the Kenya Meteorological Department's own,
+ *              in force now, from its CAP feed through the API)
  *
  * All are free and need no key. The rivers and the flood zone are static
  * files built by `manage.py build_map_layers` into public/layers/; the past
@@ -42,6 +44,9 @@ const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
 const CANVAS_ATTRIBUTION = "Basemap &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors";
 const ESRI_ATTRIBUTION =
   "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community";
+const KMD_COLOUR = "#d9480f";
+export const KMD_LAYER = "KMD warnings (official)";
+
 const GIBS_ATTRIBUTION =
   'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a>';
 
@@ -101,15 +106,33 @@ function floodPopup(feature) {
   return box;
 }
 
+function kmdPopup(feature) {
+  const p = feature.properties;
+  const box = el("div", "flood-popup");
+  box.append(
+    el("strong", null, `KMD: ${p.event} (${p.severity.toLowerCase()})`),
+    el("div", null, `${formatDay(p.onset)} to ${p.expires ? formatDay(p.expires) : "further notice"}`),
+    el("div", null, p.headline || p.description),
+  );
+  if (p.area) box.append(el("div", "flood-popup__note", `Area: ${p.area}`));
+  const link = el("a", null, "KMD's warning");
+  link.href = p.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  box.append(link);
+  return box;
+}
+
 /**
  * Add the basemaps, the overlays and their control to `map`.
  *
  * @param {L.Map} map
  * @param {{ dark: boolean, loadFloodEvents: () => Promise<object>,
+ *           loadKmdWarnings: () => Promise<object>,
  *           onChange?: (active: Set<string>) => void }} options
  * @returns {{ setDate(iso: string|null): void, active: Set<string> }}
  */
-export function initLayers(map, { dark, loadFloodEvents, onChange = () => {} }) {
+export function initLayers(map, { dark, loadFloodEvents, loadKmdWarnings, onChange = () => {} }) {
   // Panes above the risk fills (overlayPane, 400) so a layer turned on is
   // seen through the colours instead of under them.
   map.createPane("basemapLabels").style.zIndex = 430;
@@ -170,6 +193,7 @@ export function initLayers(map, { dark, loadFloodEvents, onChange = () => {} }) 
   const rivers = L.layerGroup();
   const floodZone = L.layerGroup();
   const pastFloods = L.layerGroup();
+  const kmd = L.layerGroup();
 
   const baseLayers = {
     Map: streets,
@@ -182,6 +206,7 @@ export function initLayers(map, { dark, loadFloodEvents, onChange = () => {} }) 
     "100-year flood zone": floodZone,
     "Past floods (1988–2021)": pastFloods,
     "Satellite rain (NASA)": rain,
+    [KMD_LAYER]: kmd,
   };
 
   // Static files, loaded once when first turned on.
@@ -242,6 +267,24 @@ export function initLayers(map, { dark, loadFloodEvents, onChange = () => {} }) 
           }),
         );
         pastFloods.getLayers()[0]?.bringToFront?.();
+      },
+    ],
+    [
+      kmd,
+      async () => {
+        const warnings = await loadKmdWarnings();
+        kmd.addLayer(
+          L.geoJSON(warnings, {
+            style: {
+              color: KMD_COLOUR,
+              weight: 2,
+              dashArray: "6 4",
+              fillColor: KMD_COLOUR,
+              fillOpacity: 0.08,
+            },
+            onEachFeature: (feature, layer) => layer.bindPopup(() => kmdPopup(feature)),
+          }),
+        );
       },
     ],
   ]);
@@ -323,6 +366,9 @@ export function overlayLegend(active) {
       colour: "#5b2c83",
       label: "Recorded flood; larger displaced more people",
     });
+  }
+  if (active.has(KMD_LAYER)) {
+    lines.push({ kind: "line", colour: KMD_COLOUR, label: "KMD warning or advisory in force (dashed)" });
   }
   if (active.has("Satellite rain (NASA)")) {
     lines.push({

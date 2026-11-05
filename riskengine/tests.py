@@ -843,6 +843,7 @@ class RefreshScoresCommandTests(TestCase):
                 ("seed_rainfall", "--past-days", "61"),
                 ("score_regions", "--date", "2026-10-19"),
                 ("forecast_scores",),
+                ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
             ],
@@ -861,6 +862,7 @@ class RefreshScoresCommandTests(TestCase):
                 ("score_regions", "--date", "2026-10-18"),
                 ("score_regions", "--date", "2026-10-19"),
                 ("forecast_scores",),
+                ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
             ],
@@ -878,6 +880,7 @@ class RefreshScoresCommandTests(TestCase):
                 ("score_regions", "--date", "2026-10-18"),
                 ("score_regions", "--date", "2026-10-19"),
                 ("forecast_scores",),
+                ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
             ],
@@ -915,6 +918,7 @@ class RefreshScoresCommandTests(TestCase):
             [
                 ("score_regions", "--date", "2026-10-19"),
                 ("forecast_scores",),
+                ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
             ],
@@ -947,8 +951,8 @@ class RefreshScoresCommandTests(TestCase):
             call_command("refresh_scores", stdout=StringIO())
         steps = self._steps(run)
         self.assertEqual(steps[0], ("seed_rainfall", "--past-days", str(refresh_scores.MAX_PAST_DAYS)))
-        # Rainfall, one score per day, then the forecast, alerts and reports.
-        self.assertEqual(len(steps) - 4, refresh_scores.MAX_CATCH_UP_DAYS + 1)
+        # Rainfall, one score per day, then the forecast, KMD, alerts and reports.
+        self.assertEqual(len(steps) - 5, refresh_scores.MAX_CATCH_UP_DAYS + 1)
 
     def test_a_failed_fetch_stops_a_single_run(self):
         with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):

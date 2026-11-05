@@ -39,6 +39,7 @@ import {
   fetchBriefing,
   fetchExplanation,
   fetchFloodEvents,
+  fetchKmdWarnings,
   fetchFocusRegions,
   fetchForecast,
   fetchForecastDays,
@@ -405,6 +406,7 @@ const GRID_RENDERER = L.canvas({ pane: "grid", padding: 0.2 });
 // Basemaps and the context layers over the risk (layers.js). Past floods
 // are fetched once, the first time the layer is turned on.
 let floodEvents = null;
+let kmdWarnings = null;
 const mapLayers = initLayers(map, {
   dark: DARK,
   loadFloodEvents: () => {
@@ -413,6 +415,14 @@ const mapLayers = initLayers(map, {
       throw error;
     });
     return floodEvents;
+  },
+  // KMD's warnings, fetched once per page load when the layer is turned on.
+  loadKmdWarnings: () => {
+    kmdWarnings ??= fetchKmdWarnings().catch((error) => {
+      kmdWarnings = null;
+      throw error;
+    });
+    return kmdWarnings;
   },
   onChange: () => renderLegend(),
 });
@@ -1784,6 +1794,44 @@ function contextEntries(context) {
 }
 
 /**
+ * The Kenya Meteorological Department's warnings covering this place, if
+ * any. Shown first: an official warning outranks anything FloodScout works
+ * out. A slot is held so the box lands where it belongs whenever it loads.
+ */
+async function renderKmd(regionId, container) {
+  const slot = el("div", "kmd-notice-slot");
+  container.append(slot);
+  let warnings;
+  try {
+    warnings = (await fetchKmdWarnings({ region: regionId })).features;
+  } catch (error) {
+    console.error(error);
+    slot.remove();
+    return;
+  }
+  if (state.selectedRegionId !== regionId || warnings.length === 0) {
+    slot.remove();
+    return;
+  }
+  for (const { properties: p } of warnings) {
+    const box = el("div", "kmd-notice");
+    box.setAttribute("role", "note");
+    const until = p.expires ? ` until ${formatDate(p.expires)}` : "";
+    const from = new Date(p.onset) > new Date() ? ` from ${formatDate(p.onset)}` : " in force";
+    box.append(
+      el("p", "kmd-notice__title", `Kenya Met Department: ${p.event.toLowerCase()} ${p.severity === "Severe" || p.severity === "Extreme" ? "warning" : "advisory"}${from}${until}`),
+      el("p", "kmd-notice__text", p.headline || p.description),
+    );
+    const link = el("a", "kmd-notice__link", "Read KMD's warning");
+    link.href = p.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    box.append(link);
+    slot.append(box);
+  }
+}
+
+/**
  * Large floods recorded in this place before (DFO, 1988 to 2021): how many,
  * the most recent, and the worst. A recorded flood's footprint is a circle
  * of its area, so "reached" is rough, and it is said so.
@@ -2075,6 +2123,7 @@ function renderDetail(regionId) {
     rows.append(el("dt", null, term), el("dd", null, value));
   }
   els.detail.append(rows);
+  renderKmd(regionId, els.detail);
 
   // Only a stored score has a model run to explain, a history and inputs:
   // an outlook or a forecast row is driven by rain that has not fallen.

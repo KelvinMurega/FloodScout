@@ -265,6 +265,14 @@ export function fetchFloodEvents(params) {
   return getJson(withParams("flood-events/", params));
 }
 
+/**
+ * The Kenya Meteorological Department's flood-related warnings in force, as
+ * GeoJSON areas. `{ region: id }` keeps the ones covering that region.
+ */
+export function fetchKmdWarnings(params) {
+  return getJson(withParams("kmd-warnings/", params));
+}
+
 /** The newest forecast issue and the days it covers: { issued_on, days: [YYYY-MM-DD] }. */
 export function fetchForecastDays() {
   return getJson(withParams("risk-forecast/days/"));

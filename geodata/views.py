@@ -1,3 +1,5 @@
+import json
+
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -6,7 +8,7 @@ from rest_framework.response import Response
 
 from . import focus_regions
 from .filters import filter_by_region_params
-from .models import EnvironmentalData, FloodEvent, GeospatialFeature, Region
+from .models import EnvironmentalData, FloodEvent, GeospatialFeature, KmdWarning, Region
 from .serializers import (
     EnvironmentalDataSerializer,
     GeospatialFeatureSerializer,
@@ -155,5 +157,60 @@ class FloodEventViewSet(viewsets.ViewSet):
                     }
                     for event in events
                 ],
+            }
+        )
+
+
+class KmdWarningViewSet(viewsets.ViewSet):
+    """The Kenya Meteorological Department's flood-related warnings in force.
+
+    `list` is a GeoJSON FeatureCollection of their areas, soonest to end
+    first, for the map's "KMD warnings" layer. `?region=<id>` keeps those
+    covering that region, for the detail panel. The outlines are simplified
+    (about 1 km) to keep the response small; which regions a warning covers
+    was worked out from the full outline when it was stored.
+    """
+
+    SIMPLIFY_DEG = 0.01
+
+    def list(self, request):
+        warnings = KmdWarning.in_force().filter(flood_related=True).order_by("expires", "-sent")
+        region_id = request.query_params.get("region")
+        if region_id:
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            warnings = warnings.filter(regions__pk=int(region_id))
+        features = []
+        for warning in warnings:
+            geometry = None
+            if warning.geom is not None:
+                geometry = json.loads(
+                    warning.geom.simplify(self.SIMPLIFY_DEG, preserve_topology=True).geojson
+                )
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": warning.pk,
+                    "geometry": geometry,
+                    "properties": {
+                        "event": warning.event,
+                        "severity": warning.severity,
+                        "certainty": warning.certainty,
+                        "headline": warning.headline,
+                        "description": warning.description,
+                        "instruction": warning.instruction,
+                        "area": warning.area,
+                        "sent": warning.sent.isoformat(),
+                        "onset": warning.onset.isoformat(),
+                        "expires": warning.expires.isoformat() if warning.expires else None,
+                        "url": warning.web or warning.url,
+                    },
+                }
+            )
+        return Response(
+            {
+                "type": "FeatureCollection",
+                "source": "Kenya Meteorological Department (CAP feed, meteo.go.ke)",
+                "features": features,
             }
         )
