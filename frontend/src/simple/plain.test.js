@@ -7,6 +7,7 @@ import {
   dailyRain,
   everydayAdvice,
   groupAreas,
+  kmdLine,
   mapBucket,
   pointInGeometry,
   seasonVerdict,
@@ -114,4 +115,22 @@ test("which county a point is in, holes included", () => {
   const multi = { type: "MultiPolygon", coordinates: [[square], [[[20, 0], [30, 0], [30, 10], [20, 10], [20, 0]]]] };
   assert.equal(pointInGeometry([25, 5], multi), true);
   assert.equal(pointInGeometry([15, 5], multi), false);
+});
+
+test("a KMD advisory in force reads as one plain line", () => {
+  const now = new Date("2026-10-26T09:00:00+03:00");
+  const line = kmdLine(
+    { event: "Heavy rainfall", severity: "Moderate", onset: "2026-10-24T18:00:00+03:00", expires: "2026-10-30T09:00:00+03:00" },
+    now,
+  );
+  assert.equal(line, "Heavy rain advisory from the Kenya Meteorological Department, in force now until Friday 30 October.");
+});
+
+test("a severe KMD warning still to start says from when", () => {
+  const now = new Date("2026-10-26T09:00:00+03:00");
+  const line = kmdLine(
+    { event: "Flood", severity: "Severe", onset: "2026-10-27T06:00:00+03:00", expires: null },
+    now,
+  );
+  assert.equal(line, "Flood warning from the Kenya Meteorological Department, from Tuesday 27 October.");
 });

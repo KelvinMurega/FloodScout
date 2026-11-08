@@ -14,6 +14,7 @@ import L from "leaflet";
 import {
   fetchFloodEvents,
   fetchForecast,
+  fetchKmdWarnings,
   fetchLatestScores,
   fetchRegions,
   fetchScoreHistory,
@@ -25,6 +26,7 @@ import {
   alertFor,
   everydayAdvice,
   groupAreas,
+  kmdLine,
   mapBucket,
   pointInGeometry,
   seasonVerdict,
@@ -314,9 +316,10 @@ function showKenya(card, countyScores) {
 }
 
 async function showPlace(card, place, score, { countyId, areas, alerts, user, onDetailed, onPick, onKenya, isCurrent }) {
-  const [forecast, floods] = await Promise.all([
+  const [forecast, floods, kmd] = await Promise.all([
     fetchForecast({ region: place.id }).catch(() => []),
     fetchFloodEvents({ region: place.id }).catch(() => null),
+    fetchKmdWarnings({ region: place.id }).catch(() => null),
   ]);
   if (!isCurrent()) return;
 
@@ -349,6 +352,17 @@ async function showPlace(card, place, score, { countyId, areas, alerts, user, on
     nodes.push(box);
   } else if (nearby) {
     nodes.push(el("p", "simple__alert simple__alert--advisory", `Flood alerts are in force in ${nearby} area${nearby === 1 ? "" : "s"} of this county.`));
+  }
+
+  // The national weather service's own warnings, beside FloodScout's.
+  for (const { properties } of kmd?.features ?? []) {
+    const box = el("div", "simple__alert simple__alert--kmd");
+    const link = el("a", null, "Read KMD's warning");
+    link.href = properties.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    box.append(el("strong", null, kmdLine(properties)), link);
+    nodes.push(box);
   }
 
   if (areas.length) nodes.push(...areaList(place, areas, alerts, onPick));
