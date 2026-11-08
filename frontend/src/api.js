@@ -9,6 +9,7 @@
 
 import { errorMessage } from "./alerts/format.js";
 import { chooseBaseUrl } from "./baseurl.js";
+import { noteAnswer } from "./offline.js";
 
 const FALLBACK_BASE_URL = "http://localhost:8000/api";
 
@@ -38,6 +39,7 @@ async function getJson(url, headers = {}) {
     error.status = response.status;
     throw error;
   }
+  noteAnswer(response);
   return response.json();
 }
 
