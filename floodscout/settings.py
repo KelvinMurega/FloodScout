@@ -223,6 +223,12 @@ AT_SENDER_ID = env("AT_SENDER_ID", default="")
 PUBLIC_API_URL = env("PUBLIC_API_URL", default="http://localhost:8000/api")
 DASHBOARD_URL = env("DASHBOARD_URL", default="http://localhost:5173")
 
+# Where links inside emails point. These are the deployed site even on a
+# development machine, so an email never carries a localhost link that only
+# works on the computer that sent it. Override them to test links locally.
+EMAIL_API_URL = env("EMAIL_API_URL", default="https://api.floodscout.me/api")
+EMAIL_DASHBOARD_URL = env("EMAIL_DASHBOARD_URL", default="https://floodscout.me")
+
 # Sign in with Google, Microsoft or GitHub (accounts/social.py). A provider
 # is offered only when both its values are set. Register this redirect URI
 # with each: <PUBLIC_API_URL>/auth/social/<google|microsoft|github>/callback/

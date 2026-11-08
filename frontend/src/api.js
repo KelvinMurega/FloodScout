@@ -9,6 +9,7 @@
 
 import { errorMessage } from "./alerts/format.js";
 import { chooseBaseUrl } from "./baseurl.js";
+import { noteAnswer } from "./offline.js";
 
 const FALLBACK_BASE_URL = "http://localhost:8000/api";
 
@@ -38,6 +39,7 @@ async function getJson(url, headers = {}) {
     error.status = response.status;
     throw error;
   }
+  noteAnswer(response);
   return response.json();
 }
 
@@ -263,6 +265,11 @@ export function fetchMapContext(params) {
  */
 export function fetchFloodEvents(params) {
   return getJson(withParams("flood-events/", params));
+}
+
+/** What the susceptibility layer says about one region: { available, high_share, ... }. */
+export function fetchSusceptibility(regionId) {
+  return getJson(`regions/${regionId}/susceptibility/`);
 }
 
 /**

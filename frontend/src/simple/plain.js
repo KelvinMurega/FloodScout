@@ -160,3 +160,19 @@ export function pointInGeometry([x, y], geometry) {
   if (geometry?.type === "MultiPolygon") return geometry.coordinates.some(inPolygon);
   return false;
 }
+
+/**
+ * One Kenya Meteorological Department warning as a plain line: "Heavy rain
+ * warning from KMD, from Tuesday 27 October until Friday 30 October." KMD
+ * calls Moderate and Minor ones advisories, Severe and Extreme warnings.
+ */
+export function kmdLine(properties, now = new Date()) {
+  const day = (iso) =>
+    new Date(iso).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Nairobi" });
+  const kind = ["Severe", "Extreme"].includes(properties.severity) ? "warning" : "advisory";
+  const event = properties.event.toLowerCase().replace(/^heavy rainfall$/, "heavy rain");
+  const what = `${event.charAt(0).toUpperCase()}${event.slice(1)} ${kind} from the Kenya Meteorological Department`;
+  const starts = new Date(properties.onset) > now ? `, from ${day(properties.onset)}` : ", in force now";
+  const ends = properties.expires ? ` until ${day(properties.expires)}` : "";
+  return `${what}${starts}${ends}.`;
+}

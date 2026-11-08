@@ -50,11 +50,11 @@ class Sent:
 
 
 def unsubscribe_link(subscriber: Subscriber) -> str:
-    return f"{settings.PUBLIC_API_URL.rstrip('/')}/alerts/unsubscribe/{subscriber.token}/"
+    return f"{settings.EMAIL_API_URL.rstrip('/')}/alerts/unsubscribe/{subscriber.token}/"
 
 
 def alert_link(alert: Alert) -> str:
-    return f"{settings.DASHBOARD_URL.rstrip('/')}/#/alerts/{alert.id}"
+    return f"{settings.EMAIL_DASHBOARD_URL.rstrip('/')}/#/alerts/{alert.id}"
 
 
 def email_body(alert: Alert, subscriber: Subscriber, kind: str) -> tuple[str, str]:
@@ -247,11 +247,13 @@ def run_alerts(now=None) -> AlertRun:
                 current.version += 1
                 current.save()
             else:
-                # The same level: refresh what it rests on.
-                current.expires = fields["expires"]
-                current.reasons = decision.reasons
-                current.times_usual = place.times_usual
-                current.save(update_fields=["expires", "reasons", "times_usual", "updated_at"])
+                # The same level: refresh what it rests on, and the words with
+                # it, so the text a later subscriber is sent does not still
+                # name a forecast day that has passed or an old figure.
+                # Nobody is told again and the version stays.
+                for name, value in fields.items():
+                    setattr(current, name, value)
+                current.save(update_fields=[*fields, "updated_at"])
 
     for alert in to_notify:
         tally.add(notify(alert))
