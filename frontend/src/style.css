@@ -2080,6 +2080,26 @@ body:not(.is-admin) .app {
   display: none;
 }
 
+/* --- Pin a spot for flood warnings (right-click or long press) --------- */
+
+.pin-popup {
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.pin-popup__name {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 6px;
+}
+
+.pin-popup__message {
+  margin: 0;
+  font-size: 12px;
+}
+
 /* --- Offline (offline.js) ---------------------------------------------- */
 
 .offline-banner {

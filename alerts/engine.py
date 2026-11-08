@@ -66,7 +66,12 @@ def email_body(alert: Alert, subscriber: Subscriber, kind: str) -> tuple[str, st
             f"{alert.region} has been cancelled by an administrator.",
         ]
     else:
-        subject = f"Where you live: {alert.headline}" if subscriber.is_home else alert.headline
+        if subscriber.is_home:
+            subject = f"Where you live: {alert.headline}"
+        elif subscriber.saved_place_id:
+            subject = f"{subscriber.saved_place.label}: {alert.headline}"
+        else:
+            subject = alert.headline
         lines = [
             alert.headline.upper(),
             "",
@@ -77,12 +82,18 @@ def email_body(alert: Alert, subscriber: Subscriber, kind: str) -> tuple[str, st
             "",
             f"See it on the map: {alert_link(alert)}",
         ]
-    why = (
-        f"You get this because {alert.region} is where you live, as set on your FloodScout "
-        "profile. Change it or turn these off on your profile."
-        if subscriber.is_home
-        else f"You get this because you asked FloodScout for alerts for {alert.region}."
-    )
+    if subscriber.is_home:
+        why = (
+            f"You get this because {alert.region} is where you live, as set on your FloodScout "
+            "profile. Change it or turn these off on your profile."
+        )
+    elif subscriber.saved_place_id:
+        why = (
+            f'You get this because your saved place "{subscriber.saved_place.label}" is in '
+            f"{alert.region}. Change it or turn these off under My places on your profile."
+        )
+    else:
+        why = f"You get this because you asked FloodScout for alerts for {alert.region}."
     lines += ["", why, f"To stop them: {unsubscribe_link(subscriber)}"]
     return subject, "\n".join(lines)
 

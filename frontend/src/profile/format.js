@@ -123,3 +123,21 @@ export function accountChecks(me, home, ways) {
   }
   return checks;
 }
+
+/** The warning levels a saved place can be set to, as the form lists them. */
+export const PLACE_LEVELS = [
+  ["watch", "Watches and warnings"],
+  ["warning", "Warnings only"],
+  ["advisory", "Advisories, watches and warnings"],
+];
+
+/** "Warnings on: watches and warnings", "Waiting for your email", "Warnings off". */
+export function placeStatus(place, me) {
+  if (!place.alerts_on) return "Warnings off";
+  if (place.receiving) {
+    const level = PLACE_LEVELS.find(([value]) => value === place.alert_level)?.[1] ?? place.alert_level;
+    return `Warnings on: ${level.toLowerCase()}`;
+  }
+  return me?.email ? "Waiting for your email to be confirmed" : "Add an email to your profile to get these";
+}
+

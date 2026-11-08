@@ -25,9 +25,9 @@ from rest_framework.views import APIView
 from alerts import stopping
 from alerts.models import Alert, Delivery, Subscriber, Unsubscription
 
-from . import home, social, verification
+from . import home, places, social, verification
 from .activity import PAGE, record
-from .models import ActivityLog, ContactCode, OAuthState, SocialAccount, User
+from .models import ActivityLog, ContactCode, OAuthState, SavedPlace, SocialAccount, User
 from .permissions import IsAdministrator
 from .serializers import (
     ActivitySerializer,
@@ -228,7 +228,12 @@ def my_subscriptions(user):
     mine = Q(user=user)
     if user.email and user.email_verified:
         mine |= Q(email__iexact=user.email)
-    return Subscriber.objects.filter(mine).prefetch_related("regions").distinct()
+    return (
+        Subscriber.objects.filter(mine)
+        .select_related("saved_place")
+        .prefetch_related("regions")
+        .distinct()
+    )
 
 
 class MySubscriptionsView(APIView):
@@ -247,6 +252,7 @@ class MySubscriptionsView(APIView):
                     "confirmed": sub.confirmed,
                     "regions": [str(region) for region in sub.regions.all()],
                     "is_home": sub.is_home,
+                    "saved_place": sub.saved_place.label if sub.saved_place_id else None,
                     "created_at": sub.created_at,
                 }
                 for sub in my_subscriptions(request.user)
@@ -690,6 +696,63 @@ class HomeView(APIView):
     def delete(self, request):
         home.clear_home(request.user)
         return Response(home.home_summary(request.user))
+
+
+class PlacesView(APIView):
+    """GET the signed-in user's saved places; POST one more.
+
+    POST {label, lat, lon[, address]} from the map or an address search, or
+    {label, region} with a sub-county id; optional {alert_level}. Each place
+    gets the alerts for its sub-county and county by the account's verified
+    email, as the home does (accounts/places.py).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        places_qs = request.user.saved_places.select_related("region")
+        return Response([places.summary(place) for place in places_qs])
+
+    def post(self, request):
+        data = request.data
+        try:
+            place = places.add_place(
+                request.user,
+                label=data.get("label"),
+                address=data.get("address", ""),
+                lat=data.get("lat"),
+                lon=data.get("lon"),
+                region_id=data.get("region"),
+                alert_level=data.get("alert_level", "watch"),
+            )
+        except home.HomeError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        record(request, ActivityLog.Action.PLACE_SAVED, label=place.label, region=place.region.name)
+        return Response(places.summary(place), status=201)
+
+
+class PlaceView(APIView):
+    """PATCH one saved place (label, alerts_on, alert_level, or where it is); DELETE it."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _place(self, request, place_id):
+        return get_object_or_404(SavedPlace.objects.select_related("region"), pk=place_id, user=request.user)
+
+    def patch(self, request, place_id):
+        place = self._place(request, place_id)
+        try:
+            place = places.change_place(place, request.data)
+        except home.HomeError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(places.summary(place))
+
+    def delete(self, request, place_id):
+        place = self._place(request, place_id)
+        label = place.label
+        places.remove_place(place)
+        record(request, ActivityLog.Action.PLACE_REMOVED, label=label)
+        return Response(status=204)
 
 
 class HomeSearchView(APIView):

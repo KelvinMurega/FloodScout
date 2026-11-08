@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { accountChecks, activityText, ago, byMonth, displayName, groupDeliveries, initials } from "./format.js";
+import {
+  accountChecks,
+  activityText,
+  ago,
+  byMonth,
+  displayName,
+  groupDeliveries,
+  initials,
+  placeStatus,
+} from "./format.js";
 
 test("initials come from the name, else the username", () => {
   assert.equal(initials({ first_name: "Kelvin", last_name: "Murega", username: "km" }), "KM");
@@ -74,4 +83,12 @@ test("account checks say what is left", () => {
     ],
   );
   assert.equal(accountChecks(me, null, null).length, 2);
+});
+
+test("a saved place says whether its warnings are reaching the person", () => {
+  const place = { alerts_on: true, receiving: true, alert_level: "warning" };
+  assert.equal(placeStatus(place, { email: "a@example.com" }), "Warnings on: warnings only");
+  assert.equal(placeStatus({ ...place, receiving: false }, { email: "a@example.com" }), "Waiting for your email to be confirmed");
+  assert.equal(placeStatus({ ...place, receiving: false }, { email: "" }), "Add an email to your profile to get these");
+  assert.equal(placeStatus({ ...place, alerts_on: false }, {}), "Warnings off");
 });

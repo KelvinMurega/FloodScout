@@ -547,3 +547,25 @@ export function searchHome(q) {
 export function locateHome(lat, lon) {
   return postJson("auth/me/home/locate/", { lat, lon });
 }
+
+/* ---------------------------------------------------------- saved places */
+
+/** The signed-in user's saved places, each with its sub-county and warnings. */
+export function fetchPlaces() {
+  return authedGet("auth/me/places/");
+}
+
+/** Save a place: { label, lat, lon[, address] } or { label, region }; optional { alert_level }. */
+export function addPlace(body) {
+  return postJson("auth/me/places/", body);
+}
+
+/** Change a saved place: any of { label, alerts_on, alert_level, lat, lon, region }. */
+export function updatePlace(id, body) {
+  return sendJson("PATCH", `auth/me/places/${id}/`, body);
+}
+
+/** Forget a saved place, which stops its warnings. */
+export function removePlace(id) {
+  return sendJson("DELETE", `auth/me/places/${id}/`);
+}

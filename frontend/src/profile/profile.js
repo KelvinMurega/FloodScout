@@ -44,6 +44,7 @@ import {
   initials,
 } from "./format.js";
 import { renderHomeCard } from "./home.js";
+import { renderPlacesCard } from "./places.js";
 import "./profile.css";
 
 const TABS = [
@@ -982,6 +983,11 @@ export async function showProfile(root, { slug, user, onUserChange }) {
   homeSlot.id = "profile-home";
   body.append(homeSlot, columns);
   renderHomeCard(homeSlot, me, { onChange: again });
+  // Other places the person wants warnings for, under the home.
+  const placesSlot = el("div", "profile-places-slot");
+  placesSlot.id = "profile-places";
+  homeSlot.after(placesSlot);
+  renderPlacesCard(placesSlot, me);
   renderDetails(
     left,
     me,
