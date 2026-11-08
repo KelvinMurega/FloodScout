@@ -41,6 +41,7 @@ from riskengine.views import (
     RiskOutlookViewSet,
     RiskScoreViewSet,
     admin_analytics,
+    region_susceptibility,
     situation_briefing,
 )
 
@@ -98,6 +99,11 @@ urlpatterns = [
     ),
     path("admin/analytics/", admin_analytics, name="admin-analytics"),
     path("briefing/", situation_briefing, name="briefing"),
+    path(
+        "regions/<int:region_id>/susceptibility/",
+        region_susceptibility,
+        name="region-susceptibility",
+    ),
     # Before the router, whose alerts/<pk>/ would otherwise take these names.
     path("alerts/subscribe/", subscribe, name="alerts-subscribe"),
     path("alerts/subscribe/me/", subscribe_me, name="alerts-subscribe-me"),
