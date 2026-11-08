@@ -31,6 +31,7 @@ from riskengine.models import RiskOutlook, RiskScore
 from riskengine.scoring import start_of_day
 
 UNOSAT_PATH = METRICS_PATH.with_name("unosat_validation.csv")
+UNOSAT_SUB_COUNTY_PATH = METRICS_PATH.with_name("unosat_validation_sub_county.csv")
 
 # How many days of scores the trend chart covers.
 TREND_DAYS = 30
@@ -224,8 +225,14 @@ def _rank_auc(wet: list[float], dry: list[float]) -> float | None:
     return round(wins / (len(wet) * len(dry)), 4)
 
 
-def satellite_check(path: Path = UNOSAT_PATH) -> list[dict] | None:
-    """Per UNOSAT event: did the counties with mapped floodwater score higher?"""
+def satellite_check(path: Path = UNOSAT_PATH, unit: str = "county") -> list[dict] | None:
+    """Per UNOSAT event: did the regions with mapped floodwater score higher?
+
+    `unit` is the CSV's region column: "county", or "sub_county" for the
+    file `validate_unosat --level sub_county` writes. Each region keeps its
+    county as `county`; `name` is the region itself. The counts keep their
+    county names for the page's sake, whichever level they count.
+    """
     if not path.exists():
         return None
     events: dict[str, dict] = {}
@@ -236,6 +243,7 @@ def satellite_check(path: Path = UNOSAT_PATH) -> list[dict] | None:
             )
             event["counties"].append(
                 {
+                    "name": row[unit],
                     "county": row["county"],
                     "flooded_km2": float(row["flooded_km2"]),
                     "flooded": row["flooded"] == "1",

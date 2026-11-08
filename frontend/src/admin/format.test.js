@@ -9,7 +9,11 @@ import {
   featureLabel,
   fixed,
   foldLabel,
+  forecastGain,
+  ofNormal,
   percent,
+  shortDay,
+  trustedLead,
   tabFromSlug,
   worstStatus,
 } from "./format.js";
@@ -86,4 +90,30 @@ test("the tab comes from the hash, falling back to the first", () => {
   assert.equal(tabFromSlug("admin/evaluation", tabs), "evaluation");
   assert.equal(tabFromSlug("admin", tabs), "overview");
   assert.equal(tabFromSlug("admin/nope", tabs), "overview");
+});
+
+test("a short day drops the year", () => {
+  assert.equal(shortDay("2026-10-19"), "19 Oct");
+});
+
+test("the trusted lead stops at the first lead below the target", () => {
+  const leads = [
+    { lead_days: 3, same_category: 0.85 },
+    { lead_days: 1, same_category: 0.95 },
+    { lead_days: 2, same_category: 0.7 },
+  ];
+  assert.equal(trustedLead(leads), 1);
+  assert.equal(trustedLead(leads, 0.6), 3);
+  assert.equal(trustedLead([{ lead_days: 1, same_category: 0.5 }]), null);
+  assert.equal(trustedLead([]), null);
+});
+
+test("the forecast gain is against assuming no change", () => {
+  assert.ok(Math.abs(forecastGain({ same_category: 0.9, persistence_same: 0.85 }) - 0.05) < 1e-9);
+  assert.equal(forecastGain({ same_category: 0.9, persistence_same: null }), null);
+});
+
+test("rain against normal reads as a percentage", () => {
+  assert.equal(ofNormal(1.84), "184% of normal");
+  assert.equal(ofNormal(null), "–");
 });
