@@ -208,6 +208,7 @@ class Unsubscription(models.Model):
         PROFILE = "profile", "Removed on their profile"
         HOME_OFF = "home_off", "Turned off warnings for where they live"
         PLACE_OFF = "place_off", "Turned off or removed a saved place"
+        ADMIN = "admin", "Stopped by an administrator at their request"
 
     stopped_at = models.DateTimeField(auto_now_add=True)
     how = models.CharField(max_length=10, choices=How.choices)
