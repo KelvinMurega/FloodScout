@@ -237,6 +237,29 @@ class EngineTests(TestCase):
             {"email": "sent"},
         )
 
+    @override_settings(
+        DASHBOARD_URL="http://localhost:5173", PUBLIC_API_URL="http://127.0.0.1:8010/api"
+    )
+    def test_email_links_go_to_the_deployed_site_not_localhost(self):
+        score(self.region, RiskScore.RiskCategory.VERY_HIGH)
+        engine.run_alerts()
+        body = mail.outbox[0].body
+        self.assertIn(f"https://floodscout.me/#/alerts/{Alert.objects.get().id}", body)
+        self.assertIn("https://api.floodscout.me/api/alerts/unsubscribe/", body)
+        self.assertNotIn("localhost", body)
+        self.assertNotIn("127.0.0.1", body)
+
+    def test_the_same_level_rewrites_stale_words_without_telling_anyone(self):
+        score(self.region, RiskScore.RiskCategory.VERY_HIGH)
+        engine.run_alerts()
+        Alert.objects.update(
+            description="Forecast to reach Very High by Wednesday 28 October.", onset=TODAY
+        )
+        engine.run_alerts()
+        alert = Alert.objects.get()
+        self.assertTrue(alert.description.startswith("Very High today."), alert.description)
+        self.assertEqual((alert.version, len(mail.outbox)), (1, 1))
+
     @mock.patch("alerts.rules.heavy_week_lines", lambda: {"Alpha": {"10": 100.0}})
     def test_a_stronger_condition_upgrades_and_tells_again(self):
         score(self.region, RiskScore.RiskCategory.VERY_HIGH)

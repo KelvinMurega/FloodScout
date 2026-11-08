@@ -563,7 +563,7 @@ class PasswordResetView(APIView):
         for user in User.objects.filter(email__iexact=email, is_active=True):
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = default_token_generator.make_token(user)
-            link = f"{settings.DASHBOARD_URL.rstrip('/')}/#/reset/{uid}/{token}"
+            link = f"{settings.EMAIL_DASHBOARD_URL.rstrip('/')}/#/reset/{uid}/{token}"
             send_mail(
                 "Reset your FloodScout password",
                 f"Hello {user.first_name or user.username},\n\n"

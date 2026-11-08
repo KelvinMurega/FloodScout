@@ -97,7 +97,7 @@ def send_code(user: User, channel: str = ContactCode.Channel.EMAIL, *, force: bo
             "Enter it on FloodScout to confirm this email. Flood warnings for where you live "
             "will then come to this address without you having to ask. The code works for an "
             "hour.\n\nIf you did not make a FloodScout account, ignore this email.\n\n"
-            f"{settings.DASHBOARD_URL.rstrip('/')}/#/profile",
+            f"{settings.EMAIL_DASHBOARD_URL.rstrip('/')}/#/profile",
         )
     else:
         result = channels.send_sms(
