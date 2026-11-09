@@ -13,11 +13,12 @@ line here, with the date, the commit and the result.
 |---|---|---|
 | Hazard final test, 2017 to 2021 | Was once per shipped model | **Closed on 29 October 2026.** About seven looks between 5 and 21 October 2026 (the 9 October retrain was the fifth). Never scored again |
 | UNOSAT FL20231124KEN and FL20240426KEN, hazard model | Report only, never used to choose | Scored for `flood-random-forest-20261007` (6 October 2026) and for run `20261009T1051Z_8058da0` |
-| UNOSAT FL20231124KEN and FL20240426KEN, susceptibility model | Once per shipped version (`SUSCEPTIBILITY_PROTOCOL.md`) | 0 |
+| UNOSAT FL20231124KEN and FL20240426KEN, susceptibility model | Once per shipped version (`SUSCEPTIBILITY_PROTOCOL.md`) | 1, for run `20261102T1246Z_77a8329` (9 November 2026) |
 | UNOSAT FL20230321KEN | 0, kept as a spare | 0 |
 
 | Date | Test set | Run or model | Commit | Result |
 |---|---|---|---|---|
+| 2026-11-09 | UNOSAT FL20231124KEN and FL20240426KEN, susceptibility model | 20261102T1246Z_77a8329 | `e7c9dcf` | pixels: model 0.7404, hand 0.7527; sub-counties: model 0.9145, area 0.8384, engine 0.461 |
 
 ## Experiments without a saved model
 

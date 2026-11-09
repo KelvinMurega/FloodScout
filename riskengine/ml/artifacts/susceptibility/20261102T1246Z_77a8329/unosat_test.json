@@ -1,0 +1,117 @@
+{
+  "run": "20261102T1246Z_77a8329",
+  "date": "2026-11-09",
+  "commit": "e7c9dcf13377a833fa84aa3c6ae26e21f56493c6",
+  "pixel": {
+    "model": {
+      "within_county_roc_auc": 0.7404,
+      "within_county_roc_auc_weighted_by_flooded": 0.7152,
+      "within_county_average_precision": 0.0775,
+      "mean_base_rate": 0.0144,
+      "county_events": 64,
+      "events": 2,
+      "per_event": {
+        "20231124": {
+          "county_events": 35,
+          "roc_auc": 0.7164,
+          "average_precision": 0.0876
+        },
+        "20240426": {
+          "county_events": 29,
+          "roc_auc": 0.7693,
+          "average_precision": 0.0653
+        }
+      }
+    },
+    "hand": {
+      "within_county_roc_auc": 0.7527,
+      "within_county_roc_auc_weighted_by_flooded": 0.7442,
+      "within_county_average_precision": 0.0562,
+      "mean_base_rate": 0.0144,
+      "county_events": 64,
+      "events": 2,
+      "per_event": {
+        "20231124": {
+          "county_events": 35,
+          "roc_auc": 0.7619,
+          "average_precision": 0.0711
+        },
+        "20240426": {
+          "county_events": 29,
+          "roc_auc": 0.7415,
+          "average_precision": 0.0382
+        }
+      }
+    },
+    "flood-zone-100y": {
+      "within_county_roc_auc": 0.6143,
+      "within_county_roc_auc_weighted_by_flooded": 0.616,
+      "within_county_average_precision": 0.0392,
+      "mean_base_rate": 0.0144,
+      "county_events": 64,
+      "events": 2,
+      "per_event": {
+        "20231124": {
+          "county_events": 35,
+          "roc_auc": 0.5937,
+          "average_precision": 0.0489
+        },
+        "20240426": {
+          "county_events": 29,
+          "roc_auc": 0.6393,
+          "average_precision": 0.0275
+        }
+      }
+    },
+    "distance-to-river": {
+      "within_county_roc_auc": 0.6987,
+      "within_county_roc_auc_weighted_by_flooded": 0.7062,
+      "within_county_average_precision": 0.0305,
+      "mean_base_rate": 0.0144,
+      "county_events": 64,
+      "events": 2,
+      "per_event": {
+        "20231124": {
+          "county_events": 35,
+          "roc_auc": 0.6845,
+          "average_precision": 0.0399
+        },
+        "20240426": {
+          "county_events": 29,
+          "roc_auc": 0.7159,
+          "average_precision": 0.0191
+        }
+      }
+    }
+  },
+  "pixel_away_from_lakes": {
+    "model": 0.6804,
+    "hand": 0.7801,
+    "flood-zone-100y": 0.6135,
+    "distance-to-river": 0.7005
+  },
+  "sub_county": {
+    "model": {
+      "within_county_roc_auc": 0.9145,
+      "county_events": 43
+    },
+    "hand": {
+      "within_county_roc_auc": 0.8562,
+      "county_events": 43
+    },
+    "flood-zone-100y": {
+      "within_county_roc_auc": 0.9014,
+      "county_events": 43
+    },
+    "distance-to-river": {
+      "within_county_roc_auc": 0.8505,
+      "county_events": 43
+    },
+    "sub-county area": {
+      "within_county_roc_auc": 0.8384,
+      "county_events": 43
+    }
+  },
+  "engine_sub_county_roc_auc": 0.461,
+  "note": "UNOSAT dry pixels are not cloud-checked under protocol v1, so dry is weaker evidence than in development."
+}

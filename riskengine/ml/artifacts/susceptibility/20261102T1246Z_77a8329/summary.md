@@ -11,4 +11,22 @@
 - Signs as expected: False
 - Decision: ship the model
 
-The UNOSAT test was not scored in this run.
+## UNOSAT test (the one look, 9 Nov 2026, commit `e7c9dcf`)
+
+Scored once on FL20231124KEN and FL20240426KEN (VIIRS), protocol section 8. Full numbers in `unosat_test.json`.
+
+Within-county ROC AUC:
+
+| Scored by | Pixels (64 county-events) | Pixels away from lakes | Sub-counties by expected flooded area (43 county-events) |
+|---|---|---|---|
+| **This model** | **0.7404** | 0.6804 | **0.9145** |
+| HAND | 0.7527 | 0.7801 | 0.8562 |
+| 100-year flood zone | 0.6143 | 0.6135 | 0.9014 |
+| Distance to river | 0.6987 | 0.7005 | 0.8505 |
+| Sub-county area | | | 0.8384 |
+| Current engine | | | 0.461 |
+
+- **Sub-counties:** the model ranks flooded sub-counties within a county far better than the current engine (0.461) and better than every baseline, including area alone. Its lead over the flood zone is small (0.014).
+- **Pixels:** the model does **not** beat HAND, and away from lakes it is clearly behind it (0.680 against 0.780). Development showed the opposite (0.7918 against 0.7176). So at 250 m the model's extra inputs did not carry over to these two events.
+- UNOSAT dry pixels are not cloud-checked under protocol v1, so dry is weaker evidence than in development.
+- This was the one look for this version. The counter in `SUSCEPTIBILITY_PROTOCOL.md` is now 1.
