@@ -47,6 +47,9 @@ import csv
 import datetime as dt
 import hashlib
 import json
+import os
+import platform
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,6 +74,13 @@ ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_PATH = ARTIFACT_DIR / "flood_model.joblib"
 METRICS_PATH = ARTIFACT_DIR / "metrics.json"
 
+# How a Colab run, which is not a git checkout, is tied to its commit and to
+# its folder of outputs. `build_colab_bundle` writes the file; the notebook
+# sets the two variables.
+COMMIT_FILE = "COMMIT"
+COMMIT_ENV = "FLOODSCOUT_GIT_COMMIT"
+RUN_ID_ENV = "FLOODSCOUT_RUN_ID"
+
 CV_FOLDS = 6
 RANDOM_STATE = 0
 
@@ -80,6 +90,10 @@ FIRST_TRAINING_YEAR = 1996
 # Years from this one on are the final test: set aside before any model is
 # compared, and scored once (see `final_test`). Fixed on 5 October 2026,
 # before the result was seen. Do not move it to get a better number.
+#
+# Closed on 29 October 2026 after about seven looks: `train` and `build` no
+# longer score it unless a caller passes `test_from`, and nothing that
+# trains on the real training set does (riskengine/ml/experiments.md).
 FINAL_TEST_FROM = 2017
 
 # The inputs of the season-only baseline.
@@ -115,6 +129,12 @@ PARAM_GRIDS = {
 
 # Times each input is shuffled per fold when measuring its importance.
 PERMUTATION_REPEATS = 5
+
+# Seeds the cross-validation is repeated with, to show how much the scores
+# move for no reason but the random numbers. The saved model is RANDOM_STATE.
+SEEDS = (0, 1, 2, 3, 4)
+# Shares of each fold's training years the learning curve is drawn at.
+LEARNING_CURVE_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
 
 
 def candidates() -> dict:
@@ -236,12 +256,24 @@ def with_normals(data: TrainingSet, normals: dict[str, dict[int, float]]) -> np.
     return X
 
 
-def held_out_probabilities(data: TrainingSet, make_model, columns, folds) -> np.ndarray:
-    """Each row's flood probability from a model that never saw its year."""
+def fit_weighted(model, X, y, weights=None):
+    """`model.fit(X, y)`, with `weights` as the last step's sample weights if given."""
+    if weights is None:
+        return model.fit(X, y)
+    return model.fit(X, y, **{f"{model.steps[-1][0]}__sample_weight": weights})
+
+
+def held_out_probabilities(data: TrainingSet, make_model, columns, folds, weights=None) -> np.ndarray:
+    """Each row's flood probability from a model that never saw its year.
+
+    `weights`, one per row, make some labels count for more in training than
+    others; scoring is unweighted.
+    """
     out = np.empty(len(data.y))
     for train_rows, test_rows in folds:
         X = with_normals(data, county_normals(data, train_rows))[:, columns]
-        model = make_model().fit(X[train_rows], data.y[train_rows])
+        row_weights = None if weights is None else weights[train_rows]
+        model = fit_weighted(make_model(), X[train_rows], data.y[train_rows], row_weights)
         out[test_rows] = model.predict_proba(X[test_rows])[:, 1]
     return out
 
@@ -442,16 +474,135 @@ def _threshold_errors(y, probabilities) -> list[dict]:
                 "precision": round(tp / (tp + fp), 4) if tp + fp else None,
                 "recall": round(tp / (tp + fn), 4) if tp + fn else None,
                 "specificity": round(tn / (tn + fp), 4) if tn + fp else None,
+                "accuracy": round((tp + tn) / len(y), 4),
+                "f1": round(2 * tp / (2 * tp + fp + fn), 4) if tp + fp + fn else None,
+                # The mean of recall and specificity, which a rare class
+                # cannot inflate the way it inflates accuracy.
+                "balanced_accuracy": (
+                    round((tp / (tp + fn) + tn / (tn + fp)) / 2, 4) if tp + fn and tn + fp else None
+                ),
+                "support_positive": tp + fn,
+                "support_negative": tn + fp,
             }
         )
     return out
 
 
-def git_commit(root: Path = REPO_ROOT) -> str | None:
-    """The commit checked out in `root`, read from .git without needing git.
+def _random_steps(pipeline) -> dict:
+    """The pipeline parameters that seed a random number generator.
 
-    None outside a checkout, which is the case in the Colab bundle.
+    A step whose seed is unset draws no random numbers at its settings here
+    (Logistic Regression with the default solver), so it is left out.
     """
+    return {
+        name: value
+        for name, value in pipeline.get_params().items()
+        if name.endswith("__random_state") and value is not None
+    }
+
+
+def _mean_sd(values: list[float]) -> dict:
+    return {
+        "mean": round(float(np.mean(values)), 4),
+        "sd": round(float(np.std(values, ddof=1)), 4) if len(values) > 1 else None,
+        "values": [round(float(value), 4) for value in values],
+    }
+
+
+def seed_variation(data: TrainingSet, pipelines: dict, folds, seeds=SEEDS) -> dict:
+    """How far the held-out scores move when only the random seed changes.
+
+    Each candidate is cross-validated once per seed on the same folds, at
+    the settings that were kept. Mean and sample standard deviation over the
+    seeds, with the score for each seed in `values`, in the order of
+    `seeds`. A candidate with nothing random in it is fitted once and
+    marked deterministic. Cross-validation only: the final test plays no
+    part.
+    """
+    columns = list(range(len(data.features)))
+    out = {"seeds": [int(seed) for seed in seeds]}
+    for name, pipeline in pipelines.items():
+        random_steps = _random_steps(pipeline)
+        if not random_steps:
+            out[name] = {"note": "deterministic"}
+            continue
+        scores = []
+        for seed in seeds:
+            seeded = clone(pipeline).set_params(**{step: seed for step in random_steps})
+            held_out = held_out_probabilities(data, lambda: clone(seeded), columns, folds)
+            scores.append(_scores(data.y, held_out))
+        out[name] = {
+            metric: _mean_sd([score[metric] for score in scores])
+            for metric in ("average_precision", "roc_auc")
+        }
+    return out
+
+
+def sample_years(years: np.ndarray, fraction: float, order: np.ndarray) -> np.ndarray:
+    """The first `fraction` of the years in `order`, at least one.
+
+    `order` is a shuffle of the distinct years, so a larger fraction always
+    contains the smaller one. Whole years are taken, never single rows: rows
+    of one year are near-copies of each other, as with the folds.
+    """
+    kept = order[: max(1, int(np.ceil(fraction * len(order))))]
+    return np.isin(years, kept)
+
+
+def learning_curve(
+    data: TrainingSet, make_model, folds, fractions=LEARNING_CURVE_FRACTIONS
+) -> list[dict]:
+    """Held-out average precision against how many training years the model saw.
+
+    In each fold the model is fitted on a share of the training years,
+    with the county normals from those years only, and scored on the same
+    held-out years every time. Mean and sample standard deviation over the
+    folds. Still rising at 1.0 means more recorded years would help; flat
+    means the inputs or the labels are the limit.
+    """
+    rng = np.random.default_rng(RANDOM_STATE)
+    orders = [rng.permutation(np.unique(data.years[train_rows])) for train_rows, _ in folds]
+    curve = []
+    for fraction in fractions:
+        scores, year_counts, row_counts = [], [], []
+        for (train_rows, test_rows), order in zip(folds, orders):
+            rows = train_rows[sample_years(data.years[train_rows], fraction, order)]
+            y_test = data.y[test_rows]
+            if not (0 < data.y[rows].sum() < len(rows) and 0 < y_test.sum() < len(y_test)):
+                continue  # one class only: nothing to fit or to rank
+            X = with_normals(data, county_normals(data, rows))
+            model = make_model().fit(X[rows], data.y[rows])
+            scores.append(average_precision_score(y_test, model.predict_proba(X[test_rows])[:, 1]))
+            year_counts.append(len(np.unique(data.years[rows])))
+            row_counts.append(len(rows))
+        curve.append(
+            {
+                "fraction": fraction,
+                "folds": len(scores),
+                "training_years_mean": round(float(np.mean(year_counts)), 1) if scores else None,
+                "training_rows_mean": round(float(np.mean(row_counts))) if scores else None,
+                "average_precision_mean": round(float(np.mean(scores)), 4) if scores else None,
+                "average_precision_sd": (
+                    round(float(np.std(scores, ddof=1)), 4) if len(scores) > 1 else None
+                ),
+            }
+        )
+    return curve
+
+
+def _processor() -> str:
+    """The processor's name where the system gives one, else its architecture."""
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or platform.machine()
+
+
+def _commit_from_git_dir(root: Path) -> str | None:
+    """The commit checked out in `root`, read from .git without needing git."""
     git_dir = root / ".git"
     head = git_dir / "HEAD"
     if not head.is_file():
@@ -470,10 +621,30 @@ def git_commit(root: Path = REPO_ROOT) -> str | None:
     return None
 
 
+def git_commit(root: Path = REPO_ROOT) -> str | None:
+    """The commit the code came from.
+
+    Order: a real .git checkout, then the FLOODSCOUT_GIT_COMMIT environment
+    variable, then the COMMIT file `build_colab_bundle` writes into the
+    bundle, which is not a checkout.
+    """
+    found = _commit_from_git_dir(root)
+    if found:
+        return found
+    from_env = os.environ.get(COMMIT_ENV, "").strip()
+    if from_env:
+        return from_env
+    commit_file = root / COMMIT_FILE
+    if commit_file.is_file():
+        return commit_file.read_text().strip() or None
+    return None
+
+
 def provenance(training_set: Path) -> dict:
-    """What a result has to be traced back to: the code, the data and the seed."""
+    """What a result has to be traced back to: the code, the run, the data and the seed."""
     return {
         "git_commit": git_commit(),
+        "run_id": os.environ.get(RUN_ID_ENV, "").strip() or None,
         "training_set_sha256": hashlib.sha256(training_set.read_bytes()).hexdigest(),
         "random_state": RANDOM_STATE,
         "scikit_learn": sklearn.__version__,
@@ -509,6 +680,7 @@ class Selection:
     calibration_scores: dict
     calibration: str
     final_held_out: np.ndarray  # the winner's held-out probabilities, calibrated
+    seconds: float = 0.0  # how long the comparison took, settings search included
 
 
 def select(data: TrainingSet, tune_models: bool = True) -> Selection:
@@ -518,6 +690,7 @@ def select(data: TrainingSet, tune_models: bool = True) -> Selection:
     PARAM_GRIDS. The searched settings replace the fixed ones only where
     they score a higher average precision on the same held-out years.
     """
+    started = time.perf_counter()
     y = data.y
     folds = list(GroupKFold(CV_FOLDS).split(data.X, y, groups=data.years))
     all_columns = list(range(len(data.features)))
@@ -580,6 +753,7 @@ def select(data: TrainingSet, tune_models: bool = True) -> Selection:
         calibration_scores=calibration_scores,
         calibration=calibration,
         final_held_out=calibrated_held_out[calibration],
+        seconds=time.perf_counter() - started,
     )
 
 
@@ -680,13 +854,14 @@ def train(
     oni: dict[tuple[int, int], float],
     dmi: dict[tuple[int, int], float] | None = None,
     first_year: int = FIRST_TRAINING_YEAR,
-    test_from: int | None = FINAL_TEST_FROM,
+    test_from: int | None = None,
     tune_models: bool = True,
+    seeds=SEEDS,
 ) -> tuple[dict, dict]:
     """Returns (artifact, metrics). Neither is written here."""
     data = load_training_set(training_set, first_year)
     chosen = select(data, tune_models)
-    return build(data, chosen, training_set, oni, dmi, first_year, test_from, tune_models)
+    return build(data, chosen, training_set, oni, dmi, first_year, test_from, tune_models, seeds)
 
 
 def build(
@@ -696,13 +871,16 @@ def build(
     oni: dict[tuple[int, int], float],
     dmi: dict[tuple[int, int], float] | None = None,
     first_year: int = FIRST_TRAINING_YEAR,
-    test_from: int | None = FINAL_TEST_FROM,
+    test_from: int | None = None,
     tune_models: bool = True,
+    seeds=SEEDS,
 ) -> tuple[dict, dict]:
     """The artifact and metrics for a selection `select` already made on `data`.
 
     Split from `train` so a caller that wants the held-out probabilities
     (the notebook, for its curves) can keep `chosen` without selecting twice.
+    `seeds` are the seeds the cross-validation is repeated with; empty skips
+    the repeat.
     """
     y = data.y
     best, calibration = chosen.best, chosen.calibration
@@ -712,7 +890,15 @@ def build(
     )
 
     # The deployed model: normals from every year kept, fitted on every row.
+    started = time.perf_counter()
     model, pipeline, normals = fit(data, chosen)
+    seconds = {"cross_validation": chosen.seconds, "final_fit": time.perf_counter() - started}
+
+    def timed(stage: str, work):
+        started = time.perf_counter()
+        result = work()
+        seconds[stage] = time.perf_counter() - started
+        return result
 
     base_rate = float(y.mean())
     metrics = {
@@ -724,6 +910,9 @@ def build(
         "first_training_year": first_year,
         "features": list(data.features),
         "rain_source": data.meta.get("rain_source", "open-meteo-point"),
+        # The archive model behind point rainfall. Absent from training sets
+        # built before it was named, which were ERA5 to 2016 and IFS after.
+        **({"rain_model": data.meta["rain_model"]} if "rain_model" in data.meta else {}),
         "validation": f"{CV_FOLDS}-fold cross-validation grouped by year, normals refit per fold",
         "baseline_brier": round(float(brier_score_loss(y, np.full(len(y), base_rate))), 4),
         "baselines": {
@@ -749,11 +938,30 @@ def build(
         "fold_summary": _fold_summary(fold_scores),
         "threshold_errors": _threshold_errors(y, chosen.final_held_out),
         "error_breakdown": _error_breakdown(data, chosen.final_held_out),
-        "permutation_importance": permutation_importances(
-            data, lambda: clone(chosen.pipelines[best]), chosen.folds
+        "permutation_importance": timed(
+            "permutation_importance",
+            lambda: permutation_importances(
+                data, lambda: clone(chosen.pipelines[best]), chosen.folds
+            ),
         ),
-        "final_test": final_test(data, test_from, tune_models) if test_from else None,
+        "seed_variation": timed(
+            "seed_variation",
+            lambda: seed_variation(data, chosen.pipelines, chosen.folds, seeds) if seeds else None,
+        ),
+        "learning_curve": timed(
+            "learning_curve",
+            lambda: learning_curve(data, lambda: clone(chosen.pipelines[best]), chosen.folds),
+        ),
+        "final_test": timed(
+            "final_test", lambda: final_test(data, test_from, tune_models) if test_from else None
+        ),
         "provenance": provenance(training_set),
+    }
+    # What the run cost. Wall-clock seconds, so they differ from run to run.
+    metrics["compute"] = {
+        **{f"seconds_{stage}": round(spent, 1) for stage, spent in seconds.items()},
+        "cpu": _processor(),
+        "cores": os.cpu_count(),
     }
     if best == "logreg":
         metrics["standardised_coefficients"] = {
@@ -777,11 +985,25 @@ def build(
         "rain_source": metrics["rain_source"],
         "rain_points": int(data.meta.get("rain_points", 1)),
     }
+    if "rain_model" in metrics:
+        artifact["rain_model"] = metrics["rain_model"]
     return artifact, metrics
 
 
-def save(artifact: dict, metrics: dict) -> None:
-    """Write the model and its metrics where `infer()` and the docs expect them."""
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(artifact, ARTIFACT_PATH)
-    METRICS_PATH.write_text(json.dumps({"version": artifact["version"], **metrics}, indent=2) + "\n")
+def save(artifact: dict, metrics: dict, directory: Path | None = None) -> None:
+    """Write the model and its metrics into `directory`.
+
+    Without one, they go where `infer()` and the docs expect them. The
+    pipeline passes a run's own folder, so a run never replaces the model
+    being served (see riskengine/ml/pipeline/).
+    """
+    model_path = ARTIFACT_PATH if directory is None else directory / ARTIFACT_PATH.name
+    metrics_path = METRICS_PATH if directory is None else directory / METRICS_PATH.name
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(artifact, model_path)
+    # infer.load_model checks this before unpickling (security review 15).
+    digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    metrics_path.write_text(
+        json.dumps({"version": artifact["version"], "model_sha256": digest, **metrics}, indent=2)
+        + "\n"
+    )

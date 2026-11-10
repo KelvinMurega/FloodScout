@@ -1,5 +1,6 @@
 {
-  "version": "flood-random-forest-20261006",
+  "version": "flood-random-forest-20261007",
+  "model_sha256": "72fe2cf060c8e6c156e25a7a2d2a37a37827a278ace8c956bfbd4ddb8cc60ffb",
   "target": "DFO large flood recorded in the county within the 30-day window",
   "rows": 14523,
   "positives": 1406,
@@ -408,7 +409,12 @@
       "true_negatives": 6885,
       "precision": 0.1663,
       "recall": 0.8841,
-      "specificity": 0.5249
+      "specificity": 0.5249,
+      "accuracy": 0.5597,
+      "f1": 0.2799,
+      "balanced_accuracy": 0.7045,
+      "support_positive": 1406,
+      "support_negative": 13117
     },
     {
       "threshold": 0.1,
@@ -418,7 +424,12 @@
       "true_negatives": 9428,
       "precision": 0.2146,
       "recall": 0.7169,
-      "specificity": 0.7188
+      "specificity": 0.7188,
+      "accuracy": 0.7186,
+      "f1": 0.3303,
+      "balanced_accuracy": 0.7178,
+      "support_positive": 1406,
+      "support_negative": 13117
     },
     {
       "threshold": 0.2,
@@ -428,7 +439,12 @@
       "true_negatives": 11489,
       "precision": 0.2643,
       "recall": 0.4161,
-      "specificity": 0.8759
+      "specificity": 0.8759,
+      "accuracy": 0.8314,
+      "f1": 0.3233,
+      "balanced_accuracy": 0.646,
+      "support_positive": 1406,
+      "support_negative": 13117
     }
   ],
   "error_breakdown": {
@@ -964,6 +980,100 @@
       "sd": 0.0079
     }
   },
+  "seed_variation": {
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "logreg": {
+      "note": "deterministic"
+    },
+    "random-forest": {
+      "average_precision": {
+        "mean": 0.2516,
+        "sd": 0.0027,
+        "values": [
+          0.2535,
+          0.253,
+          0.2542,
+          0.2486,
+          0.2487
+        ]
+      },
+      "roc_auc": {
+        "mean": 0.7834,
+        "sd": 0.0024,
+        "values": [
+          0.7867,
+          0.7833,
+          0.7847,
+          0.7808,
+          0.7817
+        ]
+      }
+    },
+    "gradient-boosting": {
+      "average_precision": {
+        "mean": 0.2339,
+        "sd": 0.0013,
+        "values": [
+          0.2321,
+          0.2333,
+          0.2355,
+          0.234,
+          0.2346
+        ]
+      },
+      "roc_auc": {
+        "mean": 0.7613,
+        "sd": 0.0027,
+        "values": [
+          0.76,
+          0.7645,
+          0.7635,
+          0.7606,
+          0.7579
+        ]
+      }
+    }
+  },
+  "learning_curve": [
+    {
+      "fraction": 0.25,
+      "folds": 6,
+      "training_years_mean": 6.0,
+      "training_rows_mean": 3314,
+      "average_precision_mean": 0.2169,
+      "average_precision_sd": 0.1406
+    },
+    {
+      "fraction": 0.5,
+      "folds": 6,
+      "training_years_mean": 11.0,
+      "training_rows_mean": 6134,
+      "average_precision_mean": 0.2553,
+      "average_precision_sd": 0.0938
+    },
+    {
+      "fraction": 0.75,
+      "folds": 6,
+      "training_years_mean": 16.7,
+      "training_rows_mean": 9306,
+      "average_precision_mean": 0.3088,
+      "average_precision_sd": 0.1193
+    },
+    {
+      "fraction": 1.0,
+      "folds": 6,
+      "training_years_mean": 21.7,
+      "training_rows_mean": 12102,
+      "average_precision_mean": 0.2967,
+      "average_precision_sd": 0.0983
+    }
+  ],
   "final_test": {
     "test_from": 2017,
     "development_years": [
@@ -1156,7 +1266,12 @@
         "true_negatives": 498,
         "precision": 0.0821,
         "recall": 0.989,
-        "specificity": 0.1994
+        "specificity": 0.1994,
+        "accuracy": 0.2527,
+        "f1": 0.1517,
+        "balanced_accuracy": 0.5942,
+        "support_positive": 181,
+        "support_negative": 2498
       },
       {
         "threshold": 0.1,
@@ -1166,7 +1281,12 @@
         "true_negatives": 1224,
         "precision": 0.1153,
         "recall": 0.9171,
-        "specificity": 0.49
+        "specificity": 0.49,
+        "accuracy": 0.5189,
+        "f1": 0.2048,
+        "balanced_accuracy": 0.7036,
+        "support_positive": 181,
+        "support_negative": 2498
       },
       {
         "threshold": 0.2,
@@ -1176,14 +1296,30 @@
         "true_negatives": 1892,
         "precision": 0.1755,
         "recall": 0.7127,
-        "specificity": 0.7574
+        "specificity": 0.7574,
+        "accuracy": 0.7544,
+        "f1": 0.2817,
+        "balanced_accuracy": 0.7351,
+        "support_positive": 181,
+        "support_negative": 2498
       }
     ]
   },
   "provenance": {
-    "git_commit": null,
+    "git_commit": "07abff353bb9ed29e21fa24c09ccea0305eff4a4",
+    "run_id": "20261007T1353Z_07abff3",
     "training_set_sha256": "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033",
     "random_state": 0,
     "scikit_learn": "1.9.1"
+  },
+  "compute": {
+    "seconds_cross_validation": 443.8,
+    "seconds_final_fit": 4.3,
+    "seconds_permutation_importance": 75.1,
+    "seconds_seed_variation": 250.7,
+    "seconds_learning_curve": 71.1,
+    "seconds_final_test": 389.7,
+    "cpu": "Intel(R) Xeon(R) CPU @ 2.20GHz",
+    "cores": 2
   }
 }

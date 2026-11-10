@@ -7,17 +7,22 @@ import json
 from io import StringIO
 from unittest import mock
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.gis.geos import MultiPolygon, Polygon
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import OperationalError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from geodata.models import EnvironmentalData, GeospatialFeature, Region
+from geodata.models import EnvironmentalData, GeospatialFeature, GridCell, Region
 from geodata.services.climate_indices import oni_for, parse_oni
+from riskengine.management.commands import refresh_scores
 from riskengine.management.commands.score_regions import start_of_day
 from riskengine.ml import train
 from riskengine.ml.features import (
@@ -33,11 +38,13 @@ from riskengine.ml.infer import (
     RAINFALL_SATURATION_MM,
     infer,
     model_infer,
+    region_row,
     times_usual,
     usual_chance,
 )
 
-from .models import RiskOutlook, RiskScore
+from .inputs import compare
+from .models import GridRiskScore, RiskOutlook, RiskScore
 
 
 def _square(x=36.8, y=-1.3, size=0.1):
@@ -393,6 +400,274 @@ def score(region: Region, value: float) -> RiskScore:
     )
 
 
+class ScoreHistoryAPITests(APITestCase):
+    """`date_after` and `date_before` on the risk-score endpoints (FR-05)."""
+
+    DAYS = [dt.date(2026, 4, 13), dt.date(2026, 4, 14), dt.date(2026, 4, 15)]
+
+    def setUp(self):
+        self.alpha = make_region("Alpha", offset=0.0)
+        self.beta = make_region("Beta", offset=2.0)
+        for region, base in ((self.alpha, 0.1), (self.beta, 0.5)):
+            for step, day in enumerate(self.DAYS):
+                RiskScore.objects.create(
+                    region=region,
+                    prediction_date=start_of_day(day),
+                    predicted_value=round(base + step / 10, 1),
+                    risk_category=RiskScore.RiskCategory.LOW,
+                )
+
+    def _days(self, response):
+        return [row["prediction_date"][:10] for row in response.data]
+
+    def test_one_regions_history_is_newest_first(self):
+        response = self.client.get(f"/api/risk-scores/?region={self.alpha.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({row["region"] for row in response.data}, {self.alpha.id})
+        self.assertEqual(self._days(response), ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+    def test_both_date_bounds_are_inclusive(self):
+        response = self.client.get(
+            f"/api/risk-scores/?region={self.alpha.id}&date_after=2026-04-14&date_before=2026-04-15"
+        )
+
+        self.assertEqual(self._days(response), ["2026-04-15", "2026-04-14"])
+
+    def test_either_bound_works_alone(self):
+        after = self.client.get(f"/api/risk-scores/?region={self.alpha.id}&date_after=2026-04-15")
+        before = self.client.get(f"/api/risk-scores/?region={self.alpha.id}&date_before=2026-04-13")
+
+        self.assertEqual(self._days(after), ["2026-04-15"])
+        self.assertEqual(self._days(before), ["2026-04-13"])
+
+    def test_a_range_with_no_scores_is_empty_not_an_error(self):
+        response = self.client.get("/api/risk-scores/?date_after=2026-05-01")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Without ?region= the list is paged (api/pagination.py).
+        self.assertEqual(response.data["results"], [])
+
+    def test_rejects_a_malformed_date(self):
+        for query in ("date_after=14-04-2026", "date_before=yesterday", "date_after=2026-02-30"):
+            with self.subTest(query=query):
+                response = self.client.get(f"/api/risk-scores/?{query}")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_a_range_that_ends_before_it_starts(self):
+        response = self.client.get(
+            "/api/risk-scores/?date_after=2026-04-15&date_before=2026-04-13"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("date_after", response.data)
+
+    def test_rejects_a_region_that_is_not_an_id(self):
+        response = self.client.get("/api/risk-scores/?region=alpha")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_latest_by_region_for_one_day_gives_the_map_as_it_stood(self):
+        response = self.client.get(
+            "/api/risk-scores/latest-by-region/?date_after=2026-04-14&date_before=2026-04-14"
+        )
+
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(set(self._days(response)), {"2026-04-14"})
+        self.assertEqual(
+            {row["region_name"]: row["predicted_value"] for row in response.data},
+            {"Alpha": 0.2, "Beta": 0.6},
+        )
+
+    def test_dates_lists_each_day_once_newest_first(self):
+        response = self.client.get("/api/risk-scores/dates/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+    def test_dates_honours_the_region_filters(self):
+        RiskScore.objects.create(
+            region=self.beta,
+            prediction_date=start_of_day(dt.date(2026, 4, 16)),
+            predicted_value=0.9,
+            risk_category=RiskScore.RiskCategory.HIGH,
+        )
+
+        response = self.client.get(f"/api/risk-scores/dates/?region={self.alpha.id}")
+
+        self.assertEqual(response.data, ["2026-04-15", "2026-04-14", "2026-04-13"])
+
+
+class ScoreInputsAPITests(APITestCase):
+    """`risk-scores/<id>/inputs/`: what the model was given for one score."""
+
+    def setUp(self):
+        # Answers are kept a day per score and model version, and these
+        # tests give one score different models under one version.
+        cache.clear()
+
+    @classmethod
+    def setUpTestData(cls):
+        rows = [[float(mm)] + [0.0] * (len(FEATURE_NAMES) - 1) for mm in range(0, 400, 10)]
+        cls.model = {
+            "version": "test-model",
+            "pipeline": train.candidates()["logreg"].fit(rows, [int(r[0] >= 200) for r in rows]),
+            "probability_bands": list(train.PROBABILITY_BANDS),
+            # April is the month of SCORE_DATE; the window before it ends in March.
+            "normals": {"Wet": {3: 100.0, 4: 300.0}},
+            "oni": {(2026, 1): 1.2},
+            "dmi": {(2026, 1): -0.1},
+        }
+        cls.county = make_region("Wet", offset=0.0)
+        GeospatialFeature.objects.create(region=cls.county, elevation=1200.0, slope=3.5)
+        for day_offset in range(60):
+            EnvironmentalData.objects.create(
+                region=cls.county,
+                record_date=SCORE_DATE - dt.timedelta(days=day_offset),
+                rainfall_intensity=12.0,
+            )
+        cls.score = RiskScore.objects.create(
+            region=cls.county,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.9,
+            risk_category=RiskScore.RiskCategory.VERY_HIGH,
+            model_version="test-model",
+        )
+
+    def _get(self, score=None, model="default"):
+        model = self.model if model == "default" else model
+        with mock.patch("riskengine.ml.infer._MODEL", model):
+            return self.client.get(f"/api/risk-scores/{(score or self.score).id}/inputs/")
+
+    def _inputs(self, response):
+        return {item["key"]: item for item in response.data["inputs"]}
+
+    def test_names_the_score_the_date_and_the_model(self):
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["score"], self.score.id)
+        self.assertEqual(response.data["region_name"], "Wet")
+        self.assertEqual(response.data["date"], SCORE_DATE.isoformat())
+        self.assertEqual(response.data["model_version"], "test-model")
+        self.assertTrue(response.data["same_model"])
+
+    def test_rainfall_is_set_against_the_countys_normal_for_the_month(self):
+        inputs = self._inputs(self._get())
+
+        # 12 mm a day: 360 mm in 30 days, 84 mm in the wettest 7.
+        self.assertEqual(inputs["rain_30d"]["value"], 360.0)
+        self.assertEqual(inputs["rain_30d"]["usual"], 300.0)
+        self.assertEqual(inputs["rain_30d"]["comparison"], "above")
+        self.assertEqual(inputs["rain_30d"]["unit"], "mm")
+        # The window before ends in March, so it is set against March's normal.
+        self.assertEqual(inputs["rain_prev_30d"]["value"], 360.0)
+        self.assertEqual(inputs["rain_prev_30d"]["usual"], 100.0)
+        self.assertEqual(inputs["rain_7d_max"]["value"], 84.0)
+        self.assertIsNone(inputs["rain_7d_max"]["comparison"])
+
+    def test_oceans_season_and_land_are_described(self):
+        inputs = self._inputs(self._get())
+
+        self.assertEqual(inputs["oni"]["value"], 1.2)
+        self.assertEqual(inputs["oni"]["note"], "El Niño conditions")
+        self.assertEqual(inputs["dmi"]["note"], "Neutral")
+        self.assertEqual(inputs["season"]["note"], "April: Long rains (March to May)")
+        self.assertEqual(inputs["elevation"]["value"], 1200.0)
+        self.assertEqual(inputs["slope"]["value"], 3.5)
+        self.assertEqual(inputs["area"]["value"], 12345.0)
+
+    def test_values_match_the_row_the_model_is_given(self):
+        inputs = self._inputs(self._get())
+        rain = dict(
+            self.county.environmental_records.values_list("record_date", "rainfall_intensity")
+        )
+        row = dict(
+            zip(FEATURE_NAMES, region_row(self.model, self.county, rain, SCORE_DATE), strict=True)
+        )
+
+        self.assertEqual(inputs["rain_30d"]["value"], row["rain_30d"])
+        self.assertEqual(inputs["rain_7d_max"]["value"], row["rain_7d_max"])
+        self.assertEqual(inputs["rain_prev_30d"]["value"], row["rain_prev_30d"])
+        self.assertEqual(inputs["oni"]["value"], row["oni"])
+        self.assertEqual(inputs["dmi"]["value"], row["dmi"])
+
+    def test_a_sub_county_is_measured_against_its_countys_normal_and_area(self):
+        sub_county = make_sub_county("Wet East", self.county, x=0.1)
+        sub_score = RiskScore.objects.create(
+            region=sub_county,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test-model",
+        )
+
+        inputs = self._inputs(self._get(sub_score))
+
+        self.assertEqual(inputs["rain_30d"]["usual"], 300.0)
+        self.assertEqual(inputs["area"]["value"], 12345.0)
+
+    def test_missing_data_is_unknown_not_zero(self):
+        empty = make_region("Empty", offset=4.0)
+        empty_score = RiskScore.objects.create(
+            region=empty,
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test-model",
+        )
+
+        inputs = self._inputs(self._get(empty_score))
+
+        for key in ("rain_30d", "rain_prev_30d", "rain_7d_max", "elevation", "slope"):
+            with self.subTest(key=key):
+                self.assertIsNone(inputs[key]["value"])
+        self.assertIsNone(inputs["rain_30d"]["usual"])
+        self.assertIsNone(inputs["rain_30d"]["comparison"])
+
+    def test_inputs_the_model_was_not_trained_on_are_left_out(self):
+        narrow = {**self.model, "features": ["rain_30d", "month_sin", "month_cos"]}
+
+        inputs = self._inputs(self._get(model=narrow))
+
+        self.assertEqual(set(inputs), {"rain_30d", "season"})
+
+    def test_says_when_the_score_came_from_another_model(self):
+        response = self._get(model={**self.model, "version": "newer-model"})
+
+        self.assertFalse(response.data["same_model"])
+        self.assertEqual(response.data["computed_with"], "newer-model")
+        self.assertEqual(response.data["model_version"], "test-model")
+
+    def test_a_placeholder_scorer_has_no_inputs(self):
+        response = self._get(model=None)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["inputs"], [])
+        self.assertFalse(response.data["same_model"])
+
+    def test_unknown_score_is_not_found(self):
+        response = self.client.get("/api/risk-scores/999999/inputs/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class CompareTests(TestCase):
+    def test_within_a_tenth_of_usual_is_near(self):
+        self.assertEqual(compare(105.0, 100.0), "near")
+        self.assertEqual(compare(95.0, 100.0), "near")
+        self.assertEqual(compare(111.0, 100.0), "above")
+        self.assertEqual(compare(89.0, 100.0), "below")
+
+    def test_unknown_on_either_side_is_unknown(self):
+        self.assertIsNone(compare(None, 100.0))
+        self.assertIsNone(compare(50.0, None))
+
+    def test_a_usual_of_zero_does_not_divide(self):
+        self.assertEqual(compare(5.0, 0.0), "above")
+        self.assertEqual(compare(0.0, 0.0), "near")
+
+
 class RelocationAdvisoryTests(TestCase):
     def test_maps_each_category(self):
         from .advisory import NONE, PREPARE, RELOCATE, relocation_advisory
@@ -435,7 +710,7 @@ class SubCountyScoreAPITests(APITestCase):
     def test_latest_by_region_filters_by_focus_region(self):
         response = self.client.get(
             reverse("risk-score-latest-by-region"),
-            {"level": "sub_county", "focus_region": "nairobi"},
+            {"level": "sub_county", "focus_region": "nairobi-metro"},
         )
 
         self.assertEqual(
@@ -446,7 +721,7 @@ class SubCountyScoreAPITests(APITestCase):
         with self.assertNumQueries(1):
             self.client.get(
                 reverse("risk-score-latest-by-region"),
-                {"level": "sub_county", "focus_region": "nairobi"},
+                {"level": "sub_county", "focus_region": "nairobi-metro"},
             )
 
     def test_lower_risk_neighbours_are_adjacent_and_lower_least_risky_first(self):
@@ -514,7 +789,7 @@ class RiskOutlookAPITests(APITestCase):
     def test_filters_by_focus_region(self):
         response = self.client.get(
             reverse("risk-outlook-list"),
-            {"month": "2026-11-01", "level": "sub_county", "focus_region": "nairobi"},
+            {"month": "2026-11-01", "level": "sub_county", "focus_region": "nairobi-metro"},
         )
 
         self.assertEqual([row["region_name"] for row in response.data], ["Kibra"])
@@ -532,34 +807,201 @@ class RiskOutlookAPITests(APITestCase):
 
 class RefreshScoresCommandTests(TestCase):
     COMMANDS = "riskengine.management.commands.refresh_scores"
+    TODAY = dt.date(2026, 10, 19)
 
-    def test_fetches_rainfall_then_scores(self):
+    def setUp(self):
+        real = timezone.localdate
+        # Only "today" moves; converting a stored timestamp to a date still works.
+        patcher = mock.patch(
+            f"{self.COMMANDS}.timezone.localdate",
+            side_effect=lambda value=None: self.TODAY if value is None else real(value),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # Closing the connection would end the test's transaction.
+        patcher = mock.patch(f"{self.COMMANDS}.connections")
+        self.connections = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _scored(self, day):
+        RiskScore.objects.create(
+            region=make_region(f"R{day}"),
+            prediction_date=start_of_day(day),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+        )
+
+    def _steps(self, run):
+        return [call.args for call in run.call_args_list]
+
+    def test_fetches_rainfall_then_scores_today(self):
         with mock.patch(f"{self.COMMANDS}.call_command") as run:
             call_command("refresh_scores", stdout=StringIO())
-        self.assertEqual([call.args[0] for call in run.call_args_list], ["seed_rainfall", "score_regions"])
+        self.assertEqual(
+            self._steps(run),
+            [
+                ("seed_rainfall", "--past-days", "61"),
+                ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
+                ("fetch_kmd_warnings",),
+                ("issue_alerts",),
+                ("fetch_flood_reports",),
+            ],
+        )
+
+    def test_catches_up_on_the_days_it_missed(self):
+        self._scored(dt.date(2026, 10, 16))
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run),
+            [
+                # Two more days of rain, so the 17th has its full history.
+                ("seed_rainfall", "--past-days", "63"),
+                ("score_regions", "--date", "2026-10-17"),
+                ("score_regions", "--date", "2026-10-18"),
+                ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
+                ("fetch_kmd_warnings",),
+                ("issue_alerts",),
+                ("fetch_flood_reports",),
+            ],
+        )
+
+    def test_fills_gaps_between_scored_days(self):
+        for day in (dt.date(2026, 10, 15), dt.date(2026, 10, 17), dt.date(2026, 10, 19)):
+            self._scored(day)
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run)[1:],
+            [
+                ("score_regions", "--date", "2026-10-16"),
+                ("score_regions", "--date", "2026-10-18"),
+                ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
+                ("fetch_kmd_warnings",),
+                ("issue_alerts",),
+                ("fetch_flood_reports",),
+            ],
+        )
+        self.assertEqual(self._steps(run)[0], ("seed_rainfall", "--past-days", "64"))
+
+    def test_scores_the_area_grid_once_there_is_one(self):
+        county = make_region("Gridded")
+        cell = GridCell.objects.create(lon=0.5, lat=0.5, size_deg=0.25, county=county)
+        GridRiskScore.objects.create(
+            cell=cell,
+            date=dt.date(2026, 10, 17),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test",
+        )
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run)[-1],
+            ("score_grid", "--date", "2026-10-18", "--date", "2026-10-19"),
+        )
+
+    def test_no_grid_no_grid_scoring(self):
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertNotIn("score_grid", [step[0] for step in self._steps(run)])
+
+    def test_a_second_run_on_the_same_day_rescores_only_today(self):
+        self._scored(self.TODAY)
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        self.assertEqual(
+            self._steps(run)[1:],
+            [
+                ("score_regions", "--date", "2026-10-19"),
+                ("forecast_scores",),
+                ("fetch_kmd_warnings",),
+                ("issue_alerts",),
+                ("fetch_flood_reports",),
+            ],
+        )
+
+    def test_a_failed_forecast_is_reported_but_does_not_fail_the_refresh(self):
+        def fail_forecast(name, *args, **kwargs):
+            if name == "forecast_scores":
+                raise CommandError("forecast down")
+
+        stderr = StringIO()
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=fail_forecast) as run:
+            call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
+        self.assertIn("Forecast skipped: forecast down", stderr.getvalue())
+        self.assertIn(("score_regions", "--date", "2026-10-19"), self._steps(run))
+
+    def test_failed_flood_reports_are_reported_but_do_not_fail_the_refresh(self):
+        def fail_reports(name, *args, **kwargs):
+            if name == "fetch_flood_reports":
+                raise CommandError("ReliefWeb answered 403")
+
+        stderr = StringIO()
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=fail_reports):
+            call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
+        self.assertIn("Flood reports skipped: ReliefWeb answered 403", stderr.getvalue())
+
+    def test_catch_up_stops_where_the_rainfall_record_does(self):
+        self._scored(dt.date(2026, 1, 1))
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        steps = self._steps(run)
+        self.assertEqual(steps[0], ("seed_rainfall", "--past-days", str(refresh_scores.MAX_PAST_DAYS)))
+        # Rainfall, one score per day, then the forecast, KMD, alerts and reports.
+        self.assertEqual(len(steps) - 5, refresh_scores.MAX_CATCH_UP_DAYS + 1)
 
     def test_a_failed_fetch_stops_a_single_run(self):
         with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):
             with self.assertRaises(CommandError):
                 call_command("refresh_scores", stdout=StringIO())
 
-    def test_on_a_schedule_a_failed_run_is_reported_and_the_next_one_still_happens(self):
+    def _schedule(self, clock, error=None):
+        """Run --every-hours 24 against `clock` until the third sleep; the call_command mock."""
+
         class Stop(Exception):
             pass
 
+        ticks = iter(clock)
         stderr = StringIO()
-        with mock.patch(
-            f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")
-        ) as run, mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, Stop]) as sleep:
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=error) as run, mock.patch(
+            f"{self.COMMANDS}._now", side_effect=lambda: next(ticks)
+        ), mock.patch(f"{self.COMMANDS}._sleep", side_effect=[None, None, Stop]) as sleep:
             with self.assertRaises(Stop):
                 call_command("refresh_scores", "--every-hours", "24", stdout=StringIO(), stderr=stderr)
+        sleep.assert_called_with(refresh_scores.CHECK_SECONDS)
+        return run, stderr.getvalue()
+
+    def test_on_a_schedule_the_next_run_waits_the_interval(self):
+        hours = 3600
+        # Runs at 0, checks at 1 h (not due) and at 24 h (due), runs again.
+        run, _ = self._schedule([0, 1 * hours, 24 * hours, 24 * hours])
+        self.assertEqual([step[0] for step in self._steps(run)].count("seed_rainfall"), 2)
+
+    def test_on_a_schedule_a_failed_run_is_reported_and_retried_within_the_hour(self):
+        # Fails at 0, checks at 10 min (not due) and at 1 h (due), runs again.
+        run, stderr = self._schedule([0, 600, 3600, 3600], error=CommandError("no network"))
         self.assertEqual(run.call_count, 2)  # one failed attempt per run, two runs
-        sleep.assert_called_with(24 * 3600)
-        self.assertIn("no network", stderr.getvalue())
+        self.assertIn("no network", stderr)
 
     def test_the_interval_must_be_positive(self):
         with self.assertRaises(CommandError):
             call_command("refresh_scores", "--every-hours", "0", stdout=StringIO())
+
+    def test_each_run_starts_on_a_new_database_connection(self):
+        # The connection kept from yesterday's run may have been dropped.
+        with mock.patch(f"{self.COMMANDS}.call_command"):
+            call_command("refresh_scores", stdout=StringIO())
+        self.connections.close_all.assert_called()
+
+    def test_on_a_schedule_a_dropped_database_connection_is_retried_within_the_hour(self):
+        error = OperationalError("SSL error: unexpected eof while reading")
+        run, stderr = self._schedule([0, 600, 3600, 3600], error=error)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("unexpected eof", stderr)
 
 
 class TimesUsualTests(APITestCase):
@@ -583,3 +1025,81 @@ class TimesUsualTests(APITestCase):
         response = self.client.get(f"/api/risk-scores/latest/?region={region.id}")
         self.assertEqual(response.data["times_usual"], times_usual(0.29))
         self.assertGreater(response.data["times_usual"], 2.5)
+
+
+class AdminRescoreActionTests(TestCase):
+    """The "Rescore all regions" action on the administration site (FR-06)."""
+
+    URL = "/admin/riskengine/riskscore/"
+
+    def setUp(self):
+        self.regions = [make_region("Alpha", offset=0.0), make_region("Beta", offset=2.0)]
+        self.superuser = get_user_model().objects.create_superuser("root", password="pw")
+
+    def _run(self, **extra):
+        return self.client.post(self.URL, {"action": "rescore_all_regions", **extra}, follow=True)
+
+    def test_scores_every_region_with_nothing_ticked(self):
+        self.client.force_login(self.superuser)
+
+        response = self._run()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(RiskScore.objects.count(), len(self.regions))
+        self.assertEqual(
+            set(RiskScore.objects.values_list("model_version", flat=True)), {MODEL_VERSION}
+        )
+        self.assertContains(response, "Scored 2 regions")
+
+    def test_ticked_rows_do_not_narrow_it(self):
+        old = RiskScore.objects.create(
+            region=self.regions[0],
+            prediction_date=start_of_day(SCORE_DATE),
+            predicted_value=0.1,
+            risk_category=RiskScore.RiskCategory.LOW,
+        )
+        self.client.force_login(self.superuser)
+
+        self._run(_selected_action=[old.pk])
+
+        today = start_of_day(timezone.localdate())
+        self.assertEqual(
+            RiskScore.objects.filter(prediction_date=today).count(), len(self.regions)
+        )
+
+    def test_running_it_twice_updates_the_same_rows(self):
+        self.client.force_login(self.superuser)
+
+        self._run()
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), len(self.regions))
+        self.assertContains(response, "0 new, 2 updated")
+
+    def test_reports_when_there_is_nothing_to_score(self):
+        Region.objects.all().delete()
+        self.client.force_login(self.superuser)
+
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), 0)
+        self.assertContains(response, "No regions in the database")
+
+    def test_staff_who_are_not_administrators_are_refused(self):
+        clerk = get_user_model().objects.create_user("clerk", password="pw", is_staff=True)
+        clerk.user_permissions.add(
+            *Permission.objects.filter(codename__in=["view_riskscore", "change_riskscore"])
+        )
+        self.client.force_login(clerk)
+
+        response = self._run()
+
+        self.assertEqual(RiskScore.objects.count(), 0)
+        self.assertContains(response, "Only a System Administrator can rescore.")
+
+    def test_anonymous_users_are_sent_to_sign_in(self):
+        response = self.client.post(self.URL, {"action": "rescore_all_regions"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
+        self.assertEqual(RiskScore.objects.count(), 0)

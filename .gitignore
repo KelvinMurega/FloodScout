@@ -33,7 +33,7 @@ Thumbs.db
 .ipynb_checkpoints/
 
 # Raw/processed geospatial data — often large; keep folder structure only.
-# See docs/ for how to fetch each dataset (matches Sprint 1 data acquisition plan).
+# See docs/DATA_DICTIONARY.md for how to fetch each dataset.
 data/raw/*
 data/processed/*
 data/external/*
@@ -50,3 +50,26 @@ data/external/*
 
 # Local credentials (Earth Engine token, mounted into the web container).
 .secrets/
+
+# The Cloudflare origin certificate and key, copied onto the server only.
+deploy/certs/*
+!deploy/certs/.gitkeep
+
+# Working documents: plans, the report draft and session notes. Kept on the
+# author's machine only. The data dictionary and the figures stay in the
+# repository, because the README and riskengine/ml/README.md refer to them.
+docs/*
+!docs/DATA_DICTIONARY.md
+!docs/DEPLOYMENT.md
+# The engine's own docs, for examiners and the teams that consume the API.
+!docs/ENGINE_SPEC.md
+!docs/ARCHITECTURE.md
+!docs/FUTURE_WORK.md
+!docs/figures/
+
+# Written by scripts/windows/start-scheduler.ps1
+scheduler-task.log
+
+# A pipeline run's model file is kept in Drive or blob storage, not in git;
+# its metrics, config and summary are committed (riskengine/ml/pipeline/runs.py).
+riskengine/ml/runs/**/*.joblib

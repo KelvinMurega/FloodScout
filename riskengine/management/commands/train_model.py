@@ -5,9 +5,10 @@ held-out years, searching each one's settings over a small grid, refits the
 best on everything, and writes it to riskengine/ml/artifacts/ where
 `infer()` picks it up. Run `build_training_set` first.
 
-notebooks/train_flood_model.ipynb does the same thing on Google Colab, by
-calling the same `riskengine.ml.train`. The shipped model comes from that
-notebook; this command is for checking a change locally.
+notebooks/train_flood_model.ipynb does the same thing on Google Colab,
+through `python -m riskengine.ml.pipeline` and a committed config. The
+shipped model comes from that notebook; this command is for checking a
+change locally, and it overwrites riskengine/ml/artifacts/.
 """
 
 from __future__ import annotations
@@ -24,21 +25,24 @@ class Command(BaseCommand):
     help = "Compare the three models on held-out years and save the best."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--test-from",
-            type=int,
-            default=train.FINAL_TEST_FROM,
-            metavar="YEAR",
-            help=(
-                "Years from this one on are set aside as the final test and scored once "
-                f"(default {train.FINAL_TEST_FROM}). 0 skips the final test."
-            ),
-        )
-
+        # There is no final test option: the 2017 to 2021 test was closed on
+        # 29 October 2026 (riskengine/ml/experiments.md) and is never scored again.
         parser.add_argument(
             "--no-tune",
             action="store_true",
             help="Skip the settings search and compare the models at their fixed settings.",
+        )
+        parser.add_argument(
+            "--seeds",
+            type=int,
+            nargs="*",
+            default=list(train.SEEDS),
+            metavar="SEED",
+            help=(
+                "Seeds the cross-validation is repeated with, to show how much the scores "
+                f"vary (default {' '.join(map(str, train.SEEDS))}). Give none to skip. The "
+                f"saved model always uses seed {train.RANDOM_STATE}."
+            ),
         )
 
     def handle(self, *args, **options):
@@ -57,8 +61,9 @@ class Command(BaseCommand):
             TRAINING_SET_PATH,
             oni,
             dmi,
-            test_from=options["test_from"] or None,
+            test_from=None,
             tune_models=not options["no_tune"],
+            seeds=tuple(options["seeds"]),
         )
         train.save(artifact, metrics)
 
@@ -125,6 +130,32 @@ class Command(BaseCommand):
                 f"  {band['band']:<10} {band['rows']:>6} rows, flood recorded in "
                 f"{'n/a' if observed is None else f'{100 * observed:.1f}%'}"
             )
+        variation = metrics["seed_variation"]
+        if variation:
+            self.stdout.write("")
+            self.stdout.write(
+                f"Average precision over seeds {variation['seeds']}, mean (standard deviation):"
+            )
+            for name in metrics["comparison"]:
+                record = variation[name]
+                if "note" in record:
+                    self.stdout.write(f"  {name:<18} {record['note']}")
+                else:
+                    spread = record["average_precision"]
+                    self.stdout.write(f"  {name:<18} {spread['mean']:.4f} ({spread['sd']})")
+        self.stdout.write("")
+        self.stdout.write("Average precision by share of the training years used:")
+        for point in metrics["learning_curve"]:
+            self.stdout.write(
+                f"  {100 * point['fraction']:>3.0f}%  {point['average_precision_mean']} "
+                f"({point['average_precision_sd']})"
+            )
+        compute = metrics["compute"]
+        self.stdout.write("")
+        self.stdout.write(
+            f"Computing: {compute['cores']} cores, {compute['cpu']}; cross-validation "
+            f"{compute['seconds_cross_validation']} s, final fit {compute['seconds_final_fit']} s"
+        )
         test = metrics["final_test"]
         if test:
             first, last = test["test_years"]

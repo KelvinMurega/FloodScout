@@ -1,0 +1,64 @@
+# The hazard model run that produced flood-random-forest-20261007, the model
+# served since 7 October 2026 (run 20261007T1353Z_07abff3, commit 07abff3).
+#
+# Written on 29 October 2026 from that run's metrics.json, so the pipeline can
+# repeat it. Everything that decides a run is here. The settings train.py
+# fixes in code (folds, grids, seed, bands) are checked against it before
+# anything trains, and a mismatch stops the run: change both in one PR.
+#
+#   python -m riskengine.ml.pipeline train --model hazard \
+#       --config riskengine/ml/configs/hazard_rf_20261007.toml
+
+model = "hazard"
+
+[data]
+# The training set built on point rainfall on 2 October 2026. Until the
+# versioned snapshots exist, a file and its SHA-256 stand in for one.
+training_set = "data/processed/training_set_point_20261002.csv"
+sha256 = "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033"
+first_year = 1996
+features = [
+    "rain_30d",
+    "rain_7d_max",
+    "rain_prev_30d",
+    "rain_30d_ratio",
+    "oni",
+    "dmi",
+    "oni_short_rains",
+    "dmi_short_rains",
+    "month_sin",
+    "month_cos",
+    "elevation",
+    "slope",
+    "log_area",
+]
+
+[cv]
+scheme = "group-k-fold-by-year"
+folds = 6
+# The 2017 to 2021 final test was looked at about seven times and was closed
+# on 29 October 2026. The pipeline refuses any other value.
+final_test = "closed"
+
+[selection]
+tune = true
+random_state = 0
+seeds = [0, 1, 2, 3, 4]
+probability_bands = [0.05, 0.10, 0.20]
+
+[selection.grids.logreg]
+"logisticregression__C" = [0.01, 0.1, 1.0, 10.0]
+
+[selection.grids.random-forest]
+"randomforestclassifier__min_samples_leaf" = [5, 20, 50]
+"randomforestclassifier__max_features" = ["sqrt", 0.5]
+
+[selection.grids.gradient-boosting]
+"gradientboostingclassifier__max_depth" = [2, 3]
+"gradientboostingclassifier__learning_rate" = [0.02, 0.05, 0.1]
+
+[promotion]
+# How a challenger is judged against the champion, on the same training set
+# and folds (riskengine/ml/README.md, "How a change is judged").
+primary_metric = "average_precision"
+margin = 0.01

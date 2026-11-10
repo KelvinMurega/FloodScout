@@ -269,13 +269,25 @@ class GeospatialFeatureAPITests(APITestCase):
     def test_filter_by_region(self):
         response = self.client.get(f"/api/geospatial-features/?region={self.region.id}")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["region"], self.region.id)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["region"], self.region.id)
 
     def test_unfiltered_returns_all(self):
         response = self.client.get("/api/geospatial-features/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_the_list_comes_in_pages(self):
+        one = self.client.get("/api/geospatial-features/", {"page_size": 1})
+        self.assertEqual((one.data["count"], len(one.data["results"])), (2, 1))
+        self.assertIsNotNone(one.data["next"])
+
+    def test_a_region_that_is_not_a_number_is_a_400_not_a_500(self):
+        for url in ("/api/geospatial-features/", "/api/environmental-data/"):
+            response = self.client.get(url, {"region": "abc"})
+            self.assertEqual(response.status_code, 400, url)
+            self.assertIn("region", response.data)
 
 
 class EnvironmentalDataAPITests(APITestCase):
@@ -286,8 +298,8 @@ class EnvironmentalDataAPITests(APITestCase):
         )
         response = self.client.get("/api/environmental-data/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["rainfall_intensity"], 12.5)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["rainfall_intensity"], 12.5)
 
 
 # --- Ingesting real terrain and rainfall (Open-Meteo) ---
@@ -509,6 +521,23 @@ class OpenMeteoClientTests(TestCase):
             {datetime.date(2026, 9, 20): 1.0, datetime.date(2026, 9, 22): 3.0},
         )
 
+    def test_archive_asks_for_era5_unless_told_otherwise(self):
+        payload = {"daily": {"time": ["2018-04-01"], "precipitation_sum": [12.0]}}
+        point = [open_meteo.Point(36.8, -1.3)]
+        day = datetime.date(2018, 4, 1)
+        with mock.patch.object(open_meteo, "_get_json", return_value=payload) as get:
+            open_meteo.fetch_archive_rainfall(point, day, day)
+            open_meteo.fetch_archive_rainfall(point, day, day, model="best_match")
+
+        self.assertEqual(
+            [call.args[1]["models"] for call in get.call_args_list], ["era5", "best_match"]
+        )
+
+    def test_archive_refuses_an_unknown_model(self):
+        day = datetime.date(2018, 4, 1)
+        with self.assertRaises(ValueError):
+            open_meteo.fetch_archive_rainfall([open_meteo.Point(36.8, -1.3)], day, day, model="ifs")
+
     def test_short_elevation_response_is_an_error(self):
         with mock.patch.object(
             open_meteo, "_get_json", return_value={"elevation": [1.0]}
@@ -546,6 +575,21 @@ class OpenMeteoClientTests(TestCase):
                 open_meteo.fetch_elevations([open_meteo.Point(36.8, -1.3)])
 
         self.assertEqual(sleep.call_count, open_meteo.RATE_LIMIT_RETRIES)
+
+    def test_a_server_error_is_waited_out_then_retried(self):
+        unavailable = urllib.error.HTTPError(
+            open_meteo.ELEVATION_URL, 503, "Service Unavailable", {}, None
+        )
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.read.return_value = b'{"elevation": [1.0]}'
+
+        with mock.patch.object(
+            open_meteo.urllib.request, "urlopen", side_effect=[unavailable, ok]
+        ), mock.patch.object(open_meteo, "_sleep") as sleep:
+            elevations = open_meteo.fetch_elevations([open_meteo.Point(36.8, -1.3)])
+
+        self.assertEqual(elevations, [1.0])
+        sleep.assert_called_once_with(open_meteo.CONNECTION_WAIT_SECONDS)
 
 
 # --- Sub-counties -------------------------------------------------------
@@ -741,10 +785,33 @@ class FocusRegionTests(APITestCase):
             [row["slug"] for row in response.data],
             [focus.slug for focus in focus_regions.FOCUS_REGIONS],
         )
-        north_eastern = next(row for row in response.data if row["slug"] == "north-eastern")
+        northern = next(row for row in response.data if row["slug"] == "northern-rivers")
         # Only counties present in the database are listed.
-        self.assertEqual(north_eastern["counties"], [{"id": garissa.id, "name": "Garissa"}])
+        self.assertEqual(northern["counties"], [{"id": garissa.id, "name": "Garissa"}])
+        self.assertEqual(northern["former_slugs"], ["north-eastern"])
+        self.assertTrue(northern["sources"])
 
     def test_retrieve_and_unknown_slug(self):
         self.assertEqual(self.client.get("/api/focus-regions/coast/").data["name"], "Coast")
         self.assertEqual(self.client.get("/api/focus-regions/atlantis/").status_code, 404)
+
+    def test_every_focus_region_cites_a_source(self):
+        for focus in focus_regions.FOCUS_REGIONS:
+            with self.subTest(focus=focus.slug):
+                self.assertTrue(focus.sources)
+
+    def test_former_slugs_still_open_the_renamed_region(self):
+        """Links saved before the renames keep working."""
+        for former, current in (("north-eastern", "northern-rivers"), ("nairobi", "nairobi-metro")):
+            with self.subTest(former=former):
+                response = self.client.get(f"/api/focus-regions/{former}/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["slug"], current)
+
+    def test_no_slug_belongs_to_two_regions(self):
+        slugs = [
+            slug
+            for focus in focus_regions.FOCUS_REGIONS
+            for slug in (focus.slug, *focus.former_slugs)
+        ]
+        self.assertEqual(len(slugs), len(set(slugs)))

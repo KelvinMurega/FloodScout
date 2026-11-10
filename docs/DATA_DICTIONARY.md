@@ -296,14 +296,28 @@ weakness of the labels: see `riskengine/ml/README.md`.
 
 | | |
 |---|---|
-| **Dataset** | ERA5 reanalysis, daily `precipitation_sum`, mm |
+| **Dataset** | Daily `precipitation_sum`, mm: ERA5 reanalysis (`models=era5`) for every date |
 | **Publisher** | ECMWF / Copernicus Climate Change Service, served by Open-Meteo |
 | **Endpoint** | `https://archive-api.open-meteo.com/v1/archive` |
 | **Licence** | CC BY 4.0 |
 | **Sampled at** | Each county's representative point, the same one `seed_terrain` uses |
 
-Reanalysis is a model constrained by observations, not a rain gauge. It is
-used because it is one consistent record over the whole 37 years.
+Reanalysis is a model constrained by observations, not a rain gauge. It was
+chosen as one consistent record over the whole period.
+
+**Earlier training sets were not one record.** Found on 9 October 2026:
+the archive endpoint, asked for no particular model (`best_match`), serves
+ERA5 before 2017 and the ECMWF IFS analysis (9 km) from 2017 on. Until
+then the request named no model, so the training rows of 2017 to 2021 were
+IFS rainfall. `riskengine/ml/README.md`, "The Colab retrain", has the
+evidence and what it means for the final test.
+
+The request now names `models=era5`. `build_training_set --rain-model
+best_match` still builds the older kind of set. The model is written to
+`training_set.meta.json` as `rain_model` and travels with the trained
+model; a set without it is `best_match`. ERA5 files are cached in
+`data/raw/rainfall_archive/era5/`, apart from the `best_match` files above
+them, so neither is read back as the other.
 
 ### El Niño index
 
@@ -431,3 +445,81 @@ example `data/external/unosat/FL20231124KEN_3761/`.
   flooding. The high-resolution layers in the same files (Garissa, Dadaab,
   Nairobi and Kiambu, the Tana and Galana rivers) cover parts of counties
   only and are not used.
+
+---
+
+## 6. Global Flood Database (label check only)
+
+Used by `check_labels_gfd` to measure the circle labels of section 3 against
+flood water mapped from satellite. Never used in training or in scoring.
+Read through Google Earth Engine; the per-county areas are cached in
+`data/external/gfd/` (gitignored) and the result is kept in
+`riskengine/ml/artifacts/gfd_label_check.csv`.
+
+| | |
+|---|---|
+| **Dataset** | Global Flood Database v1, MODIS events |
+| **Earth Engine id** | `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` |
+| **Publisher** | Cloud to Street and the Dartmouth Flood Observatory |
+| **Coverage** | 913 floods worldwide, 2000 to 2018, each carrying its DFO event id |
+| **Sensor** | MODIS (Terra and Aqua), 250 m |
+| **Licence** | CC BY-NC 4.0 |
+| **Citation** | Tellman, B. et al. (2021). Satellite imaging reveals increased proportion of population exposed to floods. *Nature*, 596, 80 to 86 |
+
+Bands used: `flooded` (1 where water was mapped during the event) and
+`jrc_perm_water` (1 where the JRC Global Surface Water layer has permanent
+water). Flood water is `flooded` and not `jrc_perm_water`. A county's area
+of flood water is summed at the 250 m pixel.
+
+### Caveats
+
+- **A minority of events.** It maps 17 of the 62 floods the training set
+  places on Kenya from 2000 to 2018, and not the largest ones.
+- **What MODIS misses.** Water under cloud, under tree cover and in narrow
+  or urban channels. "No water mapped" does not mean "no flood".
+- **Non-commercial licence.** Fine for this project; it would matter if the
+  system were ever offered commercially.
+
+---
+
+## 7. Map layers (display only)
+
+What the dashboard draws around the risk colours. None of it is a model
+input or changes a score.
+
+### Built and stored by FloodScout
+
+| Layer | Where | Built by | Source and licence |
+|---|---|---|---|
+| Rivers | `frontend/public/layers/rivers.geojson` (about 250 kB) | `build_map_layers` | OpenStreetMap waterways for Kenya, HOT export (section 4). Only `waterway = river` lines whose name adds up to at least 0.36 degrees (about 40 km), simplified at 0.002 degrees. 107 named rivers on 20 October 2026. ODbL, attribution "OpenStreetMap contributors" |
+| 100-year flood zone | `frontend/public/layers/flood_zone_100yr.png` and `layers.json` (about 780 kB) | `build_map_layers` | Copernicus GloFAS river flood hazard, 100-year return period (section 4), reprojected to Web Mercator at 300 m keeping the deepest 90 m pixel in each, and shaded in four depth bands from 0, 0.5, 1.5 and 3 m. CC BY 4.0 |
+| Past floods | table `geodata_floodevent`, `GET /api/flood-events/` | `seed_flood_events` | The DFO archive of section 3: each event whose circle footprint reaches a county. 84 events, 1988 to 2021, on 20 October 2026 |
+
+`FloodEvent` fields: `dfo_id` (the archive's ID, unique), `began`, `ended`,
+`centroid` (point, EPSG:4326), `footprint` (the circle of section 3),
+`area_km2`, `severity` (1, 1.5 or 2), `dead`, `displaced` and `main_cause`.
+
+### Fetched by the browser, not stored
+
+| Layer | Service | Licence or terms |
+|---|---|---|
+| Map | Esri Light Gray and Dark Gray Canvas, base and reference | Esri terms of use; attribution shown on the map |
+| Satellite | Esri World Imagery, with World Boundaries and Places | Esri terms of use |
+| Satellite today | NASA GIBS, `VIIRS_SNPP_CorrectedReflectance_TrueColor`, daily | NASA open data, no restriction |
+| Terrain | OpenTopoMap | CC-BY-SA |
+| Satellite rain | NASA GIBS, `IMERG_Precipitation_Rate` (GPM IMERG early run), daily | NASA open data, no restriction |
+
+### Caveats
+
+- **The flood zone includes lakes.** The hazard map marks permanent water,
+  so Lake Turkana and Lake Victoria are shaded too.
+- **The flood zone is a hazard, not a forecast.** It is where a once-in-a-
+  century river flood would reach, whatever the weather now, and only for
+  the larger rivers (section 4).
+- **A past flood's marker is DFO's centre for the whole event.** Many events
+  covered several counties, and their deaths and displacement are for all
+  of it.
+- **NASA publishes late.** IMERG is about two days behind and VIIRS about
+  one, so for today's scores the dashboard shows the newest day available.
+- **CARTO was dropped.** Its free basemaps now answer browsers with an "API
+  key required" tile, so the Esri canvases replaced them.

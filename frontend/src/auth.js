@@ -1,13 +1,15 @@
 /**
- * The sign-in control in the header, and the administrator's Rescore button.
+ * The account control in the header: sign in, and once signed in a menu.
  *
- * The map needs no account. Signing in only adds the one action the Use Case
- * Diagram gives the System Administrator here: scoring every region again.
- * What the buttons show is a convenience; the API checks the role itself on
- * every request.
+ * Signed out it links to the sign-in and sign-up pages (auth/pages.js).
+ * The map needs no account. Signing in adds the profile page for everyone,
+ * and for the System Administrator the analytics, the users, the alert
+ * controls and the Rescore action from the Use Case Diagram. What the menu
+ * offers is a convenience; the API checks the role on every request.
  */
 
-import { rescore, signIn, signOut } from "./api.js";
+import { rescore, signOut } from "./api.js";
+import { ROLE_LABELS, displayName, initials } from "./profile/format.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -31,73 +33,80 @@ function signInMessage(error) {
 
 /**
  * @param {HTMLElement} root  where the control is drawn
- * @param {{ onRescored: () => Promise<void> }} hooks  called after a rescore,
- *        so the map can load the new scores
+ * @param {{ onRescored: () => Promise<void>, onUserChange?: (user) => void }} hooks
+ *        `onRescored` runs after a rescore, so the map can load the new
+ *        scores; `onUserChange` whenever someone signs in or out.
+ * @returns {{ setUser(user): void, refresh(user): void }} for a page that
+ *          signs someone in itself (creating an account) or changes their name.
  */
-export function initAuth(root, { onRescored }) {
+export function initAuth(root, { onRescored, onUserChange = () => {} }) {
   let user = null;
+  let closeMenu = () => {};
+
+  function setUser(next) {
+    user = next;
+    if (user) renderUser();
+    else renderSignedOut();
+    onUserChange(user);
+  }
 
   function renderSignedOut() {
-    root.replaceChildren(button("Administrator sign in", renderForm));
+    closeMenu();
+    const links = el("div", "auth__links");
+    const signin = el("a", "auth__button", "Sign in");
+    signin.href = "#/signin";
+    const signup = el("a", "auth__button auth__button--primary", "Create account");
+    signup.href = "#/signup";
+    links.append(signin, signup);
+    root.replaceChildren(links);
   }
 
-  function renderForm() {
-    const form = el("form", "auth__form");
-    form.setAttribute("aria-label", "Administrator sign in");
-
-    const username = el("input", "auth__input");
-    username.name = "username";
-    username.autocomplete = "username";
-    username.placeholder = "Username";
-    username.setAttribute("aria-label", "Username");
-    username.required = true;
-
-    const password = el("input", "auth__input");
-    password.type = "password";
-    password.name = "password";
-    password.autocomplete = "current-password";
-    password.placeholder = "Password";
-    password.setAttribute("aria-label", "Password");
-    password.required = true;
-
-    const submit = el("button", "auth__button auth__button--primary", "Sign in");
-    submit.type = "submit";
-    const message = el("p", "auth__message");
-    message.setAttribute("role", "alert");
-
-    form.append(username, password, submit, button("Cancel", renderSignedOut), message);
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      message.textContent = "";
-      try {
-        user = await signIn(username.value, password.value);
-        renderSignedIn();
-      } catch (error) {
-        password.value = "";
-        message.textContent = signInMessage(error);
-        submit.disabled = false;
-      }
-    });
-
-    root.replaceChildren(form);
-    username.focus();
+  function menuLink(label, href) {
+    const link = el("a", "auth__menu-item", label);
+    link.href = href;
+    link.setAttribute("role", "menuitem");
+    link.addEventListener("click", () => closeMenu());
+    return link;
   }
 
-  function renderSignedIn(note = "") {
-    const who = el(
-      "span",
-      "auth__who",
-      `${user.username} · ${user.is_administrator ? "System Administrator" : "End User"}`,
+  function renderUser(note = "") {
+    const wrap = el("div", "auth__menu");
+    const toggle = el("button", "auth__button auth__menu-button");
+    toggle.type = "button";
+    toggle.setAttribute("aria-haspopup", "menu");
+    toggle.setAttribute("aria-expanded", "false");
+    // A phone shows only the avatar (style.css), so the name is said here too.
+    toggle.setAttribute("aria-label", `Account: ${displayName(user)}`);
+    toggle.append(
+      el("span", "profile-avatar profile-avatar--small", initials(user)),
+      el("span", "auth__who", displayName(user)),
+      el("span", null, "▾"),
     );
+
+    const list = el("div", "auth__menu-list");
+    list.setAttribute("role", "menu");
+    list.hidden = true;
+    list.append(
+      el("p", "auth__menu-who", `${user.username} · ${ROLE_LABELS[user.role] ?? (user.is_administrator ? ROLE_LABELS.admin : ROLE_LABELS.user)}`),
+      menuLink("My profile", "#/profile"),
+      menuLink("Flood alerts", "#/profile/alerts"),
+    );
+
     const message = el("span", "auth__message", note);
     message.setAttribute("role", "status");
-    const nodes = [who];
 
+    // An Analyst reads the analytics and changes nothing (accounts/models.py).
+    if (user.can_see_analytics && !user.is_administrator) list.append(menuLink("Analytics", "#/admin"));
     if (user.is_administrator) {
+      list.append(
+        menuLink("Analytics", "#/admin"),
+        menuLink("Users", "#/profile/users"),
+        menuLink("Activity log", "#/profile/activity"),
+      );
       const run = button(
         "Rescore now",
         async () => {
+          closeMenu();
           run.disabled = true;
           message.textContent = "Scoring every region. This takes about a minute…";
           try {
@@ -107,8 +116,7 @@ export function initAuth(root, { onRescored }) {
           } catch (error) {
             if (error.status === 401) {
               // The token was deleted on the server, e.g. signed out elsewhere.
-              user = null;
-              renderSignedOut();
+              setUser(null);
               return;
             }
             message.textContent = `Rescore failed: ${error.message}`;
@@ -116,22 +124,64 @@ export function initAuth(root, { onRescored }) {
             run.disabled = false;
           }
         },
-        "auth__button auth__button--primary",
+        "auth__menu-item",
       );
       run.title = "Score every region again from the rainfall already stored";
-      nodes.push(run);
+      run.setAttribute("role", "menuitem");
+      list.append(run);
     }
-
-    nodes.push(
-      button("Sign out", async () => {
-        await signOut().catch(() => {});
-        user = null;
-        renderSignedOut();
-      }),
-      message,
+    list.append(
+      button(
+        "Sign out",
+        async () => {
+          await signOut().catch(() => {});
+          setUser(null);
+        },
+        "auth__menu-item",
+      ),
     );
-    root.replaceChildren(...nodes);
+
+    const onDocument = (event) => {
+      if (!wrap.contains(event.target)) closeMenu();
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        toggle.focus();
+      }
+    };
+    closeMenu = () => {
+      list.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      document.removeEventListener("click", onDocument);
+      document.removeEventListener("keydown", onKey);
+    };
+    toggle.addEventListener("click", () => {
+      if (!list.hidden) {
+        closeMenu();
+        return;
+      }
+      list.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      // Next tick, so this click does not close it straight away.
+      setTimeout(() => {
+        document.addEventListener("click", onDocument);
+        document.addEventListener("keydown", onKey);
+      });
+      list.querySelector("a, button")?.focus();
+    });
+
+    wrap.append(toggle, list);
+    root.replaceChildren(wrap, message);
   }
 
   renderSignedOut();
+  return {
+    setUser,
+    /** Show changed details (a new name, say) without counting as a sign-in. */
+    refresh(next) {
+      user = { ...user, ...next };
+      renderUser();
+    },
+  };
 }

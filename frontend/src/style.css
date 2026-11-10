@@ -15,6 +15,8 @@
   --county-line: #52514e;
   --context-fill: #ecebe6;
   --accent: #0b0b0b;
+  --surface-2: #efeee9;
+  --brand: #1f78d1;
 
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -35,6 +37,8 @@
     --county-line: #c3c2b7;
     --context-fill: #262625;
     --accent: #ffffff;
+    --surface-2: #242423;
+    --brand: #4c9be8;
   }
 }
 
@@ -53,6 +57,8 @@
   --county-line: #c3c2b7;
   --context-fill: #262625;
   --accent: #ffffff;
+  --surface-2: #242423;
+  --brand: #4c9be8;
 }
 
 * {
@@ -96,41 +102,138 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 12px 24px;
+  padding: 12px 20px;
   background: var(--surface-1);
   border-bottom: 1px solid var(--hairline);
 }
 
+.app__brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app__brand:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.app__mark {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  fill: var(--brand);
+}
+
+.app__mark-wave {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.app__titles {
+  display: grid;
+  gap: 1px;
+}
+
 .app__title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 
 .app__subtitle {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* Alerts, print, CSV and sign-in, pushed to the right edge. */
+.app__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: auto;
+}
+
+.app__actions .auth {
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline);
+}
+
+.button-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The menu button, shown only on a narrow screen (see "The header's menu"). */
+.nav-toggle {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-ring);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.nav-toggle:hover {
+  background: var(--surface-page);
+}
+
+.nav-toggle:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
+}
+
+.nav-toggle__icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.nav-toggle__close,
+.app__header--open .nav-toggle__bars {
+  display: none;
+}
+
+.app__header--open .nav-toggle__close {
+  display: inline;
 }
 
 /* The placeholder-scorer banner. Deliberately loud: a stub score must never
    pass for a trained-model result. */
 .provenance {
   margin: 0;
-  padding: 7px 12px;
-  border: 1px solid var(--border-ring);
-  border-left: 3px solid currentColor;
-  border-radius: 6px;
+  padding: 2px 0 2px 16px;
+  border-left: 1px solid var(--hairline);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text-secondary);
-  background: var(--surface-page);
   /* Take the width the titles leave, so the long outlook note wraps to two
      lines at most; anything longer scrolls instead of growing the header. */
-  flex: 1 1 46ch;
+  flex: 1 1 24ch;
   max-width: 120ch;
   box-sizing: content-box;
   max-height: calc(2 * 1.45em);
@@ -140,7 +243,17 @@ body {
 
 .provenance strong {
   color: var(--text-primary);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* A stub score must never pass for a trained-model result. */
+.provenance--placeholder {
+  padding: 6px 12px;
+  border: 1px solid #d03b3b;
+  border-left-width: 3px;
+  border-radius: 6px;
+  color: #d03b3b;
 }
 
 /* --- Region bar -------------------------------------------------------- */
@@ -171,7 +284,20 @@ body {
 }
 
 .auth__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
+  text-decoration: none;
+}
+
+/* Secondary header actions: an icon and text, outlined only on hover. */
+.auth__button--quiet {
+  border-color: transparent;
+}
+
+.auth__button--quiet:hover {
+  border-color: var(--border-ring);
 }
 
 .auth__button:hover {
@@ -217,17 +343,98 @@ body {
   display: none;
 }
 
-.region-bar {
+.report-actions {
   display: flex;
-  gap: 6px;
-  padding: 8px 16px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+/* --- Map controls ------------------------------------------------------ */
+
+/* Where, when and what the colour shows, in one panel. Each group is a
+   small label and a segmented control, and the groups flow into as few
+   rows as the width allows. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 32px;
+  padding: 10px 20px;
   background: var(--surface-1);
   border-bottom: 1px solid var(--hairline);
 }
 
+.region-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+}
+
+/* One choice out of several: buttons sharing a recessed track. */
+.segmented {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.segmented .region-bar__button {
+  border-color: transparent;
+  border-radius: 7px;
+}
+
 .region-bar[hidden] {
   display: none;
+}
+
+/* How strongly the risk colour covers the basemap. */
+.theme-bar__opacity {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.theme-bar__range {
+  width: 90px;
+  accent-color: var(--accent);
+}
+
+/* The "Show" and "Colour by" groups stay together. */
+.map-bars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 32px;
+}
+
+/* Leaflet's own controls, in the dashboard's colours in either theme. */
+.leaflet-control-layers,
+.leaflet-bar a,
+.leaflet-control-scale-line {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border-color: var(--border-ring);
+}
+
+.leaflet-control-layers-expanded {
+  padding: 8px 12px;
+  font: 13px var(--font-sans);
+  line-height: 1.6;
+}
+
+.leaflet-control-layers-separator {
+  border-top-color: var(--hairline);
+}
+
+.leaflet-control-scale-line {
+  background: color-mix(in srgb, var(--surface-1) 80%, transparent);
 }
 
 .region-bar__button {
@@ -244,7 +451,7 @@ body {
 
 .region-bar__button:hover {
   color: var(--text-primary);
-  background: var(--surface-page);
+  background: var(--surface-1);
 }
 
 .region-bar__button[aria-pressed="true"] {
@@ -262,18 +469,78 @@ body {
   outline-offset: 2px;
 }
 
+/* The name of each control group: "Region", "When", "Show", "Colour by". */
+.layer-bar__label {
+  flex: none;
+  align-self: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The labels that start a row share a width, so the tracks line up. */
+.controls > .region-bar > .layer-bar__label,
+#theme-bar > .layer-bar__label {
+  min-width: 5em;
+}
+
+/* The earlier-day picker, at the end of the period bar. */
+.period-bar__date {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.period-bar__input {
+  padding: 5px 10px;
+  border: 1px solid var(--border-ring);
+  border-radius: 999px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.period-bar__input:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
+}
+
+.period-bar__note {
+  flex: none;
+  align-self: center;
+  font-size: 12.5px;
+  color: #d03b3b;
+}
+
+.period-bar__note:empty {
+  display: none;
+}
+
 /* --- Layout ------------------------------------------------------------ */
 
+/* The map across the full width with the panel under it, and the page
+   scrolling as a whole. A panel beside the map was a narrow strip that
+   scrolled on its own, most of it out of sight. The admin page keeps the
+   fixed height: it scrolls inside its own box. */
+body:not(.is-admin) .app {
+  height: auto;
+  min-height: 100vh;
+}
+
 .app__main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 330px;
-  min-height: 0;
+  flex: none;
 }
 
 .map-wrap {
   position: relative;
-  min-height: 0;
+  height: 70vh;
+  min-height: 420px;
 }
 
 #map {
@@ -310,18 +577,45 @@ body {
 
 /* --- Side panel -------------------------------------------------------- */
 
+/* Three columns under the map: the picture as a whole, the chosen area,
+   and the list. Two on a narrower screen, with the list across the bottom. */
 .panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
   background: var(--surface-1);
+  border-top: 1px solid var(--hairline);
+}
+
+.panel__col {
+  min-width: 0;
+}
+
+.panel__col + .panel__col {
   border-left: 1px solid var(--hairline);
+}
+
+@media (max-width: 1199px) {
+  .panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel__col:last-child {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+  }
 }
 
 .panel__section {
   padding: 14px 16px;
   border-bottom: 1px solid var(--hairline);
+}
+
+/* Focused by the page, after a pick from the table, not by the reader:
+   no ring, since it is not something to click. */
+.panel__heading[tabindex="-1"]:focus {
+  outline: none;
 }
 
 .panel__section--grow {
@@ -348,6 +642,76 @@ body {
   font-weight: 450;
   text-transform: none;
   letter-spacing: 0;
+}
+
+/* --- Search ------------------------------------------------------------ */
+
+.search__input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-ring);
+  border-radius: 6px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search__input:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 2px;
+}
+
+.search__results {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+
+.search__results[hidden] {
+  display: none;
+}
+
+.search__option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.search__option:hover,
+.search__option[aria-selected="true"] {
+  background: var(--surface-page);
+}
+
+.search__option[aria-selected="true"] {
+  box-shadow: inset 0 0 0 1px var(--border-ring);
+}
+
+.search__name {
+  font-weight: 550;
+  color: var(--text-primary);
+}
+
+.search__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.search__empty {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
 /* --- Region intro and relocation --------------------------------------- */
@@ -384,6 +748,60 @@ body {
   margin: 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.focus-list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.focus-list__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-ring);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.focus-list__item:hover {
+  background: var(--surface-page);
+}
+
+.focus-list__item:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.focus-list__name {
+  font-weight: 550;
+}
+
+.focus-list__risk {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The alerts line sits under the name, across the last two columns. */
+.focus-list__alerts {
+  grid-column: 2 / 4;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.focus-list__alerts:empty {
+  display: none;
 }
 
 .relocation__group {
@@ -507,6 +925,74 @@ body {
   font-weight: 650;
 }
 
+/* The score history: a line of "times the usual chance" per day. */
+.history {
+  margin: 0;
+}
+
+.history__chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--surface-page);
+}
+
+.history__usual {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.history__line {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.history__dot {
+  fill: var(--text-primary);
+}
+
+.history__caption {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* The inputs behind a score: a name, its value, and how it sits against usual. */
+.inputs {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px 12px;
+  font-size: 12.5px;
+}
+
+.inputs dt {
+  color: var(--text-muted);
+}
+
+.inputs dd {
+  margin: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.inputs__value {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.inputs__against {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
 .open-region {
   margin-top: 12px;
   padding: 6px 12px;
@@ -559,6 +1045,219 @@ body {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+}
+
+.legend__note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.grid-tooltip {
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+/* The hover card on a region. */
+.map-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.map-card__badge .legend__swatch {
+  width: 11px;
+  height: 11px;
+}
+
+.map-card__muted {
+  color: #52514e;
+}
+
+.map-card__hint {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #898781;
+}
+
+/* Overlay keys under the theme's classes. */
+.legend__item--overlay {
+  font-size: 12px;
+}
+
+.legend__item--overlay:first-of-type,
+.legend__item:not(.legend__item--overlay) + .legend__item--overlay,
+.legend__note + .legend__item--overlay {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.legend__swatch--line {
+  height: 3px;
+  border: 0;
+  border-radius: 2px;
+}
+
+.legend__swatch--dot {
+  border-radius: 50%;
+  border: 1.5px solid var(--surface-1);
+}
+
+/* --- At a glance ------------------------------------------------------- */
+
+.glance__counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.glance__count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.glance__count .legend__swatch {
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: 2px;
+}
+
+.glance__number {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.glance__line {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.glance__top {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.glance__place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glance__place:hover {
+  background: var(--surface-page);
+}
+
+.glance__place:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.glance__value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* --- KMD's official warnings ----------------------------------------- */
+
+.kmd-notice {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px dashed #d9480f;
+  border-left: 4px solid #d9480f;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d9480f 8%, transparent);
+}
+
+.kmd-notice__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.kmd-notice__text {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.kmd-notice__link {
+  font-size: 12.5px;
+}
+
+/* --- Where the water goes (susceptibility) ----------------------------- */
+
+.susceptibility__share {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.susceptibility__facts {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.susceptibility__note {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+/* --- Past floods ------------------------------------------------------- */
+
+.past-floods__count {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.flood-popup {
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  max-width: 260px;
+}
+
+.flood-popup__toll {
+  font-weight: 600;
+}
+
+.flood-popup__note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #898781;
 }
 
 /* --- Table (the non-colour route to the same data) --------------------- */
@@ -657,14 +1356,761 @@ body {
   color: var(--text-secondary) !important;
 }
 
-@media (max-width: 860px) {
+/* --- Printed report ---------------------------------------------------- */
+
+/* The report section exists only on paper. */
+.report {
+  display: none;
+}
+
+/* main.js sets this class just before printing, so Leaflet can redraw the
+   map at the size it will have on the page (A4 less the margins). */
+.printing .map-wrap {
+  width: 180mm;
+  height: 150mm;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  /* Paper is white whatever theme the screen uses. */
+  :root {
+    color-scheme: light;
+    --surface-1: #ffffff;
+    --surface-page: #ffffff;
+    --text-primary: #0b0b0b;
+    --text-secondary: #333333;
+    --text-muted: #555555;
+    --hairline: #cccccc;
+    --border-ring: #999999;
+  }
+
+  html,
+  body {
+    height: auto;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .app {
+    display: block;
+    height: auto;
+  }
+
+  /* Controls have no use on paper. */
+  .controls,
+  .app__mark,
+  .region-bar,
+  .auth,
+  .report-actions,
+  .nav-toggle,
+  .panel,
+  .status,
+  .leaflet-control-zoom {
+    display: none !important;
+  }
+
+  .app__header {
+    display: block;
+    padding: 0 0 8px;
+    border: 0;
+  }
+
+  .provenance {
+    max-height: none;
+    max-width: none;
+    margin-top: 6px;
+    overflow: visible;
+  }
+
   .app__main {
-    grid-template-columns: 1fr;
-    grid-template-rows: 55vh auto;
+    display: block;
+  }
+
+  .map-wrap {
+    width: 180mm;
+    height: 150mm;
+    border: 1px solid var(--hairline);
+    break-inside: avoid;
+  }
+
+  /* The rest of Kenya around a region. Its fill was set from the screen
+     theme when it was drawn; on paper it is always the light grey. */
+  .context-shape {
+    fill: #ecebe6;
+    stroke: #ffffff;
+  }
+
+  .report {
+    display: block;
+    padding-top: 10px;
+  }
+
+  .report__title {
+    margin: 0 0 4px;
+    font-size: 15pt;
+  }
+
+  .report__meta,
+  .report__legend {
+    margin: 0 0 8px;
+    font-size: 10pt;
+    color: var(--text-secondary);
+  }
+
+  .report__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+
+  .report__count {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .report__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  /* Repeat the column headings on every page. */
+  .report__table thead {
+    display: table-header-group;
+  }
+
+  .report__table th,
+  .report__table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--hairline);
+    text-align: left;
+  }
+
+  .report__table tr {
+    break-inside: avoid;
+  }
+
+  .report__note {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-ring);
+    font-size: 9.5pt;
+    line-height: 1.45;
+    break-inside: avoid;
+  }
+}
+
+@media (max-width: 860px) {
+  .map-wrap {
+    height: 55vh;
+    min-height: 0;
   }
 
   .panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel__col + .panel__col {
     border-left: 0;
     border-top: 1px solid var(--hairline);
   }
+
+  .app__header {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .app__subtitle {
+    font-size: 12px;
+  }
+
+  .provenance {
+    flex-basis: 100%;
+    max-height: none;
+    padding-left: 10px;
+  }
+
+  /* One row under the brand: the page actions on the left, the account at
+     the right edge, where its menu opens without leaving the screen. */
+  .app__actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .app__actions .auth {
+    margin-left: auto;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .controls,
+  .map-bars {
+    gap: 8px;
+  }
+
+  .controls {
+    padding: 8px 12px;
+  }
+
+  /* Each group takes a row and swipes sideways, without a scrollbar
+     taking up room under every row. */
+  .region-bar,
+  .map-bars {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .region-bar {
+    scrollbar-width: none;
+  }
+
+  .region-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .layer-bar__label {
+    min-width: 5.5em;
+  }
+
+  .timeline {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+
+  /* Scoped to .timeline to beat the base rules, which come later. */
+  .timeline .timeline__track {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .timeline .timeline__label {
+    flex-basis: 100%;
+  }
+}
+
+/* --- Timeline (observed days, then the forecast) ----------------------- */
+
+.timeline {
+  flex: 1 1 480px;
+  gap: 12px;
+}
+
+.timeline__play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
+}
+
+/* A play triangle, or two pause bars while playing. */
+.timeline__play::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.timeline__play[aria-pressed="true"]::before {
+  width: 8px;
+  height: 10px;
+  border-width: 0 3px;
+  border-color: currentColor;
+}
+
+.timeline__track {
+  flex: 1 1 240px;
+  display: grid;
+  gap: 2px;
+  min-width: 180px;
+  max-width: 640px;
+}
+
+.timeline__range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  /* The forecast end of the track is shaded, so the line between what has
+     happened and what is forecast is visible before the slider gets there. */
+  background: linear-gradient(
+    90deg,
+    transparent var(--forecast-from, 100%),
+    rgba(91, 44, 131, 0.18) var(--forecast-from, 100%)
+  );
+  border-radius: 999px;
+}
+
+.timeline__ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.timeline__label {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.timeline__label--forecast {
+  color: #7b3fb0;
+}
+
+/* The map says it is showing a forecast. */
+.map-wrap--forecast::after {
+  content: attr(data-forecast);
+  position: absolute;
+  left: 56px;
+  top: 12px;
+  z-index: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #5b2c83;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* --- Situation briefing ------------------------------------------------ */
+
+.briefing__headline {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.briefing__text p {
+  margin: 0 0 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.hotspots {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.hotspot {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hotspot:hover {
+  background: var(--surface-page);
+}
+
+.hotspot:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.hotspot__name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hotspot__reason {
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hotspot__reason--heavy_rain {
+  color: #c2410c;
+  font-weight: 600;
+}
+
+/* A ring that grows and fades on each place the briefing flags. */
+.hotspot-pulse__ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2.5px solid #7b3fb0;
+  background: rgba(123, 63, 176, 0.25);
+  animation: hotspot-pulse 1.8s ease-out infinite;
+}
+
+.hotspot-pulse--urgent .hotspot-pulse__ring {
+  border-color: #c2410c;
+  background: rgba(194, 65, 12, 0.3);
+}
+
+@keyframes hotspot-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0.15;
+  }
+}
+
+/* The header's menu. Too narrow for the page actions and the account beside
+   the logo: the header is the logo and a menu button, and the actions open
+   as a panel under it, each with its words (navmenu.js opens and closes it).
+   The breakpoint is NARROW in navmenu.js. */
+@media (max-width: 720px) {
+  .app__header {
+    position: relative;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .app__actions {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1100; /* over the map's controls */
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    max-height: calc(100vh - 72px);
+    overflow-y: auto;
+    padding: 8px 12px 14px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .app__header--open .app__actions {
+    display: flex;
+  }
+
+  .report-actions {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  .report-actions .auth__button,
+  .app__actions .auth__menu-button {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  .app__actions .auth {
+    display: block;
+    margin: 4px 0 0;
+    padding: 10px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .app__actions .auth__links {
+    gap: 8px;
+  }
+
+  .app__actions .auth__links .auth__button {
+    flex: 1;
+    justify-content: center;
+    padding: 9px 12px;
+    font-size: 14px;
+  }
+
+  /* The account's own list opens in place, inside the panel. */
+  .app__actions .auth__menu-list {
+    position: static;
+    min-width: 0;
+    max-width: none;
+    margin-top: 4px;
+    padding: 4px 0 0;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app__actions .auth__menu-item {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  /* Signed in, the account sits beside the menu button (navmenu.js) as just
+     its avatar; its menu opens under it, leftwards, as on a wide screen. */
+  .app__header > .auth {
+    margin-left: auto;
+  }
+
+  .app__header > .auth + .nav-toggle {
+    margin-left: 0;
+  }
+
+  .app__header > .auth .auth__menu-button {
+    padding: 5px;
+    border-radius: 50%;
+  }
+
+  .app__header > .auth .auth__who,
+  .app__header > .auth .auth__menu-button > span:last-child {
+    display: none;
+  }
+
+  .app__header > .auth .profile-avatar--small {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* A phone: the header and the banner give the first screen back to the map. */
+@media (max-width: 560px) {
+  .app__subtitle {
+    display: none;
+  }
+
+  .provenance {
+    font-size: 11.5px;
+    max-height: calc(2 * 1.45em);
+  }
+
+  .alert-banner {
+    padding: 6px 12px;
+    font-size: 12.5px;
+  }
+
+  .alert-banner__hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-pulse__ring {
+    animation: none;
+  }
+}
+
+/* --- Why this score ---------------------------------------------------- */
+
+.why__driver {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.why__driver--rain {
+  background: rgba(1, 102, 94, 0.14);
+  color: #01665e;
+}
+
+.why__driver--conditions {
+  background: rgba(91, 44, 131, 0.12);
+  color: #5b2c83;
+}
+
+.why__summary {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.why__chart {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.why__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.why__label {
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+
+.why__bar {
+  position: relative;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface-page);
+  /* The zero line, for the bars that go up or down from it. */
+  background-image: linear-gradient(var(--border-ring), var(--border-ring));
+  background-size: 1px 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.why__row--base .why__bar,
+.why__row--total .why__bar {
+  background-image: none;
+}
+
+.why__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+
+.why__fill--up {
+  background: #e34a33;
+}
+
+.why__fill--down {
+  background: #4393c3;
+}
+
+.why__row--base .why__fill {
+  background: var(--text-muted);
+}
+
+.why__row--total .why__fill {
+  background: var(--text-primary);
+}
+
+.why__row--total {
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+  font-weight: 600;
+}
+
+.why__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* --- The week ahead ---------------------------------------------------- */
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.week__day {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.week__day:hover {
+  background: var(--surface-page);
+}
+
+.week__day:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.week__name,
+.week__level {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.week__colour {
+  width: 70%;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.week__value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Create an account" beside the sign-in form. */
+.auth__link {
+  align-self: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+/* The simple view has nothing to print or export. */
+.is-simple #print-report,
+.is-simple #download-csv {
+  display: none;
+}
+
+/* --- Pin a spot for flood warnings (right-click or long press) --------- */
+
+.pin-popup {
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.pin-popup__name {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 6px;
+}
+
+.pin-popup__message {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* --- Offline (offline.js) ---------------------------------------------- */
+
+.offline-banner {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  text-align: center;
+  color: #5c3d00;
+  background: #ffe8a3;
+}
+
+.offline-banner[hidden] {
+  display: none;
 }

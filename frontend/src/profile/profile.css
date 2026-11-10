@@ -1,0 +1,899 @@
+/* The account page (#/profile). It shares the analytics page's shell
+   (admin.css) and the alerts page's form styles (alerts.css). */
+
+.profile-head__who {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1f78d1, #5b2c83);
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.profile-avatar--small {
+  width: 28px;
+  height: 28px;
+  font-size: 11.5px;
+}
+
+.profile-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .profile-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-column {
+  display: grid;
+  gap: 20px;
+}
+
+.profile-narrow {
+  max-width: 460px;
+}
+
+.profile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.profile-page .alerts-form > button {
+  justify-self: start;
+}
+
+.profile-grid > button,
+.profile-grid > .alerts-form__message {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 560px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.profile-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.profile-list__item > div {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.profile-activity {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.profile-activity li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+}
+
+.profile-activity__when {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.profile-table-wrap {
+  overflow-x: auto;
+}
+
+.profile-table td {
+  vertical-align: middle;
+}
+
+.profile-table__select {
+  width: auto;
+  padding: 4px 8px;
+}
+
+.profile-table__note {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* On a phone the seven columns would need a sideways swipe to reach the
+   role and on/off controls, so each user becomes a card of labelled lines. */
+@media (max-width: 560px) {
+  .profile-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .profile-table,
+  .profile-table tbody,
+  .profile-table tr,
+  .profile-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .profile-table tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .profile-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .profile-table td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: left;
+  }
+
+  /* The name heads the card; it needs no label. */
+  .profile-table td:first-child {
+    padding-bottom: 6px;
+    font-weight: 600;
+  }
+
+  .profile-table td:first-child::before {
+    content: none;
+  }
+}
+
+.profile-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+/* The account menu in the header. */
+.auth__menu {
+  position: relative;
+}
+
+.auth__menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth__menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 1000;
+  min-width: 220px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-ring);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.auth__menu-list[hidden] {
+  display: none;
+}
+
+/* Under 860px the account button sits at the right edge of the header's
+   second row (style.css), so the menu, opening leftwards from it, stays on
+   the screen; never wider than the screen either. */
+@media (max-width: 860px) {
+  .auth__menu-list {
+    max-width: calc(100vw - 24px);
+  }
+}
+
+.auth__menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.auth__menu-item:hover,
+.auth__menu-item:focus-visible {
+  background: var(--surface-page);
+}
+
+.auth__menu-who {
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* --- Flood warnings for where you live (home.js) ---------------------- */
+
+.home-card {
+  border-color: #1f78d1;
+  box-shadow: 0 0 0 3px rgba(31, 120, 209, 0.12);
+}
+
+.home-card__body {
+  display: grid;
+  gap: 16px;
+}
+
+.home-status {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: var(--surface-page);
+}
+
+.home-status--on {
+  background: rgba(46, 158, 79, 0.12);
+}
+
+.home-status--waiting {
+  background: rgba(240, 140, 0, 0.14);
+}
+
+.home-status--off,
+.home-status--none {
+  background: var(--surface-page);
+}
+
+.home-form {
+  max-width: 640px;
+}
+
+.home-form__row {
+  display: flex;
+  gap: 8px;
+}
+
+.home-form__row .alerts-form__input {
+  flex: 1;
+}
+
+.home-form__results {
+  display: grid;
+  gap: 6px;
+}
+
+.home-form__results:empty {
+  display: none;
+}
+
+.home-form__result {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-form__result:hover {
+  background: var(--surface-page);
+}
+
+.home-form__found {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f7a3a;
+}
+
+.home-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-form .link-button {
+  justify-self: start;
+}
+
+/* --- The code box (auth/code.js), on the profile and the auth pages ---- */
+
+.code-box {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.code-box__lede {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.code-box__row {
+  display: flex;
+  gap: 8px;
+}
+
+.code-box__input {
+  max-width: 11ch;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-box__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* The Subscribers tab's totals: five tiles, wrapping on a narrow screen. */
+.profile-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+/* A section still loading, or with nothing to say, takes no gap. */
+.profile-page .admin-body > :empty {
+  display: none;
+}
+
+/* --- The header: name, role and where they live as badges -------------- */
+
+.profile-head__titles {
+  display: grid;
+  gap: 4px;
+}
+
+.profile-head__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.profile-badge--role,
+.profile-badge--home {
+  border-color: transparent;
+  background: var(--admin-blue-soft);
+  color: var(--admin-blue);
+}
+
+.profile-badge--on {
+  border-color: transparent;
+  background: rgba(46, 158, 79, 0.14);
+  color: #1f7a3a;
+}
+
+.profile-badge--waiting {
+  border-color: transparent;
+  background: rgba(240, 140, 0, 0.16);
+  color: #9a5200;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .profile-badge--on {
+    color: #7ad690;
+  }
+
+  :root:where(:not([data-theme="light"])) .profile-badge--waiting {
+    color: #ffc37a;
+  }
+}
+
+:root[data-theme="dark"] .profile-badge--on {
+  color: #7ad690;
+}
+
+:root[data-theme="dark"] .profile-badge--waiting {
+  color: #ffc37a;
+}
+
+/* --- At a glance: four tiles, each a way into its section ------------- */
+
+.profile-glance {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .profile-glance {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.profile-tile {
+  border-top: 3px solid var(--hairline);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.profile-tile:hover {
+  border-color: var(--admin-blue);
+}
+
+a.profile-tile:focus-visible {
+  outline: 2px solid var(--admin-blue);
+  outline-offset: 2px;
+}
+
+.profile-tile--good {
+  border-top-color: var(--status-good);
+}
+
+.profile-tile--warn {
+  border-top-color: var(--status-warning);
+}
+
+.profile-tile--alert {
+  border-top-color: var(--alert-warning);
+}
+
+.profile-tile .admin-tile__note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Finish setting up ------------------------------------------------- */
+
+.profile-setup__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.profile-setup__count {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.profile-meter {
+  height: 6px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: var(--surface-page);
+  overflow: hidden;
+}
+
+.profile-meter__bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--status-good);
+}
+
+.profile-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 560px) {
+  .profile-checks {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.profile-check__mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--hairline);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.profile-check--done {
+  color: var(--text-muted);
+}
+
+.profile-check--done .profile-check__mark {
+  border-color: var(--status-good);
+  background: var(--status-good);
+  color: #ffffff;
+}
+
+.profile-check__go {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+/* --- Confirming the email, in the details card ------------------------- */
+
+.profile-confirm {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(240, 140, 0, 0.12);
+}
+
+.profile-confirm__title {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+/* --- My flood alerts --------------------------------------------------- */
+
+.profile-columns--alerts {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+}
+
+@media (max-width: 900px) {
+  .profile-columns--alerts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-now__list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-now__list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.profile-now__list a {
+  color: inherit;
+  font-weight: 600;
+}
+
+.profile-subs {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.profile-sub {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.profile-sub__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-sub__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.profile-sub__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.profile-sub__facts dt {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.profile-sub__facts dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.profile-sub__actions,
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-sub__actions {
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.profile-empty {
+  margin-bottom: 14px;
+  padding: 18px 16px;
+  border: 1px dashed var(--hairline);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.profile-empty__title {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.profile-month + .profile-month {
+  margin-top: 16px;
+}
+
+.profile-month__title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.profile-sent-group {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-sent-group--compact {
+  margin-bottom: 12px;
+}
+
+/* One alert sent: a dot in the colour of its level, then what and when. */
+.profile-sent {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.profile-sent:last-child {
+  border-bottom: 0;
+}
+
+.profile-sent__marker {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.profile-sent--warning .profile-sent__marker {
+  background: var(--alert-warning);
+}
+
+.profile-sent--watch .profile-sent__marker {
+  background: var(--alert-watch);
+}
+
+.profile-sent--advisory .profile-sent__marker {
+  background: var(--alert-advisory);
+}
+
+.profile-sent--cancel .profile-sent__marker {
+  background: var(--status-good);
+}
+
+.profile-sent__main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-sent__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-sent__headline {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.profile-sent__headline:hover {
+  text-decoration: underline;
+}
+
+.profile-sent__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.profile-sent__status--active {
+  font-weight: 600;
+  color: var(--alert-warning);
+}
+
+.profile-channel--failed {
+  color: var(--status-critical);
+}
+
+.profile-channel__mark {
+  font-weight: 800;
+}
+
+.profile-sent__when {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.profile-more {
+  margin-top: 12px;
+}
+
+.profile-more[hidden] {
+  display: none;
+}
+
+.profile-stopped {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-stopped li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .profile-sub__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-sent {
+    grid-template-columns: 14px minmax(0, 1fr);
+  }
+
+  .profile-sent__when {
+    grid-column: 2;
+  }
+}
+
+/* --- My places --------------------------------------------------------- */
+
+.profile-places-slot {
+  margin-top: 16px;
+}
+
+.places-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.places-list__item {
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 10px;
+}
+
+.places-list__title {
+  margin: 0 0 2px;
+}
+
+.places-list__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 6px;
+}
+
+.places-list__level {
+  width: auto;
+  max-width: 100%;
+}

@@ -6,8 +6,11 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import io
 import json
 import math
+import subprocess
+import tarfile
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -17,14 +20,16 @@ import numpy as np
 from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
+from sklearn.base import clone
+from sklearn.model_selection import GroupKFold
 
 from geodata.models import Region
 from geodata.services import earth_engine_rain
 from geodata.services.climate_indices import dmi_for, parse_dmi
-from riskengine.ml import train
+from riskengine.ml import experiments, train
 from riskengine.ml.calibration import CalibratedModel, Calibrator
-from riskengine.ml.features import FEATURE_NAMES, feature_row
-from riskengine.ml.infer import load_model, model_infer, region_row
+from riskengine.ml.features import CANDIDATE_FEATURES, FEATURE_NAMES, feature_row, rainfall_features
+from riskengine.ml.infer import ModelIntegrityError, load_model, model_infer, region_row
 
 WINDOW_END = dt.date(2019, 11, 30)
 
@@ -85,7 +90,13 @@ class TrainingTests(SimpleTestCase):
         # The settings search has its own tests below; skipping it here keeps
         # this class quick.
         cls.artifact, cls.metrics = train.train(
-            cls.path, {(2019, 9): 1.0}, {(2019, 9): 0.5}, tune_models=False
+            cls.path,
+            {(2019, 9): 1.0},
+            {(2019, 9): 0.5},
+            # Synthetic data, so the closed final test's code can still be tested.
+            test_from=train.FINAL_TEST_FROM,
+            tune_models=False,
+            seeds=(0, 7),
         )
 
     @classmethod
@@ -159,6 +170,74 @@ class TrainingTests(SimpleTestCase):
         recalls = [row["recall"] for row in rows]
         self.assertEqual(recalls, sorted(recalls, reverse=True))
 
+    def test_threshold_rows_carry_accuracy_f1_and_balanced_accuracy(self):
+        for row in self.metrics["threshold_errors"] + self.metrics["final_test"]["threshold_errors"]:
+            tp, fp = row["true_positives"], row["false_positives"]
+            fn, tn = row["false_negatives"], row["true_negatives"]
+            self.assertEqual(row["support_positive"], tp + fn)
+            self.assertEqual(row["support_negative"], tn + fp)
+            self.assertAlmostEqual(row["accuracy"], (tp + tn) / (tp + fp + fn + tn), places=4)
+            self.assertAlmostEqual(row["f1"], 2 * tp / (2 * tp + fp + fn), places=4)
+            self.assertAlmostEqual(
+                row["balanced_accuracy"], (row["recall"] + row["specificity"]) / 2, places=3
+            )
+
+    def test_seed_variation_reports_each_seed_and_seed_0_is_the_reported_score(self):
+        variation = self.metrics["seed_variation"]
+        self.assertEqual(variation["seeds"], [0, 7])
+        self.assertEqual(variation["logreg"], {"note": "deterministic"})
+        for name in ("random-forest", "gradient-boosting"):
+            for metric in ("average_precision", "roc_auc"):
+                record = variation[name][metric]
+                self.assertEqual(len(record["values"]), 2)
+                # Seed 0 is the seed of the comparison, so it must give the same score.
+                self.assertEqual(record["values"][0], self.metrics["comparison"][name][metric])
+                self.assertAlmostEqual(record["mean"], np.mean(record["values"]), places=3)
+                self.assertIsNotNone(record["sd"])
+
+    def test_seed_variation_is_skipped_without_seeds(self):
+        data = train.load_training_set(self.path)
+        chosen = train.select(data, tune_models=False)
+        _artifact, metrics = train.build(
+            data, chosen, self.path, {}, test_from=None, tune_models=False, seeds=()
+        )
+        self.assertIsNone(metrics["seed_variation"])
+        self.assertEqual(metrics["comparison"], self.metrics["comparison"])
+
+    def test_learning_curve_ends_at_the_cross_validated_score(self):
+        curve = self.metrics["learning_curve"]
+        self.assertEqual([point["fraction"] for point in curve], list(train.LEARNING_CURVE_FRACTIONS))
+        years = [point["training_years_mean"] for point in curve]
+        self.assertEqual(years, sorted(years))
+        # With every training year, it is the cross-validation already reported.
+        selected = self.metrics["selected"]
+        self.assertAlmostEqual(
+            curve[-1]["average_precision_mean"],
+            self.metrics["fold_summary"][selected]["average_precision_mean"],
+            places=3,
+        )
+        self.assertEqual(curve[-1]["folds"], train.CV_FOLDS)
+
+    def test_learning_curve_samples_whole_years_and_nests_them(self):
+        years = np.repeat(np.arange(2000, 2010), 12)
+        order = np.random.default_rng(0).permutation(np.unique(years))
+        quarter = train.sample_years(years, 0.25, order)
+        half = train.sample_years(years, 0.5, order)
+        self.assertEqual(len(set(years[quarter])), 3)  # a quarter of ten years, rounded up
+        self.assertEqual(len(set(years[half])), 5)
+        for year in np.unique(years):
+            self.assertIn(quarter[years == year].sum(), (0, 12))  # all of a year or none of it
+        self.assertTrue(set(years[quarter]) <= set(years[half]))
+        self.assertTrue(train.sample_years(years, 1.0, order).all())
+        self.assertEqual(len(set(years[train.sample_years(years, 0.01, order)])), 1)
+
+    def test_compute_records_the_time_and_the_machine(self):
+        compute = self.metrics["compute"]
+        for stage in ("cross_validation", "final_fit", "seed_variation", "learning_curve"):
+            self.assertGreaterEqual(compute[f"seconds_{stage}"], 0)
+        self.assertGreaterEqual(compute["cores"], 1)
+        self.assertTrue(compute["cpu"])
+
     def test_provenance_ties_the_result_to_its_data_and_seed(self):
         recorded = self.metrics["provenance"]
         self.assertEqual(
@@ -170,7 +249,8 @@ class TrainingTests(SimpleTestCase):
     def test_git_commit_follows_a_branch_ref_and_is_none_outside_a_checkout(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            self.assertIsNone(train.git_commit(root))
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+                self.assertIsNone(train.git_commit(root))
             (root / ".git" / "refs" / "heads").mkdir(parents=True)
             (root / ".git" / "HEAD").write_text("ref: refs/heads/topic\n")
             (root / ".git" / "refs" / "heads" / "topic").write_text("abc123\n")
@@ -178,6 +258,35 @@ class TrainingTests(SimpleTestCase):
             (root / ".git" / "refs" / "heads" / "topic").unlink()
             (root / ".git" / "packed-refs").write_text("# pack-refs\ndef456 refs/heads/topic\n")
             self.assertEqual(train.git_commit(root), "def456")
+
+    def test_git_commit_falls_back_to_the_environment_variable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: " fromenv1 \n"}):
+                self.assertEqual(train.git_commit(Path(folder)), "fromenv1")
+
+    def test_git_commit_falls_back_to_the_commit_file_in_the_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+                (root / train.COMMIT_FILE).write_text("fromfile2\n")
+                self.assertEqual(train.git_commit(root), "fromfile2")
+                (root / train.COMMIT_FILE).write_text("\n")
+                self.assertIsNone(train.git_commit(root))
+
+    def test_a_real_checkout_wins_over_the_variable_and_the_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".git").mkdir()
+            (root / ".git" / "HEAD").write_text("checkout3\n")
+            (root / train.COMMIT_FILE).write_text("fromfile2\n")
+            with mock.patch.dict("os.environ", {train.COMMIT_ENV: "fromenv1"}):
+                self.assertEqual(train.git_commit(root), "checkout3")
+
+    def test_provenance_records_the_run_id_when_one_is_set(self):
+        with mock.patch.dict("os.environ", {train.RUN_ID_ENV: "20261007T1200Z_abc1234"}):
+            self.assertEqual(train.provenance(self.path)["run_id"], "20261007T1200Z_abc1234")
+        with mock.patch.dict("os.environ", {train.RUN_ID_ENV: ""}):
+            self.assertIsNone(train.provenance(self.path)["run_id"])
 
     def test_final_test_scores_only_years_the_choice_never_saw(self):
         test = self.metrics["final_test"]
@@ -397,6 +506,49 @@ class DmiTests(SimpleTestCase):
         self.assertEqual(dmi_for(dt.date(2020, 9, 30), table), 0.0)  # newest available
 
 
+class ModelIntegrityTests(SimpleTestCase):
+    """A model file is unpickled only when its recorded SHA-256 matches."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+        self.model = self.folder / "flood_model.joblib"
+        self.metrics = self.folder / "metrics.json"
+
+    def save(self):
+        with (
+            mock.patch.object(train, "ARTIFACT_DIR", self.folder),
+            mock.patch.object(train, "ARTIFACT_PATH", self.model),
+            mock.patch.object(train, "METRICS_PATH", self.metrics),
+        ):
+            train.save({"version": "test-model"}, {"base_rate": 0.1})
+
+    def test_a_saved_model_records_its_hash_and_loads(self):
+        self.save()
+        recorded = json.loads(self.metrics.read_text())["model_sha256"]
+        self.assertEqual(recorded, hashlib.sha256(self.model.read_bytes()).hexdigest())
+        self.assertEqual(load_model(self.model)["version"], "test-model")
+
+    def test_a_swapped_model_file_is_refused(self):
+        self.save()
+        self.model.write_bytes(self.model.read_bytes() + b"\0")
+        with self.assertRaises(ModelIntegrityError):
+            load_model(self.model)
+
+    def test_a_model_with_no_recorded_hash_is_refused(self):
+        self.save()
+        self.metrics.write_text(json.dumps({"version": "test-model"}))
+        with self.assertRaises(ModelIntegrityError):
+            load_model(self.model)
+
+    def test_the_shipped_metrics_match_the_shipped_model(self):
+        shipped = train.ARTIFACT_PATH
+        if not shipped.exists():
+            self.skipTest("No model artifact on disk")
+        self.assertIsNotNone(load_model(shipped))
+
+
 class ModelCompatibilityTests(TestCase):
     """The model shipped before this change must still score after it."""
 
@@ -597,6 +749,465 @@ class ValidateUnosatSubCountyTests(TestCase):
             cache = Path(tmp) / "sub_county"
             fetched = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
             again = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
-            self.assertEqual([path.name for path in cache.iterdir()], [f"Sigowet-Soin_{day}_{day}.json"])
+            self.assertEqual(
+                [path.name for path in (cache / "era5").iterdir()], [f"Sigowet-Soin_{day}_{day}.json"]
+            )
         self.assertEqual(fetched, {"Sigowet/Soin": {day: 4.0}})
         self.assertEqual(again, fetched)  # read back from the cache
+
+    def test_the_rainfall_model_reaches_the_request_and_the_cache(self):
+        from riskengine.management.commands.build_training_set import open_meteo_rainfall
+
+        region = _county("Wetland", 35.0, -1.0)
+        day = dt.date(2018, 4, 1)
+        name = f"Wetland_{day}_{day}.json"
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "riskengine.management.commands.build_training_set.fetch_archive_rainfall",
+            side_effect=[[{day: 4.0}], [{day: 9.0}]],
+        ) as fetch:
+            cache = Path(tmp)
+            era5 = open_meteo_rainfall([region], day, day, log=lambda _: None, cache_dir=cache)
+            # Rainfall the service chose is not read back as ERA5, nor ERA5 as it.
+            chosen = open_meteo_rainfall(
+                [region], day, day, log=lambda _: None, cache_dir=cache, model="best_match"
+            )
+            self.assertTrue((cache / "era5" / name).exists())
+            self.assertTrue((cache / name).exists())
+
+        self.assertEqual([call.args[3] for call in fetch.call_args_list], ["era5", "best_match"])
+        self.assertEqual((era5["Wetland"][day], chosen["Wetland"][day]), (4.0, 9.0))
+
+    def test_a_training_set_without_a_rainfall_model_was_the_services_choice(self):
+        from riskengine.management.commands.build_training_set import rain_model_of
+
+        self.assertEqual(rain_model_of({"rain_source": "open-meteo-point"}), "best_match")
+        self.assertEqual(rain_model_of({"rain_model": "era5"}), "era5")
+
+
+class BuildColabBundleTests(SimpleTestCase):
+    """The bundle is the committed code plus the training set, tied to one commit."""
+
+    COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.training_set = self.root / "data" / "processed" / "training_set.csv"
+        self.training_set.parent.mkdir(parents=True)
+        self.training_set.write_bytes(b"date,county,flood\n2019-11-30,Wetland,1\n")
+        train.meta_path(self.training_set).write_text('{"rain_source": "test"}')
+
+    def _git(self, status=b""):
+        """Stands in for git: a clean checkout of COMMIT holding three files."""
+        code = io.BytesIO()
+        with tarfile.open(fileobj=code, mode="w") as archive:
+            for name in (
+                "riskengine/ml/train.py",
+                "riskengine/ml/artifacts/flood_model.joblib",
+                "riskengine/ml/artifacts/metrics.json",
+                "requirements.txt",
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = 4
+                archive.addfile(info, io.BytesIO(b"code"))
+        answers = {
+            "status": status,
+            "rev-parse": self.COMMIT.encode() + b"\n",
+            "archive": code.getvalue(),
+        }
+
+        def run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, stdout=answers[command[1]], stderr=b"")
+
+        return mock.patch("subprocess.run", side_effect=run)
+
+    def test_bundle_holds_the_committed_code_the_data_and_the_commit(self):
+        from riskengine.management.commands.build_colab_bundle import build_bundle
+
+        with self._git() as git:
+            path, commit = build_bundle(self.root, self.training_set, self.root / "out")
+
+        self.assertEqual(commit, self.COMMIT)
+        self.assertEqual(path.name, "colab_bundle_0123456.tar.gz")
+        archive_call = git.call_args_list[-1].args[0]
+        self.assertEqual(archive_call[:4], ["git", "archive", "--format=tar", "HEAD"])
+        with tarfile.open(path) as bundle:
+            names = set(bundle.getnames())
+            recorded = bundle.extractfile("COMMIT").read().decode().strip()
+            digest = bundle.extractfile("DATASET_SHA256").read().decode().strip()
+            data = bundle.extractfile("data/processed/training_set.csv").read()
+        self.assertEqual(
+            names,
+            {
+                "riskengine/ml/train.py",
+                "riskengine/ml/artifacts/metrics.json",
+                "requirements.txt",
+                "data/processed/training_set.csv",
+                "data/processed/training_set.meta.json",
+                "COMMIT",
+                "DATASET_SHA256",
+            },
+        )
+        self.assertEqual(recorded, self.COMMIT)
+        self.assertEqual(data, self.training_set.read_bytes())
+        self.assertEqual(digest, hashlib.sha256(data).hexdigest())
+
+    def test_unpacked_bundle_reports_its_commit(self):
+        from riskengine.management.commands.build_colab_bundle import build_bundle
+
+        with self._git():
+            path, _ = build_bundle(self.root, self.training_set, self.root / "out")
+        unpacked = self.root / "unpacked"
+        with tarfile.open(path) as bundle:
+            bundle.extractall(unpacked, filter="data")
+        with mock.patch.dict("os.environ", {train.COMMIT_ENV: ""}):
+            self.assertEqual(train.git_commit(unpacked), self.COMMIT)
+
+    def test_uncommitted_changes_stop_the_bundle(self):
+        from riskengine.management.commands.build_colab_bundle import BundleError, build_bundle
+
+        with self._git(status=b" M riskengine/ml/train.py\n"):
+            with self.assertRaisesRegex(BundleError, "uncommitted changes"):
+                build_bundle(self.root, self.training_set, self.root / "out")
+        self.assertFalse((self.root / "out").exists())
+
+    def test_a_missing_training_set_stops_the_bundle(self):
+        from riskengine.management.commands.build_colab_bundle import BundleError, build_bundle
+
+        self.training_set.unlink()
+        with self._git(), self.assertRaisesRegex(BundleError, "build_training_set"):
+            build_bundle(self.root, self.training_set, self.root / "out")
+
+
+class CandidateInputTests(SimpleTestCase):
+    """The rainfall inputs under trial (CANDIDATE_FEATURES)."""
+
+    def test_candidates_are_not_given_to_the_model(self):
+        self.assertFalse(set(CANDIDATE_FEATURES) & set(FEATURE_NAMES))
+
+    def test_longer_totals_reach_further_back(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(90)}
+        rain[WINDOW_END - dt.timedelta(days=75)] = 21.0  # only the 90-day window holds this
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_60d"], 60)
+        self.assertAlmostEqual(features["rain_60d"], features["rain_30d"] + features["rain_prev_30d"])
+        self.assertAlmostEqual(features["rain_90d"], 89 + 21)
+
+    def test_a_long_total_is_unknown_without_the_days_behind_it(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(60)}
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_60d"], 60)
+        self.assertTrue(math.isnan(features["rain_90d"]))
+
+    def test_short_peak_and_heavy_days(self):
+        rain = {WINDOW_END - dt.timedelta(days=offset): 1.0 for offset in range(30)}
+        rain[WINDOW_END - dt.timedelta(days=5)] = 60.0
+        rain[WINDOW_END - dt.timedelta(days=4)] = 50.0  # the threshold itself counts
+        rain[WINDOW_END - dt.timedelta(days=20)] = 49.9
+
+        features = rainfall_features(rain, WINDOW_END)
+
+        self.assertAlmostEqual(features["rain_3d_max"], 60 + 50 + 1)
+        self.assertEqual(features["heavy_days"], 2)
+
+
+def _trial_data(years=range(2000, 2012), counties=("C0", "C1", "C2")):
+    """Daily rainfall and a matching training set whose floods follow rain_90d."""
+    rng = np.random.default_rng(0)
+    first, last = dt.date(years[0] - 1, 1, 1), dt.date(years[-1], 12, 31)
+    days = [first + dt.timedelta(days=i) for i in range((last - first).days + 1)]
+    rainfall = {county: dict(zip(days, rng.gamma(0.4, 8.0, len(days)))) for county in counties}
+
+    rows, y, dates, names = [], [], [], []
+    for year in years:
+        for month in range(1, 13):
+            end = dt.date(year, month, 28)
+            for county in counties:
+                rain = rainfall_features(rainfall[county], end)
+                rows.append([rain["rain_30d"], rain["rain_prev_30d"]])
+                y.append(int(rain["rain_90d"] > 330))
+                dates.append(end.isoformat())
+                names.append(county)
+    data = train.TrainingSet(
+        features=("rain_30d", "rain_prev_30d"),
+        X=np.array(rows),
+        y=np.array(y),
+        years=np.array([int(date[:4]) for date in dates]),
+        months=np.array([int(date[5:7]) for date in dates]),
+        counties=np.array(names),
+        dates=dates,
+        meta={},
+    )
+    return data, rainfall
+
+
+class ExperimentTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.data, cls.rainfall = _trial_data()
+
+    def test_trial_inputs_are_added_as_columns(self):
+        wider = experiments.with_candidates(self.data, self.rainfall, ["rain_90d", "heavy_days"])
+
+        self.assertEqual(wider.features, ("rain_30d", "rain_prev_30d", "rain_90d", "heavy_days"))
+        self.assertEqual(wider.X.shape, (len(self.data.y), 4))
+        np.testing.assert_array_equal(wider.X[:, :2], self.data.X)
+        expected = rainfall_features(self.rainfall["C0"], dt.date.fromisoformat(self.data.dates[0]))
+        self.assertAlmostEqual(wider.X[0, 2], expected["rain_90d"])
+
+    def test_only_inputs_under_trial_can_be_added(self):
+        with self.assertRaises(ValueError):
+            experiments.with_candidates(self.data, self.rainfall, ["elevation"])
+
+    def test_rainfall_that_does_not_match_the_training_set_is_refused(self):
+        other = {
+            county: {day: mm + 1.0 for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+        with self.assertRaises(ValueError):
+            experiments.with_candidates(self.data, other, ["rain_90d"])
+
+    def test_the_longest_cached_series_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            (cache / "Meru_1995-12-02_2021-09-30.json").write_text('{"2000-01-01": 1.0}')
+            (cache / "Meru_1984-12-02_2021-09-30.json").write_text('{"2000-01-01": 2.0}')
+            (cache / "Meru_2023-09-29_2023-11-28.json").write_text('{"2000-01-01": 3.0}')
+            # A county whose name starts the same way must not be picked up.
+            (cache / "Meru North_1970-01-01_2021-09-30.json").write_text('{"2000-01-01": 4.0}')
+
+            rainfall = experiments.cached_rainfall(cache, ["Meru"])
+
+            self.assertEqual(rainfall, {"Meru": {dt.date(2000, 1, 1): 2.0}})
+            with self.assertRaises(FileNotFoundError):
+                experiments.cached_rainfall(cache, ["Embu"])
+
+    def test_an_input_the_floods_follow_is_found_to_help(self):
+        result = experiments.compare(self.data, self.rainfall, ["rain_90d"], seeds=(0, 1))
+
+        before, after = result["before"], result["after"]
+        self.assertEqual(result["added"], ["rain_90d"])
+        self.assertEqual(after["features"], [*before["features"], "rain_90d"])
+        self.assertEqual(before["seeds"], [0, 1])
+        self.assertEqual(before["floods"], int(self.data.y.sum()))
+        self.assertGreater(after["average_precision"]["mean"], before["average_precision"]["mean"])
+        self.assertLess(after["floods_missed"]["mean"], before["floods_missed"]["mean"])
+        self.assertTrue(result["beyond_noise"])
+        self.assertAlmostEqual(
+            result["average_precision_change"],
+            after["average_precision"]["mean"] - before["average_precision"]["mean"],
+            places=4,
+        )
+
+    def test_rainfall_inputs_are_worked_out_again_from_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        changed = experiments.with_rainfall(self.data, doubled)
+
+        self.assertEqual(changed.features, self.data.features)
+        np.testing.assert_allclose(changed.X, 2 * self.data.X)
+        np.testing.assert_array_equal(changed.y, self.data.y)
+
+    def test_trial_inputs_follow_the_other_rainfall(self):
+        doubled = {
+            county: {day: 2 * mm for day, mm in series.items()}
+            for county, series in self.rainfall.items()
+        }
+
+        result = experiments.compare(
+            self.data, self.rainfall, ["rain_90d"], seeds=(0,), other_rainfall=doubled
+        )
+
+        # Doubling every day's rain keeps the order of every row, so a
+        # forest scores the same as on the original rainfall.
+        same = experiments.compare(self.data, self.rainfall, ["rain_90d"], seeds=(0,))
+        self.assertEqual(result["after"]["features"], same["after"]["features"])
+        self.assertAlmostEqual(
+            result["after"]["average_precision"]["mean"],
+            same["after"]["average_precision"]["mean"],
+            places=3,
+        )
+
+
+class FloodWindowTests(SimpleTestCase):
+    """How a flood is assigned to a 30-day window (`in_window`)."""
+
+    START, END = dt.date(2005, 6, 1), dt.date(2005, 6, 30)
+
+    def _event(self, began, ended):
+        from geodata.services.dfo import FloodEvent
+
+        return FloodEvent(1, "Kenya", began, ended, 37.0, 0.0, 1000.0, 1.0, 0, 0, "Heavy rain")
+
+    def _counts(self, began, ended, min_days):
+        from riskengine.management.commands.build_training_set import in_window
+
+        return in_window(self._event(began, ended), self.START, self.END, min_days)
+
+    def test_any_overlap_counts_by_default(self):
+        from riskengine.management.commands.build_training_set import MIN_OVERLAP_DAYS, in_window
+
+        tail = self._event(dt.date(2005, 5, 3), dt.date(2005, 6, 3))
+        self.assertEqual(MIN_OVERLAP_DAYS, 1)
+        self.assertTrue(in_window(tail, self.START, self.END))
+        self.assertFalse(in_window(self._event(dt.date(2005, 5, 3), dt.date(2005, 5, 31)), self.START, self.END))
+        self.assertFalse(in_window(self._event(dt.date(2005, 7, 1), dt.date(2005, 7, 9)), self.START, self.END))
+
+    def test_a_short_tail_from_an_earlier_window_does_not_count(self):
+        self.assertFalse(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 3), 7))
+        self.assertFalse(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 6), 7))
+        self.assertTrue(self._counts(dt.date(2005, 5, 3), dt.date(2005, 6, 7), 7))
+
+    def test_a_flood_counts_where_it_began_however_briefly(self):
+        self.assertTrue(self._counts(dt.date(2005, 6, 17), dt.date(2005, 6, 20), 7))
+        self.assertTrue(self._counts(dt.date(2005, 6, 30), dt.date(2005, 8, 1), 7))
+
+    def test_labels_can_be_scored_against_another_truth(self):
+        data, _rainfall = _trial_data()
+        fewer = data.y.copy()
+        fewer[np.flatnonzero(data.y)[::2]] = 0  # every other flood removed
+        kept = int(fewer.sum())
+
+        result = experiments.compare_labels(data, fewer, seeds=(0,))
+
+        self.assertEqual(result["current"]["floods"], int(data.y.sum()))
+        self.assertEqual(result["new"]["floods"], kept)
+        self.assertEqual(result["current_on_new"]["floods"], kept)
+        self.assertEqual(result["new"]["base_rate"], round(kept / len(data.y), 4))
+        # Trained on the current labels either way, so the same probabilities
+        # are behind both: only the truth they are scored against differs.
+        self.assertNotEqual(
+            result["current"]["average_precision"], result["current_on_new"]["average_precision"]
+        )
+        # This small set has no month inputs, so no season-only model.
+        self.assertIsNone(result["current"]["season_only_average_precision"])
+
+
+class LabelCheckTests(SimpleTestCase):
+    """The circle labels set against mapped flood water (geodata/services/gfd.py)."""
+
+    def test_counties_are_counted_under_the_circle_and_mapped_wet(self):
+        from geodata.services import gfd
+
+        circles = {7: {"A", "B", "C"}, 9: {"A"}}
+        mapped = {7: {"A": 12.0, "B": 4.9, "C": 0.0, "D": 5.0}}
+
+        rows = gfd.compare_with_circles(circles, mapped, min_km2=5.0)
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "event": 7,
+                    "circle": 3,
+                    "circle_and_wet": 1,
+                    "circle_only": 2,
+                    "wet_only": 1,
+                    "mapped_km2": 21.9,
+                }
+            ],
+        )
+
+    def test_cached_events_need_no_earth_engine(self):
+        from geodata.services import gfd
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "km2.json"
+            cache.write_text(json.dumps({"7": {"A": 12.0}, "8": {"A": 1.0}}))
+            with mock.patch.object(gfd.earth_engine_rain, "_ee", side_effect=AssertionError):
+                mapped = gfd.flooded_km2([], [7], cache)
+
+        self.assertEqual(mapped, {7: {"A": 12.0}})
+
+
+
+class MappedLabelTests(SimpleTestCase):
+    """Labels from mapped flood water where it exists (riskengine/ml/labels.py)."""
+
+    WINDOW = dt.date(2006, 11, 30)
+
+    def _event(self, event_id, began, ended):
+        from geodata.services.dfo import FloodEvent
+
+        return FloodEvent(event_id, "Kenya", began, ended, 37.0, 0.0, 1000.0, 1.0, 0, 0, "Heavy rain")
+
+    def _labels(self, keys, min_km2=5.0):
+        from riskengine.management.commands.build_training_set import in_window
+        from riskengine.ml import labels
+
+        mapped_flood = self._event(7, dt.date(2006, 11, 10), dt.date(2006, 11, 20))
+        circle_flood = self._event(8, dt.date(2006, 11, 12), dt.date(2006, 11, 14))
+        # The mapped flood's circle covers A and B; the other flood's covers C.
+        placed = {"A": [mapped_flood], "B": [mapped_flood], "C": [circle_flood]}
+        mapped = {7: {"A": 12.0, "B": 0.4, "D": 6.0}}
+        return labels.mapped_labels(keys, placed, {7: mapped_flood}, mapped, in_window, min_km2)
+
+    def test_a_mapped_flood_labels_where_the_water_was(self):
+        from riskengine.ml.labels import CIRCLE, MAPPED, NONE
+
+        keys = [(county, self.WINDOW) for county in ("A", "B", "C", "D", "E")]
+
+        flooded, sources = self._labels(keys)
+
+        # A: under the circle and wet. B: under the circle, dry on the map.
+        # C: an unmapped flood's circle. D: wet outside any circle. E: nothing.
+        self.assertEqual(list(flooded), [1, 0, 1, 1, 0])
+        self.assertEqual(list(sources), [MAPPED, MAPPED, CIRCLE, MAPPED, NONE])
+
+    def test_a_window_without_the_flood_is_not_labelled_by_it(self):
+        from riskengine.ml.labels import NONE
+
+        flooded, sources = self._labels([("A", dt.date(2006, 9, 30)), ("D", dt.date(2006, 9, 30))])
+
+        self.assertEqual(list(flooded), [0, 0])
+        self.assertEqual(list(sources), [NONE, NONE])
+
+    def test_the_threshold_decides_how_much_water_is_a_flood(self):
+        flooded, _sources = self._labels([("D", self.WINDOW)], min_km2=10.0)
+
+        self.assertEqual(list(flooded), [0])
+
+    def test_only_circle_labels_are_weighted_down(self):
+        from riskengine.ml.labels import CIRCLE, MAPPED, NONE, weights
+
+        row_weights = weights(np.array([MAPPED, CIRCLE, NONE], dtype=object), 0.5)
+
+        self.assertEqual(list(row_weights), [1.0, 0.5, 1.0])
+
+    def test_weights_of_one_change_nothing(self):
+        data, _rainfall = _trial_data()
+        folds = list(GroupKFold(train.CV_FOLDS).split(data.X, data.y, groups=data.years))
+        model = train.candidates()["logreg"]
+        columns = list(range(len(data.features)))
+
+        plain = train.held_out_probabilities(data, lambda: clone(model), columns, folds)
+        weighted = train.held_out_probabilities(
+            data, lambda: clone(model), columns, folds, np.ones(len(data.y))
+        )
+
+        np.testing.assert_allclose(plain, weighted)
+
+    def test_labels_are_also_scored_on_the_rows_they_are_surest_of(self):
+        data, _rainfall = _trial_data()
+        sure = np.zeros(len(data.y), dtype=bool)
+        sure[::3] = True
+
+        result = experiments.compare_labels(
+            data, data.y, seeds=(0,), weights=np.full(len(data.y), 0.5), sure_rows=sure
+        )
+
+        self.assertEqual(result["current"]["rows"], len(data.y))
+        for key in ("current_on_sure", "new_on_sure", "new_weighted_on_sure"):
+            self.assertEqual(result[key]["rows"], int(sure.sum()))
+            self.assertEqual(result[key]["floods"], int(data.y[sure].sum()))
+        # The same labels and no weights: trained alike, scored alike.
+        self.assertEqual(result["current_on_sure"]["average_precision"], result["new_on_sure"]["average_precision"])

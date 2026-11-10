@@ -1,0 +1,50 @@
+# In front of the API on the VM (docker-compose.prod.yml). Cloudflare ends
+# the visitor's HTTPS and opens a second HTTPS connection to here, checked
+# against the Cloudflare origin certificate in deploy/certs/ (not in git).
+#
+# Cloudflare's addresses, from https://www.cloudflare.com/ips/ (October
+# 2026). Check that page if visitors start getting dropped connections.
+# `import cloudflare <directive...>` writes that directive followed by the
+# ranges. They stay on one line, since a line break starts a new directive.
+(cloudflare) {
+	{args[:]} 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/29 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+}
+
+{
+	servers {
+		# Believe CF-Connecting-IP only on a connection from Cloudflare.
+		import cloudflare trusted_proxies static
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+{$API_HOST} {
+	tls /certs/origin.pem /certs/origin.key
+
+	# route keeps the order written here; Caddy would otherwise sort these
+	# directives itself and serve /static/ before checking the address.
+	route {
+		# Anyone who finds the VM's address could otherwise skip Cloudflare and
+		# send a made-up CF-Connecting-IP, which the rate limits would believe.
+		@direct {
+			not {
+				import cloudflare remote_ip
+			}
+		}
+		abort @direct
+
+		encode gzip
+
+		handle_path /static/* {
+			root * /srv/static
+			file_server
+		}
+
+		reverse_proxy web:8000 {
+			# The visitor's real address. With DJANGO_NUM_PROXIES=1 the rate
+			# limits read the last entry, which is this one.
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+		}
+	}
+}

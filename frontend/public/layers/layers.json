@@ -1,0 +1,27 @@
+{
+  "rivers": {
+    "file": "rivers.geojson",
+    "count": 107,
+    "source": "OpenStreetMap contributors (ODbL), via the HOT export of Kenya's waterways"
+  },
+  "flood_zone_100yr": {
+    "file": "flood_zone_100yr.png",
+    "bounds": [
+      [
+        -4.79964,
+        33.9
+      ],
+      [
+        5.1,
+        41.949803
+      ]
+    ],
+    "depth_bands_m": [
+      0.0,
+      0.5,
+      1.5,
+      3.0
+    ],
+    "source": "Copernicus Emergency Management Service, GloFAS river flood hazard map, 100-year return period (CC BY 4.0)"
+  }
+}

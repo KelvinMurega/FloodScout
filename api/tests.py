@@ -2,17 +2,21 @@
 rescoring is for a System Administrator only."""
 
 import datetime as dt
+from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.gis.geos import MultiPolygon, Polygon
+from django.core.cache import cache
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
+from rest_framework.throttling import AnonRateThrottle
 
 from accounts.models import User
 from geodata.models import Region
 from riskengine.models import RiskScore
+from riskengine.views import _worked_out
 
 PASSWORD = "a-long-test-passphrase"
 SCORE_DATE = dt.date(2026, 4, 15)
@@ -145,3 +149,47 @@ class OpenReadTests(APITestCase):
                     self.client.post(reverse(name), {}).status_code,
                     status.HTTP_401_UNAUTHORIZED,
                 )
+
+
+class LimitTests(APITestCase):
+    """Every request counts against its client, and bare lists come in pages."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_anonymous_requests_are_rate_limited(self):
+        # The suite runs without the general limits (settings.TESTING).
+        with mock.patch.dict(AnonRateThrottle.THROTTLE_RATES, {"anon": "3/min"}):
+            codes = [self.client.get(reverse("region-list")).status_code for _ in range(4)]
+        self.assertEqual(codes, [status.HTTP_200_OK] * 3 + [status.HTTP_429_TOO_MANY_REQUESTS])
+        # The health check is a plain view, so an uptime monitor is never limited.
+        self.assertEqual(self.client.get(reverse("health-check")).status_code, status.HTTP_200_OK)
+
+    def test_every_score_comes_in_pages_but_one_regions_history_whole(self):
+        region = make_region("Alpha")
+        for day in range(3):
+            RiskScore.objects.create(
+                region=region,
+                prediction_date=dt.datetime(2026, 4, 10 + day, tzinfo=dt.UTC),
+                predicted_value=0.1,
+                risk_category=RiskScore.RiskCategory.LOW,
+            )
+        paged = self.client.get(reverse("risk-score-list"), {"page_size": 2})
+        self.assertEqual((paged.data["count"], len(paged.data["results"])), (3, 2))
+        history = self.client.get(reverse("risk-score-list"), {"region": region.id})
+        self.assertEqual(len(history.data), 3)
+
+    def test_a_worked_out_explanation_is_kept_until_the_score_changes(self):
+        calls = []
+
+        def build():
+            calls.append(1)
+            return {"parts": []}
+
+        score = SimpleNamespace(id=7, predicted_value=0.2)
+        for _ in range(2):
+            self.assertEqual(_worked_out("explain", score, {"version": "v1"}, build), {"parts": []})
+        self.assertEqual(len(calls), 1)
+        score.predicted_value = 0.3  # rescored after new rainfall
+        _worked_out("explain", score, {"version": "v1"}, build)
+        self.assertEqual(len(calls), 2)

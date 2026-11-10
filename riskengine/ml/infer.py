@@ -35,6 +35,7 @@ result, in the database or in the API.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 
@@ -43,6 +44,7 @@ import numpy as np
 from django.db.models import Sum
 
 from geodata.services.climate_indices import dmi_for, oni_for
+from riskengine import dry
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, feature_row
 from riskengine.models import RiskScore
 
@@ -52,9 +54,29 @@ HEURISTIC_VERSION = "heuristic-stub-v0"
 ARTIFACT_PATH = Path(__file__).resolve().parent / "artifacts" / "flood_model.joblib"
 
 
+class ModelIntegrityError(RuntimeError):
+    """The model file is not the one its training run recorded."""
+
+
 def load_model(path: Path = ARTIFACT_PATH) -> dict | None:
-    """The trained model package, or None when none has been trained yet."""
-    return joblib.load(path) if path.exists() else None
+    """The trained model package, or None when none has been trained yet.
+
+    The file is a pickle, and loading a pickle runs whatever code is in it.
+    So it is loaded only when its SHA-256 matches `model_sha256` in the
+    metrics.json beside it, which the training run wrote and git tracks: a
+    swapped file, or one with no recorded hash, is refused, not run.
+    """
+    if not path.exists():
+        return None
+    metrics = path.with_name("metrics.json")
+    expected = json.loads(metrics.read_text()).get("model_sha256") if metrics.exists() else None
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if expected != actual:
+        raise ModelIntegrityError(
+            f"{path.name} has SHA-256 {actual}, but {metrics.name} records {expected}. "
+            "Copy both files from the same training run."
+        )
+    return joblib.load(path)
 
 
 # Loaded once at import. It is all-or-nothing on purpose: either every score
@@ -198,17 +220,22 @@ def flood_probabilities(model: dict, rows: list[list[float]]) -> list[float]:
     return [float(p) for p in model["pipeline"].predict_proba(np.array(rows, dtype=float))[:, 1]]
 
 
-def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
-    """Score one region from what the database holds for it."""
-    rain = dict(
+def region_rain(region, date: dt.date) -> dict[dt.date, float]:
+    """Stored daily rainfall for `region` over the HISTORY_DAYS ending on `date`."""
+    return dict(
         region.environmental_records.filter(
             record_date__gt=date - dt.timedelta(days=HISTORY_DAYS), record_date__lte=date
         ).values_list("record_date", "rainfall_intensity")
     )
+
+
+def model_infer(model: dict, region, date: dt.date) -> tuple[float, str]:
+    """Score one region from what the database holds for it."""
     terrain = region.geospatial_features.order_by("-pk").first()
-    row = region_row(model, region, rain, date, terrain)
+    row = region_row(model, region, region_rain(region, date), date, terrain)
     predicted_value = round(flood_probabilities(model, [row])[0], 4)
-    return predicted_value, classify(predicted_value, model_thresholds(model))
+    category = classify(predicted_value, model_thresholds(model))
+    return predicted_value, dry.gated(category, row, model_features(model))
 
 
 def infer(region, date) -> tuple[float, str]:

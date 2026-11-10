@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from geodata.models import Region
+from geodata.models import GridCell, Region
 
 
 class RiskScore(models.Model):
@@ -81,3 +81,102 @@ class RiskOutlook(models.Model):
 
     def __str__(self) -> str:
         return f"{self.region} — {self.risk_category} ({self.month:%Y-%m} outlook)"
+
+
+class GridRiskScore(models.Model):
+    """The flood probability for one grid cell on one day.
+
+    Worked out by the same model as RiskScore, from the cell's own rainfall
+    and terrain (see geodata.GridCell). The model learned from floods
+    recorded per county, so a cell's value reads as "a county that got this
+    cell's rain would have this chance of a large flood": it shows where in
+    a county the rain that drives the risk fell, not a flood extent.
+    """
+
+    cell = models.ForeignKey(GridCell, on_delete=models.CASCADE, related_name="risk_scores")
+    date = models.DateField(help_text="The day the score is for")
+    predicted_value = models.FloatField(help_text="Raw model output score")
+    risk_category = models.CharField(max_length=10, choices=RiskScore.RiskCategory.choices)
+    rain_30d = models.FloatField(null=True, blank=True, help_text="mm in the 30 days to the date")
+    rain_30d_ratio = models.FloatField(
+        null=True, blank=True, help_text="rain_30d over the county's normal for the month"
+    )
+    model_version = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ["-date", "cell_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["cell", "date"], name="unique_gridriskscore_cell_date")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cell} — {self.risk_category} ({self.date:%Y-%m-%d})"
+
+
+class RiskForecast(models.Model):
+    """The flood probability for a region on a day in the coming week.
+
+    Written by `forecast_scores`: the same trained model as RiskScore, given
+    the rainfall that has fallen up to the day it was issued and the
+    rainfall *forecast* for the days after. Kept apart from RiskScore for the
+    reason RiskOutlook is: a score from rain that fell and a score from rain
+    that is only predicted must never be mistaken for one another.
+
+    Each run issues seven days ahead and keeps earlier issues, so a forecast
+    can later be checked against the score the day actually got.
+    """
+
+    region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="risk_forecasts")
+    issued_on = models.DateField(help_text="The day the forecast was made")
+    target_date = models.DateField(help_text="The day the forecast is for")
+    predicted_value = models.FloatField(help_text="Model output, as RiskScore.predicted_value")
+    risk_category = models.CharField(max_length=10, choices=RiskScore.RiskCategory.choices)
+    rain_forecast_mm = models.FloatField(
+        null=True, blank=True, help_text="Forecast rain from the day after issue to target_date, mm"
+    )
+    rain_forecast_max_24h = models.FloatField(
+        null=True, blank=True, help_text="Wettest forecast day in that span, mm"
+    )
+    model_version = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ["target_date", "region_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["region", "issued_on", "target_date"],
+                name="unique_riskforecast_region_issue_target",
+            )
+        ]
+        indexes = [models.Index(fields=["issued_on", "target_date"])]
+
+    def __str__(self) -> str:
+        return f"{self.region} — {self.risk_category} on {self.target_date} (issued {self.issued_on})"
+
+
+class ReportedFlood(models.Model):
+    """A county named in a ReliefWeb flood report: the ground truth the live
+    record (riskengine/live.py) scores the model against.
+
+    Written by `fetch_flood_reports`, one row per report and county. A report
+    naming three counties is three rows. The match is by name in the report's
+    text, so it is coarse; see geodata/services/reliefweb.py.
+    """
+
+    reliefweb_id = models.PositiveIntegerField()
+    county = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="reported_floods")
+    published = models.DateField(help_text="The date the report carries")
+    title = models.CharField(max_length=300)
+    url = models.URLField(max_length=500)
+    source = models.CharField(max_length=200, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-published", "county__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reliefweb_id", "county"], name="unique_reportedflood_report_county"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.county} — {self.published:%Y-%m-%d} — {self.title[:60]}"

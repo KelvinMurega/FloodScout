@@ -1,0 +1,552 @@
+/* The flood alerts page (#/alerts) and the alert banner over the map. It
+   shares the analytics page's shell (admin.css): .admin-page, .admin-card. */
+
+:root {
+  --alert-warning: #b91c1c;
+  --alert-warning-bg: #fde8e8;
+  --alert-watch: #c2410c;
+  --alert-watch-bg: #ffedd5;
+  --alert-advisory: #a16207;
+  --alert-advisory-bg: #fef9c3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --alert-warning: #fca5a5;
+    --alert-warning-bg: #3b1212;
+    --alert-watch: #fdba74;
+    --alert-watch-bg: #3a1d0b;
+    --alert-advisory: #fde047;
+    --alert-advisory-bg: #332b07;
+  }
+}
+
+:root[data-theme="dark"] {
+  --alert-warning: #fca5a5;
+  --alert-warning-bg: #3b1212;
+  --alert-watch: #fdba74;
+  --alert-watch-bg: #3a1d0b;
+  --alert-advisory: #fde047;
+  --alert-advisory-bg: #332b07;
+}
+
+.is-admin .map-bars,
+.is-admin .alert-banner {
+  display: none !important;
+}
+
+/* --- Banner over the map ----------------------------------------------- */
+
+/* A tinted strip with a stripe of the worst level's colour down its left
+   edge: loud enough to notice, slim enough to leave the map the room. */
+.alert-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 7px 20px;
+  background: var(--alert-warning-bg);
+  border-bottom: 1px solid var(--hairline);
+  box-shadow: inset 4px 0 0 var(--alert-warning);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.alert-banner[hidden] {
+  display: none;
+}
+
+.alert-banner--watch {
+  background: var(--alert-watch-bg);
+  box-shadow: inset 4px 0 0 var(--alert-watch);
+}
+
+.alert-banner--advisory {
+  background: var(--alert-advisory-bg);
+  box-shadow: inset 4px 0 0 var(--alert-advisory);
+}
+
+.alert-banner__text {
+  font-weight: 650;
+}
+
+.alert-banner__hint {
+  color: var(--text-secondary);
+}
+
+.alert-banner .auth__button {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
+.alert-banner__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--alert-warning);
+  color: var(--surface-1);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.alert-banner--watch .alert-banner__icon {
+  background: var(--alert-watch);
+}
+
+.alert-banner--advisory .alert-banner__icon {
+  background: var(--alert-advisory);
+}
+
+.alert-banner__links {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* --- Level pills and map badges ---------------------------------------- */
+
+.alert-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.alert-pill--warning {
+  background: var(--alert-warning);
+  color: #ffffff;
+}
+
+.alert-pill--watch {
+  background: var(--alert-watch);
+  color: #ffffff;
+}
+
+.alert-pill--advisory {
+  background: var(--alert-advisory);
+  color: #ffffff;
+}
+
+/* A badge on the map for each alert: a triangle with its level's colour. */
+.alert-badge {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: var(--alert-warning);
+  color: #ffffff;
+  font: 800 12px/1 var(--font-sans);
+  padding-top: 6px;
+  box-sizing: border-box;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+.alert-badge--watch {
+  background: var(--alert-watch);
+}
+
+.alert-badge--advisory {
+  background: var(--alert-advisory);
+}
+
+/* --- Detail panel box -------------------------------------------------- */
+
+.detail-alert {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--alert-warning);
+  border-radius: 6px;
+  background: var(--alert-warning-bg);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.detail-alert--watch {
+  border-left-color: var(--alert-watch);
+  background: var(--alert-watch-bg);
+}
+
+.detail-alert--advisory {
+  border-left-color: var(--alert-advisory);
+  background: var(--alert-advisory-bg);
+}
+
+.detail-alert__title {
+  margin: 4px 0;
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.detail-alert p {
+  margin: 4px 0;
+}
+
+.detail-alert a {
+  color: inherit;
+  font-weight: 600;
+}
+
+.get-alerts {
+  margin: 10px 0 0;
+}
+
+/* --- Page -------------------------------------------------------------- */
+
+.alerts-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .alerts-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.alerts-side {
+  display: grid;
+  gap: 16px;
+  position: sticky;
+  top: 16px;
+}
+
+.alerts-summary {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.alerts-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.alerts-tile {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.alerts-tile--warning {
+  background: var(--alert-warning-bg);
+}
+
+.alerts-tile--watch {
+  background: var(--alert-watch-bg);
+}
+
+.alerts-tile--advisory {
+  background: var(--alert-advisory-bg);
+}
+
+.alerts-tile__number {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.alerts-search {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.alerts-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.alerts-group {
+  display: grid;
+  gap: 10px;
+}
+
+.alerts-group__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.alert-card {
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-left: 5px solid var(--alert-warning);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.alert-card--watch {
+  border-left-color: var(--alert-watch);
+}
+
+.alert-card--advisory {
+  border-left-color: var(--alert-advisory);
+}
+
+.alert-card--highlight {
+  box-shadow: 0 0 0 3px var(--polygon-stroke-focus);
+}
+
+.alert-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-card__title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.alert-card__meta {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.alert-card__reasons {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.alert-card__instruction {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.alert-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alert-card__cancel {
+  margin-left: auto;
+  color: var(--alert-warning);
+  border-color: var(--alert-warning);
+}
+
+.alerts-levels {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.alerts-levels dd {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* --- Forms ------------------------------------------------------------- */
+
+.alerts-form {
+  display: grid;
+  gap: 12px;
+}
+
+.alerts-form__field {
+  display: grid;
+  gap: 5px;
+}
+
+.alerts-form__label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+
+.alerts-form__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--border-ring);
+  border-radius: 8px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.alerts-form__input:focus-visible {
+  outline: 2px solid var(--polygon-stroke-focus);
+  outline-offset: 1px;
+}
+
+.alerts-form__input--code {
+  max-width: 10ch;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.alerts-form__hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.alerts-form__places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alerts-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-page);
+  border: 1px solid var(--border-ring);
+  font-size: 12.5px;
+}
+
+.alerts-chip__remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.alerts-form__levels {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.alerts-form__radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.alerts-form__message {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.alerts-form__message:empty {
+  display: none;
+}
+
+.alerts-form__message--error {
+  color: #d03b3b;
+}
+
+.alerts-form__lede {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alerts-success {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(46, 158, 79, 0.12);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alerts-success__title {
+  margin: 0 0 4px;
+  font-weight: 700;
+  color: #1f7a3a;
+}
+
+/* --- Administrator ----------------------------------------------------- */
+
+.alerts-admin__stats {
+  margin: 8px 0 14px;
+  font-size: 13px;
+}
+
+.alerts-admin__tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.alerts-admin__tool {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.alerts-admin__tool--wide {
+  grid-column: 1 / -1;
+}
+
+/* One-click "Get flood alerts" (quick.js). */
+.quick-alert {
+  display: grid;
+  gap: 6px;
+}
+
+.quick-alert__button {
+  justify-self: start;
+}
+
+.quick-alert__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.quick-alert__hint:empty {
+  display: none;
+}
+
+.quick-alert__done {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(46, 158, 79, 0.12);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.quick-alert__code {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.alert-card__actions .quick-alert {
+  display: contents;
+}

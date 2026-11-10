@@ -12,6 +12,9 @@ it is scored on rainfall from the same kind of source. `rain_points` in the
 training metadata tells scoring to average several Open-Meteo points to
 approximate the county mean.
 
+The same machinery averages soil moisture over each county
+(`fetch_county_soil_moisture`), from the same dataset.
+
 Setup, once per machine (needs the Earth Engine project registered for
 FloodScout, EE_PROJECT_ID in .env):
 
@@ -31,6 +34,11 @@ from pathlib import Path
 
 DATASET = "ECMWF/ERA5_LAND/DAILY_AGGR"
 BAND = "total_precipitation_sum"  # metres of water
+# Volumetric soil water, m³ of water per m³ of soil, daily means for the
+# layers 0-7 cm and 7-28 cm. Their depth-weighted mean is the water in the
+# top 28 cm: what decides whether the next rain soaks in or runs off.
+SOIL_BANDS = ("volumetric_soil_water_layer_1", "volumetric_soil_water_layer_2")
+SOIL_LAYER_CM = (7, 21)
 SCALE_M = 11132  # the dataset's native 0.1-degree pixel
 # Simplify county outlines before upload. 0.005 degrees is about 500 m, far
 # finer than the pixels, and keeps the request small.
@@ -81,25 +89,43 @@ def quarters(start: dt.date, end: dt.date) -> list[tuple[dt.date, dt.date]]:
     return spans
 
 
-def parse_features(features: list[dict]) -> dict[str, dict[dt.date, float]]:
-    """{county: {date: mm}} from Earth Engine's feature list."""
+def parse_features(features: list[dict], factor: float = 1000.0) -> dict[str, dict[dt.date, float]]:
+    """{county: {date: value}} from Earth Engine's feature list.
+
+    `factor` converts the band's units: metres of rain to mm by default.
+    """
     out: dict[str, dict[dt.date, float]] = {}
     for feature in features:
         props = feature.get("properties", {})
-        metres = props.get("mean")
-        if metres is None:
+        value = props.get("mean")
+        if value is None:
             continue
         out.setdefault(props["county"], {})[dt.date.fromisoformat(props["date"])] = (
-            float(metres) * 1000.0
+            float(value) * factor
         )
     return out
 
 
-def _fetch_span(ee, collection, first: dt.date, last: dt.date) -> dict[str, dict[dt.date, float]]:
+def _rain(image):
+    return image.select(BAND)
+
+
+def _soil_water(image):
+    """The depth-weighted mean of the top two soil layers, m³/m³."""
+    top, below = SOIL_LAYER_CM
+    return image.expression(
+        f"({top} * top + {below} * below) / {top + below}",
+        {"top": image.select(SOIL_BANDS[0]), "below": image.select(SOIL_BANDS[1])},
+    ).set("system:time_start", image.get("system:time_start"))
+
+
+def _fetch_span(
+    ee, collection, first: dt.date, last: dt.date, band=_rain, factor: float = 1000.0
+) -> dict[str, dict[dt.date, float]]:
     images = (
         ee.ImageCollection(DATASET)
         .filterDate(first.isoformat(), (last + dt.timedelta(days=1)).isoformat())
-        .select(BAND)
+        .map(band)
     )
 
     def per_image(image):
@@ -111,7 +137,7 @@ def _fetch_span(ee, collection, first: dt.date, last: dt.date) -> dict[str, dict
             lambda f: ee.Feature(None, {"county": f.get("county"), "date": day, "mean": f.get("mean")})
         )
 
-    return parse_features(images.map(per_image).flatten().getInfo()["features"])
+    return parse_features(images.map(per_image).flatten().getInfo()["features"], factor)
 
 
 def fetch_county_rainfall(counties, start: dt.date, end: dt.date, cache_dir: Path, log=print):
@@ -120,17 +146,27 @@ def fetch_county_rainfall(counties, start: dt.date, end: dt.date, cache_dir: Pat
     Each quarter is written to `cache_dir` as it arrives, so a run that is
     interrupted picks up where it stopped and a re-run is offline.
     """
+    return _fetch_county_daily(counties, start, end, cache_dir, "rainfall", _rain, 1000.0, log)
+
+
+def fetch_county_soil_moisture(counties, start: dt.date, end: dt.date, cache_dir: Path, log=print):
+    """{county name: {date: m³/m³}}, the water in the top 28 cm averaged over each county."""
+    return _fetch_county_daily(counties, start, end, cache_dir, "soil moisture", _soil_water, 1.0, log)
+
+
+def _fetch_county_daily(counties, start, end, cache_dir: Path, what: str, band, factor: float, log):
+    """{county name: {date: value}} of `band`, cached a quarter per file in `cache_dir`."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     spans = quarters(start, end)
-    rainfall: dict[str, dict[dt.date, float]] = {county.name: {} for county in counties}
+    values: dict[str, dict[dt.date, float]] = {county.name: {} for county in counties}
     missing = []
     for first, last in spans:
         path = cache_dir / f"{first}_{last}.json"
         if path.exists():
             cached = json.loads(path.read_text())
             for name, series in cached.items():
-                rainfall.setdefault(name, {}).update(
-                    {dt.date.fromisoformat(day): mm for day, mm in series.items()}
+                values.setdefault(name, {}).update(
+                    {dt.date.fromisoformat(day): value for day, value in series.items()}
                 )
         else:
             missing.append((first, last, path))
@@ -146,17 +182,17 @@ def fetch_county_rainfall(counties, start: dt.date, end: dt.date, cache_dir: Pat
                 for county in counties
             ]
         )
-        log(f"Earth Engine: fetching {len(missing)} of {len(spans)} quarters of county-mean rainfall")
+        log(f"Earth Engine: fetching {len(missing)} of {len(spans)} quarters of county-mean {what}")
         for number, (first, last, path) in enumerate(missing, start=1):
             try:
-                span = _fetch_span(ee, collection, first, last)
+                span = _fetch_span(ee, collection, first, last, band, factor)
             except Exception as exc:
                 raise EarthEngineError(f"Earth Engine request for {first} to {last} failed: {exc}") from exc
             path.write_text(
-                json.dumps({name: {d.isoformat(): mm for d, mm in s.items()} for name, s in span.items()})
+                json.dumps({name: {d.isoformat(): value for d, value in s.items()} for name, s in span.items()})
             )
             for name, series in span.items():
-                rainfall.setdefault(name, {}).update(series)
+                values.setdefault(name, {}).update(series)
             if number % 10 == 0 or number == len(missing):
                 log(f"  {number}/{len(missing)} quarters")
-    return rainfall
+    return values

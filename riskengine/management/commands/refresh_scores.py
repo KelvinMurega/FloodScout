@@ -9,6 +9,19 @@ wrote before for the same days, so running it twice does no harm.
 The `scheduler` service in docker-compose.yml runs the second form, so the
 dashboard stays current for as long as the stack is up.
 
+Days the stack was down are caught up on: a run scores every day in the
+last MAX_CATCH_UP_DAYS that has no scores, not only today. So a computer
+that was off over a weekend has Saturday and Sunday on the map once it is
+back on, scored from the rain that actually fell on them.
+
+After the scores, the next seven days are forecast from forecast rain
+(`forecast_scores`), and the alerts are brought up to date and sent
+(`issue_alerts`), after reading the Kenya Meteorological Department's
+warnings (`fetch_kmd_warnings`), which a scheduled run also reads every
+hour in between. Flood reports are fetched from ReliefWeb for the live
+record (`fetch_flood_reports`). When `seed_grid` has laid an area grid, its cells are
+scored too, with the same catching up.
+
 The seasonal outlook is not refreshed here. The forecast behind it is issued
 monthly and takes much longer to fetch; run `flood_outlook` when a new one
 is out.
@@ -16,14 +29,75 @@ is out.
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import DatabaseError, connections
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-# Indirection so tests can skip the wait.
+from geodata.management.commands.seed_rainfall import DEFAULT_PAST_DAYS
+from geodata.models import GridCell
+from riskengine.models import GridRiskScore, RiskScore
+
+# The most days back Open-Meteo's forecast endpoint serves. Scoring a day
+# reads the DEFAULT_PAST_DAYS before it, so this caps how far back a run can
+# catch up.
+MAX_PAST_DAYS = 92
+MAX_CATCH_UP_DAYS = MAX_PAST_DAYS - DEFAULT_PAST_DAYS
+
+# How often a scheduled run wakes to check whether the next refresh is due.
+# The wait is measured on the wall clock, not by one long sleep, so a laptop
+# that sleeps through the night still refreshes as soon as it wakes.
+CHECK_SECONDS = 600
+
+# How soon a scheduled run that failed is tried again. Open-Meteo's free
+# tier answers 429 once a day's or an hour's allowance is spent, and the
+# allowance comes back long before the next daily run.
+RETRY_SECONDS = 3600
+
+# How often, between daily refreshes, the Kenya Meteorological Department's
+# warnings are read again. They are small, and KMD can issue one at any hour.
+KMD_SECONDS = 3600
+
+# Indirection so tests can skip the wait and move the clock.
 _sleep = time.sleep
+_now = time.time
+_kmd_clock = time.time
+
+
+def days_to_score(today: dt.date, scored_days) -> list[dt.date]:
+    """The days in the last MAX_CATCH_UP_DAYS with no scores, then `today`.
+
+    `scored_days` are the days that already have scores. Gaps are filled
+    wherever they are, not only after the last scored day. Nothing before
+    the first scored day is filled in, so a new database starts with just
+    today. Today is always included, so a second run on the same day
+    rescores it with the rain that has fallen since.
+    """
+    scored = set(scored_days)
+    if not scored:
+        return [today]
+    start = max(min(scored), today - dt.timedelta(days=MAX_CATCH_UP_DAYS))
+    days = [start + dt.timedelta(days=n) for n in range((today - start).days)]
+    return [day for day in days if day not in scored] + [today]
+
+
+def region_days(today: dt.date) -> list[dt.date]:
+    """The days the regions need scoring for."""
+    scored = (
+        RiskScore.objects.annotate(day=TruncDate("prediction_date"))
+        .values_list("day", flat=True)
+        .distinct()
+    )
+    return days_to_score(today, scored)
+
+
+def grid_days(today: dt.date) -> list[dt.date]:
+    """The days the area grid needs scoring for."""
+    return days_to_score(today, GridRiskScore.objects.values_list("date", flat=True).distinct())
 
 
 class Command(BaseCommand):
@@ -43,17 +117,90 @@ class Command(BaseCommand):
         if every is not None and every <= 0:
             raise CommandError("--every-hours must be positive.")
 
+        last_run = None
+        # Each refresh reads KMD's warnings too; this times the reads between.
+        last_kmd = _kmd_clock()
         while True:
-            self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")
-            try:
-                call_command("seed_rainfall", stdout=self.stdout, stderr=self.stderr)
-                call_command("score_regions", stdout=self.stdout, stderr=self.stderr)
-            except CommandError as exc:
-                if every is None:
-                    raise
-                # A failed fetch must not end the schedule: yesterday's scores
-                # stay on the dashboard and the next run tries again.
-                self.stderr.write(self.style.ERROR(f"Refresh failed, will retry next run: {exc}"))
+            if last_run is None or _now() - last_run >= every * 3600:
+                last_run = _now()
+                try:
+                    self.refresh()
+                except (CommandError, DatabaseError) as exc:
+                    if every is None:
+                        raise
+                    # A failed fetch or a dropped database connection must
+                    # not end the schedule: yesterday's scores stay on the
+                    # dashboard and a run tries again in RETRY_SECONDS, not a
+                    # whole interval later.
+                    connections.close_all()
+                    retry = min(RETRY_SECONDS, every * 3600)
+                    last_run -= every * 3600 - retry
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"Refresh failed, will retry in {retry / 60:.0f} minutes: {exc}"
+                        )
+                    )
             if every is None:
                 return
-            _sleep(every * 3600)
+            if _kmd_clock() - last_kmd >= KMD_SECONDS:
+                last_kmd = _kmd_clock()
+                self.fetch_kmd()
+            _sleep(min(CHECK_SECONDS, every * 3600))
+
+    def fetch_kmd(self):
+        """KMD's warnings. A failure is reported and does not stop anything:
+        the warnings already stored stay, and the next hour tries again."""
+        try:
+            call_command("fetch_kmd_warnings", stdout=self.stdout, stderr=self.stderr)
+        except (CommandError, DatabaseError) as exc:
+            connections.close_all()
+            self.stderr.write(self.style.WARNING(f"KMD warnings skipped: {exc}"))
+
+    def refresh(self):
+        # Between scheduled runs the connection sits idle for a day, and the
+        # hosted database drops idle connections ("SSL error: unexpected eof
+        # while reading" on the first query). Start each run on a new one;
+        # Django opens it on the first query.
+        connections.close_all()
+        today = timezone.localdate()
+        days = region_days(today)
+        self.stdout.write(f"Refresh started {timezone.localtime():%Y-%m-%d %H:%M}")
+        if len(days) > 1:
+            self.stdout.write(f"Catching up on {len(days)} days from {days[0].isoformat()}")
+
+        past_days = DEFAULT_PAST_DAYS + (today - days[0]).days
+        call_command(
+            "seed_rainfall", "--past-days", str(past_days), stdout=self.stdout, stderr=self.stderr
+        )
+        for day in days:
+            call_command(
+                "score_regions", "--date", day.isoformat(), stdout=self.stdout, stderr=self.stderr
+            )
+
+        # The week ahead, from forecast rain. A failed forecast is reported
+        # but does not fail the refresh: today's scores are already written,
+        # and yesterday's forecast stays on the map until the next run.
+        try:
+            call_command("forecast_scores", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:
+            self.stderr.write(self.style.WARNING(f"Forecast skipped: {exc}"))
+
+        # KMD's official warnings, so the alerts can name any in force.
+        self.fetch_kmd()
+
+        # Issue, upgrade and end the alerts from the new scores and forecast,
+        # and send them to the people who asked.
+        call_command("issue_alerts", stdout=self.stdout, stderr=self.stderr)
+
+        # Floods reported since, for the model's live record. Like the
+        # forecast, a failed fetch is reported but does not fail the refresh.
+        try:
+            call_command("fetch_flood_reports", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:
+            self.stderr.write(self.style.WARNING(f"Flood reports skipped: {exc}"))
+
+        # The area grid, once `seed_grid` has laid one. It fetches its own
+        # rainfall, at the cells' centres.
+        if GridCell.objects.exists():
+            dates = [arg for day in grid_days(today) for arg in ("--date", day.isoformat())]
+            call_command("score_grid", *dates, stdout=self.stdout, stderr=self.stderr)

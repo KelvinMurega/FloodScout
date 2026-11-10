@@ -1,10 +1,14 @@
+import json
+
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from . import focus_regions
 from .filters import filter_by_region_params
-from .models import EnvironmentalData, GeospatialFeature, Region
+from .models import EnvironmentalData, FloodEvent, GeospatialFeature, KmdWarning, Region
 from .serializers import (
     EnvironmentalDataSerializer,
     GeospatialFeatureSerializer,
@@ -22,6 +26,9 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
     filtered, so any region is reachable by id.
     """
 
+    # The 47 counties by default; every sub-county at most (about 300).
+    pagination_class = None
+
     queryset = Region.objects.order_by("county_name", "level", "name")
     serializer_class = RegionSerializer
 
@@ -33,11 +40,23 @@ class RegionViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return qs
 
+    @action(detail=False, methods=["get"])
+    def names(self, request):
+        """Every county and sub-county by id and name, without shapes.
+
+        For pickers such as the alert sign-up form, which need every place
+        but not the megabytes of boundary the list sends.
+        """
+        rows = Region.objects.order_by("county_name", "level", "name").values(
+            "id", "name", "county_name", "level"
+        )
+        return Response(list(rows))
+
 
 class FocusRegionViewSet(viewsets.ViewSet):
     """The flood-prone regions the dashboard can drill into.
 
-    Static, editorial groupings of counties (geodata/focus_regions.py) with
+    Static groupings of counties, with their sources (geodata/focus_regions.py),
     each county resolved to its Region id, so the client can pick them out
     of the county layer it already holds.
     """
@@ -54,12 +73,12 @@ class FocusRegionViewSet(viewsets.ViewSet):
                 for name in focus.counties
                 if name in county_ids
             ],
+            "sources": list(focus.sources),
+            "former_slugs": list(focus.former_slugs),
         }
 
     def _county_ids(self):
-        return dict(
-            Region.objects.filter(level=Region.Level.COUNTY).values_list("name", "id")
-        )
+        return dict(Region.objects.filter(level=Region.Level.COUNTY).values_list("name", "id"))
 
     def list(self, request):
         county_ids = self._county_ids()
@@ -81,7 +100,9 @@ class _RegionFilterMixin:
         qs = super().get_queryset()
         region_id = self.request.query_params.get("region")
         if region_id:
-            qs = qs.filter(region_id=region_id)
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            qs = qs.filter(region_id=int(region_id))
         return qs
 
 
@@ -93,3 +114,103 @@ class GeospatialFeatureViewSet(_RegionFilterMixin, viewsets.ReadOnlyModelViewSet
 class EnvironmentalDataViewSet(_RegionFilterMixin, viewsets.ReadOnlyModelViewSet):
     queryset = EnvironmentalData.objects.select_related("region").all()
     serializer_class = EnvironmentalDataSerializer
+
+
+class FloodEventViewSet(viewsets.ViewSet):
+    """Large floods recorded in Kenya (DFO, 1985 to 2021), for the map.
+
+    `list` is a GeoJSON FeatureCollection of the events' centroids, newest
+    first. `?region=<id>` keeps the events whose footprint reaches that
+    region, which is what the detail panel's "floods recorded here" uses.
+    A footprint is a circle of the recorded area, so "reaches" is rough.
+    """
+
+    def list(self, request):
+        events = FloodEvent.objects.all()
+        region_id = request.query_params.get("region")
+        if region_id:
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            region = get_object_or_404(Region, pk=int(region_id))
+            events = events.filter(footprint__intersects=region.geom)
+        return Response(
+            {
+                "type": "FeatureCollection",
+                "source": "Dartmouth Flood Observatory, Global Active Archive of Large Flood Events",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "id": event.dfo_id,
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [round(event.centroid.x, 4), round(event.centroid.y, 4)],
+                        },
+                        "properties": {
+                            "began": event.began.isoformat(),
+                            "ended": event.ended.isoformat(),
+                            "area_km2": round(event.area_km2),
+                            "severity": event.severity,
+                            "dead": event.dead,
+                            "displaced": event.displaced,
+                            "main_cause": event.main_cause,
+                        },
+                    }
+                    for event in events
+                ],
+            }
+        )
+
+
+class KmdWarningViewSet(viewsets.ViewSet):
+    """The Kenya Meteorological Department's flood-related warnings in force.
+
+    `list` is a GeoJSON FeatureCollection of their areas, soonest to end
+    first, for the map's "KMD warnings" layer. `?region=<id>` keeps those
+    covering that region, for the detail panel. The outlines are simplified
+    (about 1 km) to keep the response small; which regions a warning covers
+    was worked out from the full outline when it was stored.
+    """
+
+    SIMPLIFY_DEG = 0.01
+
+    def list(self, request):
+        warnings = KmdWarning.in_force().filter(flood_related=True).order_by("expires", "-sent")
+        region_id = request.query_params.get("region")
+        if region_id:
+            if not region_id.isdigit():
+                raise ValidationError({"region": "Expected a region id."})
+            warnings = warnings.filter(regions__pk=int(region_id))
+        features = []
+        for warning in warnings:
+            geometry = None
+            if warning.geom is not None:
+                geometry = json.loads(
+                    warning.geom.simplify(self.SIMPLIFY_DEG, preserve_topology=True).geojson
+                )
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": warning.pk,
+                    "geometry": geometry,
+                    "properties": {
+                        "event": warning.event,
+                        "severity": warning.severity,
+                        "certainty": warning.certainty,
+                        "headline": warning.headline,
+                        "description": warning.description,
+                        "instruction": warning.instruction,
+                        "area": warning.area,
+                        "sent": warning.sent.isoformat(),
+                        "onset": warning.onset.isoformat(),
+                        "expires": warning.expires.isoformat() if warning.expires else None,
+                        "url": warning.web or warning.url,
+                    },
+                }
+            )
+        return Response(
+            {
+                "type": "FeatureCollection",
+                "source": "Kenya Meteorological Department (CAP feed, meteo.go.ke)",
+                "features": features,
+            }
+        )
