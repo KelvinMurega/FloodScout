@@ -1,0 +1,194 @@
+{
+  "model_version": "flood-random-forest-20261007",
+  "model_sha256": "72fe2cf060c8e6c156e25a7a2d2a37a37827a278ace8c956bfbd4ddb8cc60ffb",
+  "training_set": "data/processed/training_set_point_20261002.csv",
+  "training_set_sha256": "367173d305e66155a85ba0299f4dedee5765a73eca87989d57e2209270a45033",
+  "rows": "final test, years 2017 to 2021",
+  "shap_version": "0.48.0",
+  "shap_method": "TreeExplainer, tree_path_dependent, output = probability of a flood month",
+  "base_value": {
+    "shap": 0.09696,
+    "tree_path": 0.09696
+  },
+  "additivity": {
+    "tree_path_max_error": 7.771561172376096e-16,
+    "shap_max_error": 2.1649348980190553e-15
+  },
+  "high_risk_threshold": 0.2,
+  "groups": {
+    "all": {
+      "rows": 2679,
+      "same_top_part": 0.8667,
+      "rank_correlation_median": 0.9643,
+      "rank_correlation_p10": 0.8214,
+      "mean_abs_difference": {
+        "rain": 0.00743,
+        "ground": 0.00458,
+        "enso": 0.00797,
+        "iod": 0.00749,
+        "season": 0.00896,
+        "terrain": 0.00442,
+        "area": 0.00288
+      },
+      "mean_abs_difference_all": 0.00625,
+      "mean_abs_contribution_shap": 0.02272
+    },
+    "high_risk": {
+      "rows": 503,
+      "same_top_part": 0.8648,
+      "rank_correlation_median": 0.9643,
+      "rank_correlation_p10": 0.8571,
+      "mean_abs_difference": {
+        "rain": 0.01215,
+        "ground": 0.0076,
+        "enso": 0.01554,
+        "iod": 0.01381,
+        "season": 0.01591,
+        "terrain": 0.01235,
+        "area": 0.00534
+      },
+      "mean_abs_difference_all": 0.01181,
+      "mean_abs_contribution_shap": 0.04326
+    }
+  },
+  "inputs": {
+    "all": {
+      "rows": 2679,
+      "same_top_part": 0.6245,
+      "rank_correlation_median": 0.9505,
+      "rank_correlation_p10": 0.8681,
+      "mean_abs_difference": {
+        "rain_30d": 0.00438,
+        "rain_7d_max": 0.00392,
+        "rain_prev_30d": 0.00458,
+        "rain_30d_ratio": 0.00483,
+        "oni": 0.00727,
+        "dmi": 0.00694,
+        "oni_short_rains": 0.00257,
+        "dmi_short_rains": 0.00293,
+        "month_sin": 0.00877,
+        "month_cos": 0.00597,
+        "elevation": 0.00308,
+        "slope": 0.00203,
+        "log_area": 0.00288
+      },
+      "mean_abs_difference_all": 0.00463,
+      "mean_abs_contribution_shap": 0.01412
+    },
+    "high_risk": {
+      "rows": 503,
+      "same_top_part": 0.7316,
+      "rank_correlation_median": 0.9451,
+      "rank_correlation_p10": 0.8626,
+      "mean_abs_difference": {
+        "rain_30d": 0.00764,
+        "rain_7d_max": 0.00615,
+        "rain_prev_30d": 0.0076,
+        "rain_30d_ratio": 0.00958,
+        "oni": 0.01295,
+        "dmi": 0.01306,
+        "oni_short_rains": 0.00405,
+        "dmi_short_rains": 0.00469,
+        "month_sin": 0.01458,
+        "month_cos": 0.00879,
+        "elevation": 0.00954,
+        "slope": 0.00442,
+        "log_area": 0.00534
+      },
+      "mean_abs_difference_all": 0.00834,
+      "mean_abs_contribution_shap": 0.02465
+    }
+  },
+  "global_ranking": {
+    "shap": [
+      {
+        "part": "season",
+        "mean_abs": 0.04462
+      },
+      {
+        "part": "rain",
+        "mean_abs": 0.04049
+      },
+      {
+        "part": "enso",
+        "mean_abs": 0.02604
+      },
+      {
+        "part": "ground",
+        "mean_abs": 0.01862
+      },
+      {
+        "part": "iod",
+        "mean_abs": 0.01563
+      },
+      {
+        "part": "area",
+        "mean_abs": 0.00838
+      },
+      {
+        "part": "terrain",
+        "mean_abs": 0.00526
+      }
+    ],
+    "tree_path": [
+      {
+        "part": "season",
+        "mean_abs": 0.04631
+      },
+      {
+        "part": "rain",
+        "mean_abs": 0.04552
+      },
+      {
+        "part": "enso",
+        "mean_abs": 0.02953
+      },
+      {
+        "part": "iod",
+        "mean_abs": 0.01975
+      },
+      {
+        "part": "ground",
+        "mean_abs": 0.01918
+      },
+      {
+        "part": "terrain",
+        "mean_abs": 0.00845
+      },
+      {
+        "part": "area",
+        "mean_abs": 0.0084
+      }
+    ],
+    "permutation_importance_at_training": [
+      {
+        "part": "season",
+        "auc_drop": 0.1114
+      },
+      {
+        "part": "rain",
+        "auc_drop": 0.0492
+      },
+      {
+        "part": "ground",
+        "auc_drop": 0.0314
+      },
+      {
+        "part": "enso",
+        "auc_drop": 0.0223
+      },
+      {
+        "part": "terrain",
+        "auc_drop": 0.0148
+      },
+      {
+        "part": "area",
+        "auc_drop": 0.0079
+      },
+      {
+        "part": "iod",
+        "auc_drop": -0.0048
+      }
+    ]
+  }
+}

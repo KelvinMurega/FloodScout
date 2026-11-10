@@ -86,6 +86,11 @@ def explain_row(model: dict, row: list[float]) -> Explanation:
     prepare, forest = _parts(pipeline)
     x = np.array([row], dtype=float)
     x = (prepare.transform(x) if prepare is not None else x)[0]
+    # scikit-learn's trees compare inputs as float32. A float64 value just
+    # above a threshold can round down onto it and go left in the forest
+    # while going right here; found by the SHAP check (18 of 2,679
+    # final-test rows, at most 0.001 off) before this cast.
+    x = x.astype(np.float32)
     positive = list(forest.classes_).index(1)
 
     bias = 0.0

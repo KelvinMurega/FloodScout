@@ -389,10 +389,44 @@ inputs (`docs/figures/10_partial_dependence.png`). The direction is the
 expected one in each: probability rises towards April, with rainfall above
 normal, with a wetter previous month, and on the El Niño side of ONI.
 
-SHAP, named in the proposal, was not used. Permutation importance answers
-the same question (which inputs the predictions depend on), needs no
-further dependency, and is measured on held-out years, which SHAP values
-of a fitted model are not.
+### SHAP against the app's explanations
+
+SHAP, named in the proposal, was run on 10 November 2026 as a check, not
+in the app (`manage.py shap_check`; results in `artifacts/shap_check.json`
+and `artifacts/shap_summary.png`). TreeSHAP (Lundberg et al., 2020) gives
+Shapley values for the same trees `explain.py` walks. Its parts also add
+up to the probability, and unlike the tree-path method it does not depend
+on which correlated input a tree split on first. Both were run on the
+shipped model (`flood-random-forest-20261007`) for the 2,679 final-test
+rows (2017 to 2021), and on the 503 of them at or above 0.2, the top
+probability band. Nothing was retrained.
+
+| | all rows | high-risk rows |
+|---|---|---|
+| Same factor group first | 86.7% | 86.5% |
+| Rank correlation of the 7 groups, median (10th percentile) | 0.96 (0.82) | 0.96 (0.86) |
+| Mean difference per group, against the mean size of a SHAP part | 0.006 / 0.023 | 0.012 / 0.043 |
+| Same single input first (of 13) | 62.5% | 73.2% |
+
+- **The groups agree; single inputs less so.** That is the caution in
+  "Explaining one prediction" above, now measured: the dashboard shows
+  groups, which is the level the two methods agree at.
+- **Overall ranking.** Time of year, recent rain and El Niño are the top
+  three in SHAP, the tree-path method and permutation importance alike.
+  Below that they differ: SHAP puts the Indian Ocean Dipole fifth, while
+  permutation importance puts it last (shuffling it does not lower the
+  held-out AUC). The model uses the Dipole, but on the final-test years
+  that use did not help it rank flood months.
+- **A bug it found.** Before the check, 18 of the 2,679 tree-path
+  explanations missed the probability by up to 0.001. scikit-learn compares
+  inputs as float32, and a float64 value just above a threshold could go
+  the other way in `explain.py`. Inputs are now cast to float32;
+  `test_a_value_on_a_threshold_takes_the_forests_path` covers it, and every
+  row now adds up to within 1e-15.
+
+The app keeps the tree-path method: it needs no extra library and is fast
+enough for a request. `shap` and `matplotlib` are in
+`requirements-analysis.txt`, not in the app image.
 
 `artifacts/metrics.json` holds the current figures: `final_test` for the
 final test table, `folds` and

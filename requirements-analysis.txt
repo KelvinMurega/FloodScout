@@ -1,0 +1,3 @@
+# Offline analysis only (manage.py shap_check). Not installed in the app image.
+shap==0.48.0
+matplotlib==3.10.3
