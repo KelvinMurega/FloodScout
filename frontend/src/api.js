@@ -451,6 +451,15 @@ export function fetchSubscribers() {
   return authedGet("alerts/subscribers/");
 }
 
+/**
+ * Administrator only: stop someone's alerts for them, when they asked. Their
+ * subscription goes as by the unsubscribe link, home or saved-place warnings
+ * are turned off so they do not come back, and a masked record is kept.
+ */
+export function stopSubscriber(id) {
+  return postJson(`alerts/subscribers/${id}/stop/`);
+}
+
 /** Administrator only: what everyone has done, newest first. */
 export function fetchActivity() {
   return authedGet("admin/activity/");

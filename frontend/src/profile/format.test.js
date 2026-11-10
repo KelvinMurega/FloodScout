@@ -37,6 +37,10 @@ test("activity reads as plain words", () => {
     activityText({ action: "alert_issue", detail: { headline: "Flood warning for Nyando" } }),
     "Issued Flood warning for Nyando",
   );
+  assert.equal(
+    activityText({ action: "alerts_stopped_for", detail: { username: "", contact: "s***@example.com" } }),
+    "Stopped alerts for s***@example.com at their request",
+  );
   assert.equal(activityText({ action: "something_new" }), "something new");
 });
 

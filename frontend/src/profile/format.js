@@ -54,6 +54,8 @@ export function activityText(entry) {
       return `${d.is_active ? "Switched on" : "Switched off"} ${d.username}'s account`;
     case "subscription_remove":
       return `Stopped alerts for ${(d.regions ?? []).join(", ") || "some places"}`;
+    case "alerts_stopped_for":
+      return `Stopped alerts for ${d.username || d.contact || "a subscriber"} at their request`;
     default:
       return entry.action.replace(/_/g, " ");
   }

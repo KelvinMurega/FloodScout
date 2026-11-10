@@ -114,6 +114,7 @@ class ActivityLog(models.Model):
         HOME_SET = "home_set", "Set where they live"
         PLACE_SAVED = "place_saved", "Saved a place for warnings"
         PLACE_REMOVED = "place_removed", "Removed a saved place"
+        ALERTS_STOPPED_FOR = "alerts_stopped_for", "Stopped someone's alerts at their request"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -317,6 +317,35 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"subscribers/(?P<subscriber_id>\d+)/stop",
+        permission_classes=[IsAdministrator],
+    )
+    def stop_subscriber(self, request, subscriber_id=None):
+        """Stop someone's alerts for them, when they asked an administrator to.
+
+        The same as the person's own unsubscribe link (alerts/stopping.py): the
+        subscription is deleted, a masked record kept, and home or saved-place
+        warnings turned off on their profile so the next sync does not bring
+        them back. The activity log names the administrator, with the
+        contact masked.
+        """
+        subscriber = get_object_or_404(Subscriber, pk=subscriber_id)
+        contact = stopping.masked_contact(subscriber)
+        places = [str(region) for region in subscriber.regions.all()]
+        stopping.stop(subscriber, Unsubscription.How.ADMIN)
+        record(
+            request,
+            ActivityLog.Action.ALERTS_STOPPED_FOR,
+            contact=contact,
+            username=subscriber.user.username if subscriber.user else "",
+            regions=places,
+        )
+        return Response({"stopped": True, "contact": contact, "places": places})
+
+
 def _run_dict(run: AlertRun) -> dict:
     return {
         "started_at": run.started_at,

@@ -24,7 +24,7 @@ class MaskTests(SimpleTestCase):
         self.assertEqual(stopping.mask_email("not-an-email"), "***")
 
 
-class StoppingTests(APITestCase):
+class StoppingBase(APITestCase):
     def setUp(self):
         cache.clear()
         self.region = make_region("Alpha")
@@ -61,6 +61,8 @@ class StoppingTests(APITestCase):
     def as_user(self, user):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=user).key}")
 
+
+class StoppingTests(StoppingBase):
     def test_the_unsubscribe_link_keeps_a_masked_record_and_the_totals(self):
         self.client.post(f"/api/alerts/unsubscribe/{self.sub.token}/")
         self.assertFalse(Subscriber.objects.exists())
@@ -113,3 +115,66 @@ class StoppingTests(APITestCase):
         self.as_user(self.admin)
         row = next(u for u in self.client.get("/api/admin/users/").data if u["username"] == "someone")
         self.assertEqual((row["subscriptions"], row["alerts_received"], row["unsubscribed"]), (1, 1, 1))
+
+
+class AdminStopTests(StoppingBase):
+    """An administrator stops someone's alerts for them, at their request."""
+
+    def url(self, pk=None):
+        return f"/api/alerts/subscribers/{pk or self.sub.pk}/stop/"
+
+    def test_only_an_administrator_can_stop_someone_elses_alerts(self):
+        self.assertEqual(self.client.post(self.url()).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.as_user(self.user)
+        self.assertEqual(self.client.post(self.url()).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Subscriber.objects.filter(pk=self.sub.pk).exists())
+
+    def test_an_unknown_subscriber_is_404(self):
+        self.as_user(self.admin)
+        self.assertEqual(self.client.post(self.url(99999)).status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_stopping_keeps_a_masked_record_the_totals_and_a_log_entry(self):
+        from accounts.models import ActivityLog
+
+        self.as_user(self.admin)
+        response = self.client.post(self.url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["contact"], "s***@example.com, +2547****678")
+        self.assertFalse(Subscriber.objects.filter(pk=self.sub.pk).exists())
+
+        gone = Unsubscription.objects.get()
+        self.assertEqual(
+            (gone.how, gone.username, gone.alerts_received),
+            (Unsubscription.How.ADMIN, "someone", 1),
+        )
+        self.assertEqual(Delivery.objects.filter(subscriber__isnull=True).count(), 2)
+
+        log = ActivityLog.objects.get(action=ActivityLog.Action.ALERTS_STOPPED_FOR)
+        self.assertEqual(log.user, self.admin)
+        self.assertEqual(log.detail["username"], "someone")
+        self.assertNotIn("someone@example.com", str(log.detail))
+
+        listed = self.client.get("/api/alerts/subscribers/").data
+        self.assertEqual(listed["subscribers"], [])
+        self.assertEqual(
+            listed["unsubscribed"][0]["how"], "Stopped by an administrator at their request"
+        )
+
+    def test_home_warnings_stay_off_after_the_next_sync(self):
+        from accounts.home import sync_home_subscription
+
+        self.user.home_region = self.region
+        self.user.home_alerts = True
+        self.user.email_verified = True
+        self.user.save()
+        self.sub.delete()
+        home = sync_home_subscription(self.user)
+        self.assertIsNotNone(home)
+        Subscriber.objects.filter(pk=home.pk).update(confirmed=True)
+
+        self.as_user(self.admin)
+        self.assertEqual(self.client.post(self.url(home.pk)).status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.home_alerts)
+        sync_home_subscription(self.user)
+        self.assertFalse(Subscriber.objects.filter(user=self.user, is_home=True).exists())

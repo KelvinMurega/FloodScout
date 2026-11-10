@@ -19,6 +19,7 @@ import {
   fetchHome,
   fetchSocialAccounts,
   fetchSubscribers,
+  stopSubscriber,
   startSocialSignIn,
   unlinkSocialAccount,
   fetchActivity,
@@ -801,6 +802,46 @@ function placesText(places) {
   return `${places.slice(0, 2).join(", ")} and ${places.length - 2} more`;
 }
 
+/**
+ * "Stop alerts" for one subscriber, for when they asked an administrator.
+ * The first press asks again on the button itself (no browser dialog); the
+ * second stops them, the same as their own unsubscribe link.
+ */
+function stopButton(subscriber, onStopped) {
+  const wrap = el("div", "profile-stop");
+  const button = el("button", "auth__button", "Stop alerts");
+  button.type = "button";
+  const message = el("span", "profile-table__note");
+  let armed = false;
+  let timer;
+  button.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true;
+      button.textContent = "Press again to stop";
+      message.textContent = "They will get no more alerts.";
+      timer = setTimeout(() => {
+        armed = false;
+        button.textContent = "Stop alerts";
+        message.textContent = "";
+      }, 5000);
+      return;
+    }
+    clearTimeout(timer);
+    button.disabled = true;
+    try {
+      await stopSubscriber(subscriber.id);
+      onStopped();
+    } catch (error) {
+      message.textContent = error.message;
+      button.disabled = false;
+      armed = false;
+      button.textContent = "Stop alerts";
+    }
+  });
+  wrap.append(button, message);
+  return wrap;
+}
+
 async function renderSubscribers(body) {
   const summary = card(body, "Alerts sent", "Everyone signed up for flood alerts, what reached them, and who stopped.");
   const holder = el("div");
@@ -828,11 +869,15 @@ async function renderSubscribers(body) {
   }
   holder.replaceChildren(tiles);
 
-  const people = card(body, "Subscribers", "Newest first. A failed alert is one the email service refused.");
+  const people = card(
+    body,
+    "Subscribers",
+    "Newest first. A failed alert is one the email service refused. Use Stop alerts only when the person asked you to; it works like their own unsubscribe link.",
+  );
   people.append(
     data.subscribers.length
       ? labelledTable(
-          ["Contact", "Account", "Places", "Wants", "Delivered", "Failed", "Last alert", "Since"],
+          ["Contact", "Account", "Places", "Wants", "Delivered", "Failed", "Last alert", "Since", ""],
           data.subscribers.map((s) => [
             [s.email, s.phone].filter(Boolean).join(", ") + (s.confirmed ? "" : " (awaiting code)"),
             s.username ?? "No account",
@@ -842,6 +887,10 @@ async function renderSubscribers(body) {
             `${s.alerts_failed}`,
             s.last_alert_at ? ago(s.last_alert_at) : "None yet",
             new Date(s.subscribed_at).toLocaleDateString(),
+            stopButton(s, () => {
+              body.replaceChildren();
+              renderSubscribers(body);
+            }),
           ]),
         )
       : el("p", "alerts-form__hint", "Nobody has signed up for alerts yet."),
