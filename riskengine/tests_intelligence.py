@@ -71,6 +71,24 @@ class ExplainRowTests(SimpleTestCase):
                 explanation.bias + sum(explanation.contributions.values()), expected, places=9
             )
 
+    def test_a_value_on_a_threshold_takes_the_forests_path(self):
+        # A float64 just above a split threshold that rounds down onto it in
+        # float32, which is what scikit-learn compares. Root splits are used
+        # because every row passes through them.
+        forest = self.model["pipeline"].steps[-1][1]
+        for tree in forest.estimators_:
+            threshold = float(tree.tree_.threshold[0])
+            value = float(np.nextafter(threshold, np.inf))
+            if float(np.float32(value)) <= threshold < value:
+                feature = int(tree.tree_.feature[0])
+                break
+        else:
+            self.skipTest("no root threshold that float32 rounds onto")
+        row = list(self.rows[0])
+        row[feature] = value
+        expected = self.model["pipeline"].predict_proba(np.array([row]))[0, 1]
+        self.assertAlmostEqual(explain_row(self.model, row).probability, expected, places=12)
+
     def test_the_input_the_label_depends_on_matters_most(self):
         total = {name: 0.0 for name in FEATURE_NAMES}
         for row in self.rows:
