@@ -43,9 +43,11 @@ async function getJson(url, headers = {}) {
   return response.json();
 }
 
-// The signed-in user's token. Kept for this tab in sessionStorage, so a
-// reload, or the trip to Google and back, does not sign anyone out; with
-// "Keep me signed in" it goes in localStorage and outlives the browser. It
+// The signed-in user's token. With "Keep me signed in" (the default) it goes
+// in localStorage, so it outlives the tab and the browser: a link in an alert
+// email opens a new tab that is still signed in. Unticked, it is kept for
+// this tab only in sessionStorage, which still survives a reload or the trip
+// to Google and back. It
 // was held in memory only until there was a sign-in page that leaves the
 // app and comes back. Storage that is blocked just means signing in again.
 const TOKEN_KEY = "floodscout.token";
@@ -119,7 +121,7 @@ function postJson(path, body = {}) {
  * Sign in with a username or an email. Resolves to { username, role,
  * is_administrator, ... }; keeps the token, for good with `remember`.
  */
-export async function signIn(username, password, remember = false) {
+export async function signIn(username, password, remember = true) {
   const { token, ...user } = await postJson("auth/token/", { username, password });
   keepToken(token, remember);
   return user;
@@ -382,7 +384,7 @@ function authedGet(path) {
 }
 
 /** Create an End User account and sign in to it. Resolves like signIn. */
-export async function register(body, remember = false) {
+export async function register(body, remember = true) {
   const { token, ...user } = await postJson("auth/register/", body);
   keepToken(token, remember);
   return user;
@@ -466,7 +468,7 @@ export function fetchSocialProviders() {
  * "microsoft", "github"). Signed in, the provider is linked instead.
  * `next` is the dashboard page to come back to.
  */
-export async function startSocialSignIn(provider, { next = "", remember = false } = {}) {
+export async function startSocialSignIn(provider, { next = "", remember = true } = {}) {
   const { url } = await postJson(`auth/social/${provider}/start/`, { next, remember });
   return url;
 }

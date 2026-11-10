@@ -119,7 +119,10 @@ function remember() {
   const box = el("input");
   box.type = "checkbox";
   box.name = "remember";
-  label.append(box, "Keep me signed in on this device");
+  // Ticked by default, so a link in an alert email, which opens a new tab,
+  // finds the person still signed in. Untick it on a shared computer.
+  box.checked = true;
+  label.append(box, "Keep me signed in on this device (untick on a shared computer)");
   return { label, box };
 }
 
