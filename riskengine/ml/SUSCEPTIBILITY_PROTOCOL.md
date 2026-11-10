@@ -166,7 +166,7 @@ whatever it is.
 
 | Data | Allowed looks | Used |
 |---|---|---|
-| UNOSAT 2023-11 and 2024-04, susceptibility | Once per shipped version | 0 |
+| UNOSAT 2023-11 and 2024-04, susceptibility | Once per shipped version | 1 (9 Nov 2026, run `20261102T1246Z_77a8329`) |
 | UNOSAT 2023-03 (spare) | 0 until a protocol version names it | 0 |
 | Hazard 2017 to 2021 test | **Closed** | About 7, never again |
 
