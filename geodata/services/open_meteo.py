@@ -98,6 +98,13 @@ CONNECTION_WAIT_SECONDS = 20
 _sleep = time.sleep
 USER_AGENT = "FloodScout/1.0 (university project; contact via repo)"
 
+# The name usage is counted under (geodata.models.ApiUsage), and the free
+# tier's documented limits (https://open-meteo.com/en/terms).
+SERVICE = "open-meteo"
+FREE_CALLS_PER_DAY = 10_000
+FREE_CALLS_PER_HOUR = 5_000
+FREE_CALLS_PER_MINUTE = 600
+
 
 class OpenMeteoError(RuntimeError):
     """Raised when the upstream API cannot be reached or returns nonsense."""
@@ -119,14 +126,55 @@ def _retry_after_seconds(error: urllib.error.HTTPError) -> float:
         return RATE_LIMIT_WAIT_SECONDS
 
 
+def calls_in(params: dict[str, str]) -> float:
+    """The calls Open-Meteo counts for one request with these parameters."""
+    locations = len(params["latitude"].split(",")) if params.get("latitude") else 1
+    if params.get("start_date") and params.get("end_date"):
+        days = (
+            dt.date.fromisoformat(params["end_date"]) - dt.date.fromisoformat(params["start_date"])
+        ).days + 1
+    else:
+        days = int(params.get("past_days", 0)) + int(params.get("forecast_days", 7))
+    return calls_for(locations, days)
+
+
+def _record(params: dict[str, str] | None, *, rate_limited: bool = False, failed: bool = False) -> None:
+    """Add one request to today's ApiUsage row (the analytics page's quota chart).
+
+    Never allowed to break a download: outside Django, or with the database
+    unavailable, the request simply goes uncounted. The savepoint keeps a
+    failed write from spoiling a transaction the caller has open.
+    """
+    try:
+        from django.db import transaction
+        from django.db.models import F
+        from django.utils import timezone
+
+        from geodata.models import ApiUsage
+
+        with transaction.atomic():
+            row, _ = ApiUsage.objects.get_or_create(service=SERVICE, day=timezone.localdate())
+            ApiUsage.objects.filter(pk=row.pk).update(
+                requests=F("requests") + (1 if params is not None else 0),
+                calls=F("calls") + (calls_in(params) if params is not None else 0),
+                rate_limited=F("rate_limited") + int(rate_limited),
+                failed=F("failed") + int(failed),
+            )
+    except Exception:  # noqa: BLE001 - counting is best effort by design
+        pass
+
+
 def _get_json(url: str, params: dict[str, str]):
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(f"{url}?{query}", headers={"User-Agent": USER_AGENT})
+    _record(params)
     for attempt in range(RATE_LIMIT_RETRIES + 1):
         try:
             with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 return json.loads(response.read())
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                _record(None, rate_limited=True)
             if exc.code == 429 and attempt < RATE_LIMIT_RETRIES:
                 _sleep(_retry_after_seconds(exc))
                 continue
@@ -135,6 +183,7 @@ def _get_json(url: str, params: dict[str, str]):
             if exc.code >= 500 and attempt < CONNECTION_RETRIES:
                 _sleep(CONNECTION_WAIT_SECONDS)
                 continue
+            _record(None, failed=True)
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
         except (urllib.error.URLError, TimeoutError) as exc:
             # A dropped connection part-way through a long run. Unlike a 429
@@ -142,6 +191,7 @@ def _get_json(url: str, params: dict[str, str]):
             if attempt < CONNECTION_RETRIES:
                 _sleep(CONNECTION_WAIT_SECONDS)
                 continue
+            _record(None, failed=True)
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc
         except json.JSONDecodeError as exc:
             raise OpenMeteoError(f"Open-Meteo request failed ({url}): {exc}") from exc

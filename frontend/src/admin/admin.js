@@ -4,7 +4,9 @@
  * Everything comes from one call, `admin/analytics/`, which only an
  * administrator may make: the model's evaluation as its training run wrote
  * it, its scores against satellite-mapped floods, and the pipeline's health
- * worked out from the database now. The page says nothing the API did not.
+ * worked out from the database now, and how the system does in use: its
+ * forecasts against what came, its alerts against KMD's, the alert service,
+ * and the rainfall and quota behind it. The page says nothing the API did not.
  *
  * Every chart has its numbers in a table under it, and every status carries
  * a word as well as a colour.
@@ -24,9 +26,13 @@ import {
   featureLabel,
   fixed,
   foldLabel,
+  forecastGain,
   monthName,
+  ofNormal,
   percent,
+  shortDay,
   tabFromSlug,
+  trustedLead,
   yearList,
 } from "./format.js";
 import "./admin.css";
@@ -36,7 +42,9 @@ export const TABS = [
   { id: "evaluation", label: "Model evaluation" },
   { id: "drivers", label: "What drives it" },
   { id: "errors", label: "Where it fails" },
+  { id: "forecast", label: "Forecast & KMD" },
   { id: "satellite", label: "Satellite check" },
+  { id: "alerts", label: "Alerts" },
   { id: "health", label: "System health" },
   { id: "provenance", label: "Provenance" },
 ];
@@ -476,6 +484,8 @@ function renderEvaluation(body, { model }) {
       );
     }
   }
+
+  renderSpread(body, model);
 
   const pair = grid(body);
   // Calibration: does a 30% score mean 30%?
@@ -956,7 +966,7 @@ function renderErrors(body, { model, live }) {
   counties.append(wrap);
 }
 
-function renderSatellite(body, { model, satellite_check: events }) {
+function renderSatellite(body, { model, satellite_check: events, satellite_check_sub_county: subEvents, label_check: labels }) {
   if (!model) return renderNoModel(body);
   if (!events?.length) {
     body.append(el("p", "admin-empty", "No satellite check has been run. Run `manage.py validate_unosat`."));
@@ -967,7 +977,50 @@ function renderSatellite(body, { model, satellite_check: events }) {
     "A check the model never trained on",
     "UNOSAT mapped floodwater from satellite images during recent floods. Here the model scores every county for the last day of each event, and we ask whether the counties with mapped water scored higher than the dry ones. ROC AUC 0.5 means no better than chance. One caution: a county hidden by cloud in every image is counted as dry, so some \"dry\" counties may have flooded.",
   );
+  const views = [{ key: "county", label: "Counties", unit: "counties", events }];
+  if (subEvents?.length) views.push({ key: "sub_county", label: "Sub-counties", unit: "sub-counties", events: subEvents });
+  const holder = el("div");
+  if (views.length > 1) {
+    const picker = el("div", "admin-segmented");
+    picker.setAttribute("role", "group");
+    picker.setAttribute("aria-label", "Regions scored");
+    let undo = () => {};
+    const show = (index) => {
+      for (const [i, b] of [...picker.children].entries()) b.setAttribute("aria-pressed", String(i === index));
+      undo();
+      holder.replaceChildren();
+      const from = charts.length;
+      satelliteEvents(holder, views[index]);
+      undo = chartsSince(from);
+    };
+    views.forEach((view, index) => {
+      const button = el("button", "admin-segmented__button", view.label);
+      button.type = "button";
+      button.addEventListener("click", () => show(index));
+      picker.append(button);
+    });
+    body.append(picker, holder);
+    show(0);
+    if (subEvents?.length) {
+      holder.before(
+        el(
+          "p",
+          "admin-note",
+          "The model was trained on counties. Sub-counties are scored with the same model from their own rainfall, so this asks whether it can point to the right part of a county, which it was never trained to do.",
+        ),
+      );
+    }
+  } else {
+    body.append(holder);
+    satelliteEvents(holder, views[0]);
+  }
+  renderLabelCheck(body, labels);
+}
+
+function satelliteEvents(body, { unit, events }) {
   const colours = palette();
+  const sub = unit === "sub-counties";
+  const nameOf = (c) => (sub ? `${c.name} (${c.county})` : c.name ?? c.county);
   for (const event of events) {
     const section = card(body, event.event, `Scored for ${day(event.date)}`, { wide: true });
     const row = grid(section);
@@ -976,14 +1029,14 @@ function renderSatellite(body, { model, satellite_check: events }) {
     row.append(left, right);
 
     const tiles = grid(left, "admin-tiles admin-tiles--compact");
-    tile(tiles, "ROC AUC", fixed(event.roc_auc, 2), verdict(event.roc_auc));
-    tile(tiles, "Mean score, flooded", percent(event.mean_probability_flooded), `${event.flooded_counties} counties with mapped water`);
-    tile(tiles, "Mean score, dry", percent(event.mean_probability_dry), `${event.dry_counties} counties`);
+    tile(tiles, "ROC AUC", fixed(event.roc_auc, 2), verdict(event.roc_auc, unit));
+    tile(tiles, "Mean score, flooded", percent(event.mean_probability_flooded), `${event.flooded_counties} ${unit} with mapped water`);
+    tile(tiles, "Mean score, dry", percent(event.mean_probability_dry), `${event.dry_counties} ${unit}`);
     tile(
       tiles,
       "Flooded at High or above",
       `${event.flooded_at_high_or_above} of ${event.flooded_counties}`,
-      `and ${event.dry_at_high_or_above} of ${event.dry_counties} dry counties`,
+      `and ${event.dry_at_high_or_above} of ${event.dry_counties} dry ${unit}`,
     );
 
     // A strip: each county is a dot at its score, flooded above, dry below.
@@ -994,7 +1047,7 @@ function renderSatellite(body, { model, satellite_check: events }) {
       right,
       {
         type: "scatter",
-        label: `Each county's score on ${day(event.date)}, flooded and dry counties`,
+        label: `Each region's score on ${day(event.date)}, flooded and dry ${unit}`,
         data: {
           datasets: [
             {
@@ -1024,7 +1077,7 @@ function renderSatellite(body, { model, satellite_check: events }) {
               callbacks: {
                 label: (item) => {
                   const c = item.raw.county;
-                  return `${c.county}: ${percent(c.probability)} (${labelFor(c.risk_category)})${c.flooded ? `, ${fixed(c.flooded_km2, 1)} km² under water` : ""}`;
+                  return `${nameOf(c)}: ${percent(c.probability)} (${labelFor(c.risk_category)})${c.flooded ? `, ${fixed(c.flooded_km2, 1)} km² under water` : ""}`;
                 },
               },
             },
@@ -1044,22 +1097,22 @@ function renderSatellite(body, { model, satellite_check: events }) {
     );
     numbers(
       section,
-      ["County", "Mapped water (km²)", "Score", "Category"],
-      event.counties.map((c) => [c.county, c.flooded ? fixed(c.flooded_km2, 1) : "None", percent(c.probability), labelFor(c.risk_category)]),
-      "Show every county",
+      [sub ? "Sub-county" : "County", "Mapped water (km²)", "Score", "Category"],
+      event.counties.map((c) => [nameOf(c), c.flooded ? fixed(c.flooded_km2, 1) : "None", percent(c.probability), labelFor(c.risk_category)]),
+      sub ? "Show every sub-county" : "Show every county",
     );
   }
 }
 
-function verdict(auc) {
-  if (auc === null) return "Not enough counties to compare";
-  if (auc >= 0.7) return "Flooded counties scored clearly higher";
-  if (auc > 0.55) return "Flooded counties scored a little higher";
+function verdict(auc, unit = "counties") {
+  if (auc === null) return `Not enough ${unit} to compare`;
+  if (auc >= 0.7) return `Flooded ${unit} scored clearly higher`;
+  if (auc > 0.55) return `Flooded ${unit} scored a little higher`;
   if (auc >= 0.45) return "No better than chance on this event";
-  return "Dry counties scored higher: the model missed this event";
+  return `Dry ${unit} scored higher: the model missed this event`;
 }
 
-function renderHealth(body, { health }) {
+function renderHealth(body, { health, data_quality: dataQuality }) {
   const head = card(body, "Status", null, { wide: true });
   const status = el("div", "admin-health");
   status.append(statusPill(health.status), el("span", "admin-health__when", `Checked ${day(health.today)}`));
@@ -1096,6 +1149,8 @@ function renderHealth(body, { health }) {
   categoryBar(today, "Sub-counties", health.latest_scores.categories.sub_county);
   const trend = card(row, "Last 30 days", "Counties by category, per day");
   trendChart(trend, health.trend);
+
+  if (dataQuality) renderDataQuality(body, dataQuality);
 }
 
 function renderProvenance(body, { model }) {
@@ -1157,6 +1212,597 @@ function renderProvenance(body, { model }) {
   }
 }
 
+// --- In use: forecasts, KMD, alerts, data quality ----------------------------
+
+const LEVEL_NAMES = { advisory: "Advisory", watch: "Watch", warning: "Warning" };
+
+function leadLabel(n) {
+  return `${n} day${n === 1 ? "" : "s"} ahead`;
+}
+
+function weekLabel(iso) {
+  return `w/c ${shortDay(iso)}`;
+}
+
+/** Destroy the charts drawn since `from`, for a view that redraws in place. */
+function chartsSince(from) {
+  const drawn = charts.slice(from);
+  return () => {
+    for (const c of drawn) c.destroy();
+    charts = charts.filter((c) => !drawn.includes(c));
+  };
+}
+
+function stackedOptions(yTitle, { title } = {}) {
+  return {
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { position: "bottom" }, ...(title ? { tooltip: { callbacks: { title } } } : {}) },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 10 } },
+      y: { stacked: true, title: { display: Boolean(yTitle), text: yTitle }, ticks: { precision: 0 } },
+    },
+  };
+}
+
+function renderForecast(body, { forecast_skill: skill, kmd }) {
+  const colours = palette();
+  callout(
+    body,
+    "Forecasts checked against what came",
+    `Every day the model scores each county for the week ahead from the rain forecast, and those forecasts are kept. Once a day arrives, its forecasts are set against the score the county actually got. "Assume no change" is the plain alternative: keep the score from the day the forecast was made. A forecast is only worth having where it beats that. Counties only, since ${day(skill.since)}.`,
+  );
+  const leads = skill.leads;
+  if (!leads.length) {
+    body.append(el("p", "admin-empty", "No forecast has reached its day yet. forecast_scores issues them daily, so this fills in from tomorrow."));
+  } else {
+    const first = leads[0];
+    const last = leads[leads.length - 1];
+    const trusted = trustedLead(leads);
+    const tiles = grid(body, "admin-tiles");
+    tile(tiles, "Forecasts checked", count(leads.reduce((s, l) => s + l.pairs, 0)), `from ${skill.issues_checked} daily issues`);
+    tile(tiles, leadLabel(first.lead_days), percent(first.same_category, 0), "got the map's category right");
+    tile(tiles, leadLabel(last.lead_days), percent(last.same_category, 0), "got the map's category right");
+    tile(tiles, "Trust up to", trusted === null ? "None" : leadLabel(trusted), "right at least 80% of the time");
+    tile(
+      tiles,
+      `Warnings caught, ${leadLabel(first.lead_days)}`,
+      percent(first.warnings_caught, 0),
+      `${first.hits} of ${first.hits + first.misses} High or above days were forecast`,
+    );
+
+    const right = card(body, "Right category, by days ahead", "The share of forecasts that matched the category the day got, against assuming no change.", { wide: true });
+    const lowest = Math.min(...leads.flatMap((l) => [l.same_category ?? 1, l.persistence_same ?? 1]));
+    chart(
+      right,
+      {
+        type: "line",
+        label: "Share of forecasts in the right category by days ahead",
+        data: {
+          labels: leads.map((l) => leadLabel(l.lead_days)),
+          datasets: [
+            { label: "Forecast: same category", data: leads.map((l) => l.same_category), borderColor: colours.primary, backgroundColor: colours.primary, borderWidth: 2, pointRadius: 5, pointBorderColor: colours.surface, pointBorderWidth: 2 },
+            { label: "Forecast: within one category", data: leads.map((l) => l.within_one), borderColor: colours.series[2], backgroundColor: colours.series[2], borderWidth: 2, pointRadius: 4 },
+            { label: "Assume no change", data: leads.map((l) => l.persistence_same), borderColor: colours.muted, backgroundColor: colours.muted, borderDash: [5, 4], borderWidth: 2, pointRadius: 3 },
+          ],
+        },
+        options: {
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${percent(item.raw)}` } } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { min: Math.max(0, Math.floor(lowest * 10 - 1) / 10), max: 1, ticks: { callback: (v) => percent(v, 0) } },
+          },
+        },
+      },
+      280,
+    );
+    const gains = leads.map(forecastGain).filter((g) => g !== null);
+    if (gains.length) {
+      const better = gains.filter((g) => g > 0).length;
+      right.append(
+        el(
+          "p",
+          "admin-note",
+          better === gains.length
+            ? `The forecast beats assuming no change at every lead, by ${percent(gains[0], 0)} one day out and ${percent(gains[gains.length - 1], 0)} at the furthest: the rain forecast earns its keep further out.`
+            : `The forecast beats assuming no change at ${better} of ${gains.length} leads.`,
+        ),
+      );
+    }
+    numbers(
+      right,
+      ["Days ahead", "Pairs", "Same category", "Within one", "Assume no change", "Mean score error", "Warnings caught", "Warnings that came"],
+      leads.map((l) => [l.lead_days, count(l.pairs), percent(l.same_category), percent(l.within_one), percent(l.persistence_same), fixed(l.mean_abs_error, 4), percent(l.warnings_caught), percent(l.warnings_that_came)]),
+    );
+
+    const warned = card(body, "Warnings by days ahead", "High or above, forecast against the day: caught, missed, and forecast but not reached.", { wide: true });
+    chart(
+      warned,
+      {
+        type: "bar",
+        label: "Warnings caught, missed and false alarms by days ahead",
+        data: {
+          labels: leads.map((l) => leadLabel(l.lead_days)),
+          datasets: [
+            { label: "Caught", data: leads.map((l) => l.hits), backgroundColor: colours.primary, maxBarThickness: 32 },
+            { label: "Missed", data: leads.map((l) => l.misses), backgroundColor: colours.series[1], maxBarThickness: 32 },
+            { label: "Forecast, did not come", data: leads.map((l) => l.false_alarms), backgroundColor: colours.muted, maxBarThickness: 32 },
+          ],
+        },
+        options: stackedOptions("County-days"),
+      },
+      240,
+    );
+  }
+
+  // Agreement with KMD.
+  const k = card(body, "Agreement with KMD", `County-days since ${day(kmd.since)} with a FloodScout alert, a Kenya Meteorological Department flood-related warning, or both.`, { wide: true });
+  const tiles = grid(k, "admin-tiles admin-tiles--compact");
+  tile(tiles, "Agreement", percent(kmd.agreement, 0), "of county-days flagged by either, flagged by both");
+  tile(tiles, "Both", count(kmd.both), "county-days");
+  tile(tiles, "FloodScout only", count(kmd.ours_only), "county-days");
+  tile(tiles, "KMD only", count(kmd.kmd_only), "county-days");
+  if (kmd.both + kmd.ours_only + kmd.kmd_only === 0) {
+    k.append(el("p", "admin-empty", "Neither FloodScout nor KMD flagged a county in this period."));
+  } else {
+    chart(
+      k,
+      {
+        type: "bar",
+        label: "Counties flagged per day by FloodScout, KMD or both",
+        data: {
+          labels: kmd.daily.map((d) => shortDay(d.date)),
+          datasets: [
+            { label: "Both", data: kmd.daily.map((d) => d.both), backgroundColor: colours.primary, maxBarThickness: 12 },
+            { label: "FloodScout only", data: kmd.daily.map((d) => d.ours_only), backgroundColor: colours.series[1], maxBarThickness: 12 },
+            { label: "KMD only", data: kmd.daily.map((d) => d.kmd_only), backgroundColor: colours.series[2], maxBarThickness: 12 },
+          ],
+        },
+        options: stackedOptions("Counties", { title: (items) => day(kmd.daily[items[0].dataIndex].date) }),
+      },
+      240,
+    );
+  }
+  k.append(
+    el(
+      "p",
+      "admin-note",
+      `They answer different questions, so they should not match exactly: KMD warns of heavy rain coming, FloodScout of flood risk from rain that has fallen and is forecast. KMD keeps no history of past warnings, so this record starts with the first one FloodScout stored${kmd.kmd_first_stored ? ` (${day(kmd.kmd_first_stored)})` : ""}. Withdrawn warnings are left out.`,
+    ),
+  );
+  if (kmd.warnings.length) {
+    numbers(
+      k,
+      ["From", "To", "KMD warning", "Counties", "With a FloodScout alert"],
+      kmd.warnings.map((w) => {
+        const link = el("a", null, w.event + (w.severity ? ` (${w.severity})` : ""));
+        link.href = w.web;
+        link.target = "_blank";
+        link.rel = "noopener";
+        return [day(w.onset), day(w.ends), link, count(w.counties), `${w.counties_with_our_alert} of ${w.counties}`];
+      }),
+      "Show KMD's warnings",
+    );
+  }
+}
+
+function renderAlerts(body, { alerts: a, data_quality: dq }) {
+  const colours = palette();
+  const levelColour = { advisory: colours.series[3], watch: colours.series[1], warning: colours.series[0] };
+  const tiles = grid(body, "admin-tiles");
+  const levels = Object.entries(a.alerts.by_level)
+    .map(([level, n]) => `${n} ${(LEVEL_NAMES[level] ?? level).toLowerCase()}`)
+    .join(", ");
+  tile(tiles, `Alerts since ${shortDay(a.since)}`, count(a.alerts.issued), levels || "none issued");
+  tile(tiles, "Active now", count(a.alerts.active), `${count(a.alerts.upgraded)} raised a level after issue`);
+  tile(tiles, "Typical length", a.alerts.median_days === null ? "–" : `${fixed(a.alerts.median_days, 1)} days`, "median, alerts that have ended");
+  tile(
+    tiles,
+    "Short-lived",
+    a.alerts.ended ? percent(a.alerts.short_lived / a.alerts.ended, 0) : "–",
+    `${a.alerts.short_lived} of ${a.alerts.ended} ended within ${a.alerts.short_lived_days} days of issue`,
+  );
+  tile(tiles, "Emails delivered", percent(a.delivery.rate, 0), `${count(a.delivery.sent)} sent, ${count(a.delivery.failed)} failed`);
+  tile(tiles, "Subscribers", count(a.subscribers.now), `${a.subscribers.pending} waiting to confirm, ${a.subscribers.stopped} have stopped`);
+
+  const weeks = a.weekly.map((w) => weekLabel(w.week));
+  const row = grid(body);
+  const activity = card(row, "What the rules did each week", "Alerts issued, raised a level, and ended.");
+  chart(
+    activity,
+    {
+      type: "bar",
+      label: "Alerts issued, upgraded and ended per week",
+      data: {
+        labels: weeks,
+        datasets: [
+          { label: "Issued", data: a.weekly.map((w) => w.issued), backgroundColor: colours.primary, maxBarThickness: 14 },
+          { label: "Raised a level", data: a.weekly.map((w) => w.upgraded), backgroundColor: colours.series[1], maxBarThickness: 14 },
+          { label: "Ended", data: a.weekly.map((w) => w.ended), backgroundColor: colours.muted, maxBarThickness: 14 },
+        ],
+      },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 8 } }, y: { ticks: { precision: 0 } } },
+      },
+    },
+    260,
+  );
+  numbers(activity, ["Week", "Runs", "Issued", "Raised", "Ended"], a.weekly.map((w) => [weekLabel(w.week), w.runs, w.issued, w.upgraded, w.ended]));
+
+  const lengths = card(row, "How long alerts last", "Alerts that have ended, by level. Many under two days means alerts that come and go.");
+  chart(
+    lengths,
+    {
+      type: "bar",
+      label: "How long ended alerts lasted, by level",
+      data: {
+        labels: a.alerts.durations.map((b) => b.label),
+        datasets: Object.keys(LEVEL_NAMES).map((level) => ({
+          label: LEVEL_NAMES[level],
+          data: a.alerts.durations.map((b) => b[level] ?? 0),
+          backgroundColor: levelColour[level],
+          maxBarThickness: 32,
+        })),
+      },
+      options: stackedOptions("Alerts"),
+    },
+    260,
+  );
+  if (a.alerts.ended && a.alerts.short_lived / a.alerts.ended > 0.25) {
+    lengths.append(
+      el(
+        "p",
+        "admin-note",
+        `${percent(a.alerts.short_lived / a.alerts.ended, 0)} of alerts ended within ${a.alerts.short_lived_days} days. Each one emails the subscribers for that place, so a high share risks people learning to ignore them; a longer minimum before an alert ends would cut it.`,
+      ),
+    );
+  }
+
+  const row2 = grid(body);
+  const delivery = card(row2, "Email delivery each week", "Alert and all-clear emails sent and failed.");
+  chart(
+    delivery,
+    {
+      type: "bar",
+      label: "Emails sent and failed per week",
+      data: {
+        labels: weeks,
+        datasets: [
+          { label: "Sent", data: a.weekly.map((w) => w.sent), backgroundColor: colours.primary, maxBarThickness: 14 },
+          { label: "Failed", data: a.weekly.map((w) => w.failed), backgroundColor: colours.series[1], maxBarThickness: 14 },
+        ],
+      },
+      options: stackedOptions("Emails"),
+    },
+    240,
+  );
+  numbers(delivery, ["Week", "Sent", "Failed", "Skipped", "Delivered"], a.weekly.map((w) => [weekLabel(w.week), w.sent, w.failed, w.skipped, percent(w.delivery_rate, 0)]));
+
+  const people = card(row2, "Subscribers", "Signed up at each week's end, with new confirmations and stops.");
+  chart(
+    people,
+    {
+      type: "bar",
+      label: "Subscribers signed up per week, with new and stopped",
+      data: {
+        labels: weeks,
+        datasets: [
+          { type: "line", label: "Signed up", data: a.weekly.map((w) => w.signed_up), borderColor: colours.primary, backgroundColor: colours.primary, borderWidth: 2, pointRadius: 3, tension: 0.2 },
+          { label: "New", data: a.weekly.map((w) => w.new_subscribers), backgroundColor: colours.series[2], maxBarThickness: 12 },
+          { label: "Stopped", data: a.weekly.map((w) => w.stopped), backgroundColor: colours.muted, maxBarThickness: 12 },
+        ],
+      },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 8 } }, y: { min: 0, ticks: { precision: 0 } } },
+      },
+    },
+    240,
+  );
+  if (a.subscribers.stops_by_how.length) {
+    people.append(table(["How they stopped", "People"], a.subscribers.stops_by_how.map((s) => [s.label, count(s.count)])));
+  } else {
+    people.append(el("p", "admin-note", "No one has stopped their alerts."));
+  }
+
+  // How jumpy the map is.
+  const flips = dq.flips;
+  const jumpy = card(
+    body,
+    "How often the map changes colour",
+    `Counties whose category changed from the day before, over the last ${flips.days_compared} days. A county that keeps flipping sends alerts that come and go.`,
+    { wide: true },
+  );
+  if (!flips.daily.length) {
+    jumpy.append(el("p", "admin-empty", "Not enough days of scores yet."));
+    return;
+  }
+  const weather = flips.daily.filter((d) => !d.model_changed);
+  const average = weather.length ? weather.reduce((s, d) => s + d.up + d.down, 0) / weather.length : 0;
+  const t = grid(jumpy, "admin-tiles admin-tiles--compact");
+  tile(t, "Changes a day", fixed(average, 1), `of ${flips.counties} counties, on average`);
+  tile(t, "Never changed", count(flips.never_changed), "counties kept their colour throughout");
+  tile(t, "Jumpiest", flips.jumpiest[0]?.county ?? "–", flips.jumpiest[0] ? `${flips.jumpiest[0].changes} changes` : "");
+  chart(
+    jumpy,
+    {
+      type: "bar",
+      label: "Counties that moved up or down a category per day",
+      data: {
+        labels: flips.daily.map((d) => shortDay(d.date)),
+        datasets: [
+          { label: "Up a category", data: flips.daily.map((d) => d.up), backgroundColor: flips.daily.map((d) => (d.model_changed ? colours.faint : colours.series[1])), maxBarThickness: 14 },
+          { label: "Down a category", data: flips.daily.map((d) => -d.down), backgroundColor: flips.daily.map((d) => (d.model_changed ? colours.faint : colours.primary)), maxBarThickness: 14 },
+        ],
+      },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: {
+            callbacks: {
+              title: (items) => day(flips.daily[items[0].dataIndex].date) + (flips.daily[items[0].dataIndex].model_changed ? " (model changed)" : ""),
+              label: (item) => `${item.dataset.label}: ${Math.abs(item.raw)}`,
+            },
+          },
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 12 } },
+          y: { stacked: true, title: { display: true, text: "Counties (down below zero)" }, ticks: { precision: 0, callback: (v) => Math.abs(v) } },
+        },
+      },
+    },
+    240,
+  );
+  if (flips.daily.some((d) => d.model_changed)) {
+    jumpy.append(el("p", "admin-note", "Grey days are when a new model rescored every county: that is the model changing, not the weather, and they are left out of the average."));
+  }
+  numbers(jumpy, ["County", "Changes"], flips.jumpiest.map((j) => [j.county, j.changes]), "Show the jumpiest counties");
+}
+
+function renderDataQuality(body, dq) {
+  const colours = palette();
+  const gaps = dq.rain_gaps;
+  const row = grid(body);
+  const missing = card(row, "Rainfall gaps", gaps.last ? `Regions with rainfall each day, ${gaps.days} days to ${day(gaps.last)}.` : "No rainfall stored yet.");
+  if (gaps.last) {
+    const t = grid(missing, "admin-tiles admin-tiles--compact");
+    tile(t, "Complete", `${count(gaps.complete)} of ${count(gaps.regions)}`, "regions with every day");
+    tile(t, "Days missing", count(gaps.missing_days), `across ${count(gaps.with_gaps)} regions`);
+    chart(
+      missing,
+      {
+        type: "bar",
+        label: "Regions with rainfall stored per day",
+        data: {
+          labels: gaps.daily.map((d) => shortDay(d.date)),
+          datasets: [
+            {
+              label: "Regions with rainfall",
+              data: gaps.daily.map((d) => d.regions),
+              backgroundColor: gaps.daily.map((d) => (d.regions < gaps.regions ? colours.series[1] : colours.primary)),
+              maxBarThickness: 12,
+            },
+          ],
+        },
+        options: {
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { title: (items) => day(gaps.daily[items[0].dataIndex].date), label: (item) => `${item.raw} of ${gaps.regions} regions` } },
+          },
+          scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 12 } }, y: { min: 0, max: gaps.regions, ticks: { precision: 0 } } },
+        },
+      },
+      200,
+    );
+    if (gaps.worst.length) {
+      numbers(missing, ["Region", "County", "Days missing"], gaps.worst.map((r) => [r.region, r.county, r.missing_days]), "Show the regions with gaps");
+    } else {
+      missing.append(el("p", "admin-note", "Every region has rainfall for every day. A gap would leave that region's score resting on fewer days of rain."));
+    }
+  }
+
+  const api = dq.api_usage;
+  const quota = card(
+    row,
+    "Open-Meteo usage",
+    `Calls per day against the free limit of ${count(api.limit_per_day)}. FloodScout's own count, weighed as Open-Meteo weighs calls: each location, and each 14 days of data at it.`,
+  );
+  const t2 = grid(quota, "admin-tiles admin-tiles--compact");
+  tile(t2, "Today", count(api.today), `${percent(api.today / api.limit_per_day, 0)} of the daily limit`);
+  tile(t2, "Busiest day", count(api.peak), `${api.days_over_80_percent} day${api.days_over_80_percent === 1 ? "" : "s"} over 80%`);
+  tile(t2, "Rate limited", count(api.rate_limited), `replies asking to wait; ${api.failed} failed`);
+  chart(
+    quota,
+    {
+      type: "bar",
+      label: "Open-Meteo calls per day against the free daily limit",
+      data: {
+        labels: api.daily.map((d) => shortDay(d.date)),
+        datasets: [
+          { type: "line", label: "Free daily limit", data: api.daily.map(() => api.limit_per_day), borderColor: colours.series[1], borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 },
+          {
+            label: "Calls",
+            data: api.daily.map((d) => d.calls),
+            backgroundColor: api.daily.map((d) => (d.calls >= 0.8 * api.limit_per_day ? colours.series[1] : colours.primary)),
+            maxBarThickness: 12,
+          },
+        ],
+      },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 12 } }, y: { min: 0, ticks: { callback: (v) => count(v) } } },
+      },
+    },
+    200,
+  );
+  quota.append(
+    el(
+      "p",
+      "admin-note",
+      api.counting_since
+        ? `Counted since ${day(api.counting_since)}. The limits are also ${count(api.limit_per_hour)} an hour and ${count(api.limit_per_minute)} a minute; the downloads wait out a rate-limit reply rather than fail.`
+        : "Nothing counted yet: counting starts with the next download.",
+    ),
+  );
+
+  const normal = dq.rain_vs_normal;
+  if (!normal) return;
+  const rows = normal.counties;
+  const rain = card(
+    body,
+    "Rain against normal",
+    `Each county's last 30 days of rain, to ${day(normal.date)}, against what it normally gets in that month: the model's main input. ${normal.above_normal} counties above 120%, ${normal.below_normal} below 80%.`,
+    { wide: true },
+  );
+  chart(
+    rain,
+    {
+      type: "bar",
+      label: "Last 30 days of rain as a share of each county's normal",
+      data: {
+        labels: rows.map((r) => r.county),
+        datasets: [
+          {
+            label: "Share of normal",
+            data: rows.map((r) => r.ratio),
+            backgroundColor: rows.map((r) => (r.ratio > 1.2 ? colours.primary : r.ratio < 0.8 ? colours.faint : colours.muted)),
+            valueLabels: (v) => percent(v, 0),
+            ...BAR,
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        layout: { padding: { right: 48 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (item) => `${rows[item.dataIndex].rain_30d} mm against a normal ${rows[item.dataIndex].normal} mm (${ofNormal(item.raw)})` } },
+        },
+        scales: {
+          x: { min: 0, title: { display: true, text: "Share of normal (100% = a usual month)" }, ticks: { callback: (v) => percent(v, 0) } },
+          y: { grid: { display: false }, ticks: { autoSkip: false, font: { size: 11 } } },
+        },
+      },
+    },
+    40 + rows.length * 18,
+  );
+  numbers(rain, ["County", "Last 30 days (mm)", "Normal (mm)", "Share"], rows.map((r) => [r.county, fixed(r.rain_30d, 1), fixed(r.normal, 1), ofNormal(r.ratio)]));
+}
+
+function renderLabelCheck(body, check) {
+  if (!check) return;
+  const colours = palette();
+  const section = card(
+    body,
+    "Are the training labels right?",
+    "The model learned from flood circles: every county a recorded flood's circle touches counts as flooded. For floods the Global Flood Database mapped from satellite (2000 to 2018), this is how often a labelled county held mapped water, and how often a county with mapped water was labelled.",
+    { wide: true },
+  );
+  const t = grid(section, "admin-tiles admin-tiles--compact");
+  tile(t, "Labels with water", percent(check.labels_with_water, 0), `${check.both} of ${check.labelled} labelled counties held mapped water`);
+  tile(t, "Water that was labelled", percent(check.water_labelled, 0), `${check.both} of ${check.wet} counties with water were labelled`);
+  tile(t, "Floods checked", count(check.events.length), "that the database mapped");
+  chart(
+    section,
+    {
+      type: "bar",
+      label: "Labelled counties and counties with mapped water, per flood",
+      data: {
+        labels: check.events.map((e) => `${monthName(Number(e.began.slice(5, 7)))} ${e.began.slice(0, 4)}`),
+        datasets: [
+          { label: "Labelled and wet", data: check.events.map((e) => e.both), backgroundColor: colours.primary, maxBarThickness: 18 },
+          { label: "Labelled, no water mapped", data: check.events.map((e) => e.labelled - e.both), backgroundColor: colours.muted, maxBarThickness: 18 },
+          { label: "Water, not labelled", data: check.events.map((e) => e.wet - e.both), backgroundColor: colours.series[1], maxBarThickness: 18 },
+        ],
+      },
+      options: stackedOptions("Counties", {
+        title: (items) => `DFO event ${check.events[items[0].dataIndex].event}, began ${day(check.events[items[0].dataIndex].began)}`,
+      }),
+    },
+    260,
+  );
+  section.append(
+    el(
+      "p",
+      "admin-note",
+      "Grey is a county the labels call flooded where no water was mapped: a false label, or water the 250 m satellite missed under cloud. Orange is water the labels left out. Either way the noise is in the answers the model is marked against, which pulls its measured scores down, not up.",
+    ),
+  );
+  numbers(section, ["DFO event", "Began", "Labelled", "Mapped wet", "Both"], check.events.map((e) => [e.event, day(e.began), e.labelled, e.wet, e.both]));
+}
+
+function renderSpread(body, model) {
+  const cv = model.cross_validation;
+  const labels = Object.fromEntries([...model.comparison, ...cv.models].map((m) => [m.key, m.label]));
+  const folds = Object.entries(cv.summary).map(([key, s]) => ({
+    key,
+    label: labels[key] ?? key,
+    mean: s.average_precision_mean,
+    sd: s.average_precision_sd,
+  }));
+  const seeds = model.seed_variation.map((s) => ({ key: s.key, label: s.label, mean: s.average_precision.mean, sd: s.average_precision.sd }));
+  if (!folds.length && !seeds.length) return;
+  const colours = palette();
+  const section = card(
+    body,
+    "How much do the scores move?",
+    "Average precision with ±1 sd whiskers. Across held-out years: how much the result depends on which years are tested. Across random seeds: how much is luck.",
+    { wide: true },
+  );
+  const pair = grid(section);
+  const draw = (rows, title) => {
+    const box = el("div");
+    box.append(el("p", "admin-note", title));
+    pair.append(box);
+    const top = Math.max(...rows.map((r) => r.mean + r.sd));
+    chart(
+      box,
+      {
+        type: "bar",
+        label: `Average precision ${title.toLowerCase()}`,
+        data: {
+          labels: rows.map((r) => (r.key === model.selected ? `${r.label} (in use)` : r.label)),
+          datasets: [
+            {
+              label: "Average precision",
+              data: rows.map((r) => r.mean),
+              whiskers: rows.map((r) => r.sd),
+              backgroundColor: rows.map((r) => (r.key === model.selected ? colours.primary : colours.muted)),
+              ...BAR,
+            },
+          ],
+        },
+        options: {
+          indexAxis: "y",
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (item) => `${fixed(item.raw)} ± ${fixed(rows[item.dataIndex].sd)}` } } },
+          scales: { x: { min: 0, suggestedMax: top * 1.05, title: { display: true, text: "Average precision" } }, y: { grid: { display: false } } },
+        },
+      },
+      50 + rows.length * 36,
+    );
+  };
+  if (folds.length) draw(folds, "Across held-out years");
+  if (seeds.length) draw(seeds, "Across random seeds");
+  const widest = [...folds].sort((x, y) => y.sd - x.sd)[0];
+  const seedMax = Math.max(0, ...seeds.map((s) => s.sd));
+  if (widest) {
+    const trained = folds.filter((f) => cv.models.some((m) => m.key === f.key)).map((f) => f.mean);
+    const close = trained.length > 1 && Math.max(...trained) - Math.min(...trained) < widest.sd;
+    section.append(
+      el(
+        "p",
+        "admin-note",
+        `Which years are tested moves average precision by up to ±${fixed(widest.sd)} (${widest.label}); the seed moves it by at most ±${fixed(seedMax, 4)}, so the result is not luck of the seed.${close ? " The gaps between the trained models are smaller than the spread across years, so the choice between them is close and could go the other way on other years." : ""} Logistic regression has no random seed, so it is not on the seeds chart.`,
+      ),
+    );
+  }
+}
+
 function renderNoModel(body) {
   callout(
     body,
@@ -1171,7 +1817,9 @@ const RENDERERS = {
   evaluation: renderEvaluation,
   drivers: renderDrivers,
   errors: renderErrors,
+  forecast: renderForecast,
   satellite: renderSatellite,
+  alerts: renderAlerts,
   health: renderHealth,
   provenance: renderProvenance,
 };

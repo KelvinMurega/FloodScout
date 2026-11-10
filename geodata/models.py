@@ -227,3 +227,29 @@ class GridCell(models.Model):
 
     def __str__(self) -> str:
         return f"Cell {self.lat:.2f}, {self.lon:.2f} ({self.county})"
+
+
+class ApiUsage(models.Model):
+    """How much of a free API's daily allowance FloodScout used, per day.
+
+    Open-Meteo's free tier counts calls, not requests: each location in a
+    request is a call, and so is each 14 days of data asked for at it
+    (geodata/services/open_meteo.py, `calls_for`). Counted as each request
+    is made, so the figure is FloodScout's own estimate, not Open-Meteo's.
+    """
+
+    service = models.CharField(max_length=30)
+    day = models.DateField()
+    requests = models.PositiveIntegerField(default=0)
+    calls = models.FloatField(default=0, help_text="Estimated calls, as the service counts them")
+    rate_limited = models.PositiveIntegerField(default=0, help_text="HTTP 429 replies")
+    failed = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-day", "service"]
+        constraints = [
+            models.UniqueConstraint(fields=["service", "day"], name="one_usage_row_per_service_day")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.service} {self.day}: {self.calls:.0f} calls"

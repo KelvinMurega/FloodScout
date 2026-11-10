@@ -126,3 +126,33 @@ export function tabFromSlug(slug, tabs) {
   const wanted = slug.split("/")[1];
   return tabs.find((tab) => tab.id === wanted)?.id ?? tabs[0].id;
 }
+
+/** "2026-10-19" -> "19 Oct": a day on a chart axis, without the year. */
+export function shortDay(isoDate) {
+  return day(isoDate).replace(/ \d{4}$/, "");
+}
+
+/**
+ * The furthest days-ahead at which forecasts still got the map's category
+ * right at least `target` of the time, counting only leads without a worse
+ * one before them. Null when even the first lead falls short.
+ */
+export function trustedLead(leads, target = 0.8) {
+  let furthest = null;
+  for (const lead of [...leads].sort((a, b) => a.lead_days - b.lead_days)) {
+    if (lead.same_category === null || lead.same_category < target) break;
+    furthest = lead.lead_days;
+  }
+  return furthest;
+}
+
+/** Where the forecast beats assuming nothing changes, as a share point gain per lead. */
+export function forecastGain(lead) {
+  if (lead.same_category === null || lead.persistence_same === null || lead.persistence_same === undefined) return null;
+  return lead.same_category - lead.persistence_same;
+}
+
+/** 1.84 -> "184% of normal". */
+export function ofNormal(ratio) {
+  return ratio === null || ratio === undefined ? "–" : `${Math.round(ratio * 100)}% of normal`;
+}

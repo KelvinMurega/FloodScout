@@ -19,11 +19,20 @@ from geodata.models import Region
 from geodata.services.climate_indices import oni_for
 
 from .advisory import CATEGORY_RANK
-from .analytics import satellite_check, system_health
+from .analytics import UNOSAT_SUB_COUNTY_PATH, satellite_check, system_health
 from .briefing import briefing
 from .context import CHANGE_DAYS, map_context
 from .forecast import latest_issue
 from .inputs import score_inputs
+from .insights import (
+    api_usage,
+    category_flips,
+    forecast_skill,
+    kmd_agreement,
+    label_check,
+    rain_gaps,
+    rain_vs_normal,
+)
 from .live import live_record
 from .ml import infer as scorer
 from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
@@ -382,17 +391,39 @@ def admin_analytics(request):
     `model`: how the loaded model did when it was evaluated, from the
     metrics.json its training run wrote (null while the placeholder rule
     is scoring, which was never evaluated). `satellite_check`: its scores
-    against floodwater UNOSAT mapped from satellite images. `health`: whether
-    the pipeline is keeping the map current, worked out from the database now.
-    `live`: the daily scores since against floods ReliefWeb reported.
+    against floodwater UNOSAT mapped from satellite images, by county and by
+    sub-county, and `label_check` the training labels against mapped water.
+    `health`: whether the pipeline is keeping the map current, worked out
+    from the database now. `live`: the daily scores since against floods
+    ReliefWeb reported. `forecast_skill`, `kmd`, `alerts` and `data_quality`:
+    how the system does in use (riskengine/insights.py, alerts/analytics.py).
     """
+    from alerts.analytics import alert_activity  # alerts imports riskengine
+
     model = load_performance() if scorer._MODEL else None
+    health = system_health()
+    last_score_day = (health.get("latest_scores") or {}).get("date")
     return Response(
         {
             "model": model,
             "satellite_check": satellite_check() if scorer._MODEL else None,
-            "health": system_health(),
+            "satellite_check_sub_county": (
+                satellite_check(UNOSAT_SUB_COUNTY_PATH, unit="sub_county") if scorer._MODEL else None
+            ),
+            "label_check": label_check(),
+            "health": health,
             "live": live_record(model["errors"] if model else None),
+            "forecast_skill": forecast_skill(),
+            "kmd": kmd_agreement(),
+            "alerts": alert_activity(),
+            "data_quality": {
+                "flips": category_flips(
+                    dt.date.fromisoformat(last_score_day) if last_score_day else None
+                ),
+                "rain_gaps": rain_gaps(),
+                "rain_vs_normal": rain_vs_normal(),
+                "api_usage": api_usage(),
+            },
         }
     )
 
