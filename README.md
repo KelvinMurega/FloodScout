@@ -6,15 +6,17 @@ The dashboard and alerts are reference clients.**
 The engine scores the flood risk of each of Kenya's 47 counties, 290
 sub-counties and 768 grid cells every day, and serves the scores through a
 REST API. The scores come from a model trained on 26 years of recorded
-floods, rainfall, climate indices and terrain. The engine is being extended
-from *when* a flood is likely (hazard) to *where* inside a county
-(susceptibility) and *who is there* (exposure): `docs/ENGINE_SPEC.md` says
-what it computes, what it does not, and what is still being built.
+floods, rainfall, climate indices and terrain. Beside *when* a flood is
+likely (hazard), the engine now says *where* inside a county the water goes
+(susceptibility), from a second model trained on satellite flood maps.
+*Who is there* (exposure) is not built yet. `docs/ENGINE_SPEC.md` says what
+it computes, what it does not, and what is still to be built.
 
 The interactive map and the alert service show that the scores are usable.
-Other capstones own alerting (U-CS 13) and the dashboard (U-CS 17), so
-FloodScout's versions are frozen: bug and security fixes only
-(`docs/ARCHITECTURE.md`).
+Other capstones own alerting (U-CS 13) and the dashboard (U-CS 17);
+FloodScout's are reference clients (`docs/ARCHITECTURE.md`).
+
+Live at https://floodscout.me, with the API at https://api.floodscout.me.
 
 Final year capstone project by Murega Kelvin Mutwiri, School of Computing
 and Engineering Sciences, Strathmore University. Supervised by
@@ -58,14 +60,30 @@ Dr. Deperias Kerre.
 - **Looks back and ahead.** It keeps the scores of earlier days, forecasts
   every region for each of the next seven days from forecast rain, and
   gives a seasonal outlook for the next three months.
+- **Says where the water goes.** A susceptibility model scores every 250 m
+  of Kenya for how likely it is to flood, from height above the nearest
+  drainage (HAND), wetness, upstream area, slope and distance to a river.
+  The engine sums it up per county and sub-county: the share of land
+  expected under water, the share among Kenya's most flood-prone fifth, and
+  a rank (`riskengine/susceptibility.py`, served at
+  `GET /api/regions/<id>/susceptibility/`). It is context only; it does not
+  change the hazard colours or the alerts.
 - **Explains each score.** Each prediction is split exactly into what each
-  group of inputs added or took away, in times the usual chance.
+  group of inputs added or took away, in times the usual chance. Checked
+  against SHAP on the 2,679 final-test rows: the same leading group of
+  inputs 86.7% of the time, median rank correlation 0.96
+  (`manage.py shap_check`, `riskengine/ml/artifacts/shap_check.json`).
+- **Reads the official warnings.** The Kenya Meteorological Department's
+  CAP feed is read every hour (`fetch_kmd_warnings`). Each warning is
+  matched to the counties it covers, shown on the map and named in any
+  FloodScout alert for the same place. It never changes an alert's level.
 - **Reports its own accuracy.** `riskengine/ml/artifacts/metrics.json`
   records how the model did on years it was not trained on, including where
   it is weak, and `GET /api/admin/analytics/` serves it to administrators
-  and analysts.
+  and analysts, with a live record of the model against flood reports from
+  ReliefWeb (`fetch_flood_reports`; off until `RELIEFWEB_APPNAME` is set).
 
-### Reference clients (frozen)
+### Reference clients
 
 - **Shows the scores on a map.** Anyone can open the dashboard without an
   account, search for a place by name, and select a region to see its score.
@@ -93,12 +111,24 @@ Dr. Deperias Kerre.
   by email, confirmed with a code. Every alert is
   also published as a Common Alerting Protocol (CAP 1.2) feed that other
   warning systems can read. A banner and badges on the map show what is in
-  force, and an administrator can issue or cancel alerts by hand.
+  force, and an administrator can issue or cancel alerts by hand, or stop
+  a person's alerts at their request.
+- **Warns about saved places.** A signed-in person can save up to five
+  places (a school, a farm), found by address or by a long press on the
+  map, and gets warnings for each by name.
+- **Works offline.** The dashboard installs as an app on a phone or
+  computer. Without a network it opens with the last map it loaded and says
+  how old it is (`frontend/public/sw.js`).
+- **Shows KMD's warnings.** The Kenya Meteorological Department's warnings
+  in force are a map layer and a notice on each region they cover, in both
+  the detailed and the simple view.
 - **Explains each score.** "Why this score" draws the engine's explanation,
   with a sentence saying what drove it. The inputs themselves are listed
-  too, each against its usual value.
-- **Reports its own accuracy.** A model performance panel shows the engine's
-  accuracy figures.
+  too, each against its usual value. "Where the water goes" shows the
+  region's susceptibility beside it.
+- **Reports its own accuracy.** The model and system analytics page shows
+  the evaluation, where the model fails, the live record, forecast skill,
+  agreement with KMD, the alerts sent and the health of the data feeds.
 - **Exports.** The view on screen can be printed as a report or downloaded
   as a CSV file.
 - **Lets an administrator rescore.** A System Administrator can sign in and
@@ -123,7 +153,7 @@ Three tiers, as designed in Chapter 4 of the project proposal:
 
 Training is not a tier: it runs on Colab from `notebooks/`, and only the
 model file and its metrics come back into the repo. `docs/ARCHITECTURE.md`
-shows which modules are the engine and which are frozen reference clients.
+shows which modules are the engine and which are reference clients.
 
 The whole stack runs in Docker. GitHub Actions runs the lint, both test
 suites and the dashboard build on every pull request.
@@ -214,7 +244,13 @@ docker compose run --rm web python manage.py flood_outlook                     #
 docker compose run --rm web python manage.py flood_outlook --level sub_county
 docker compose run --rm web python manage.py seed_flood_events                 # past floods, for the map
 docker compose run --rm web python manage.py build_map_layers                  # rivers and flood zone, see below
+docker compose run --rm web python manage.py fetch_kmd_warnings                # KMD's warnings in force
 ```
+
+The susceptibility summary per region is committed with its model run
+(`riskengine/ml/artifacts/susceptibility/<run>/regions.json`), so the server
+needs neither the 250 m pixels nor Earth Engine. `build_susceptibility`
+rebuilds it from a new run.
 
 `build_map_layers` writes the rivers and the 100-year flood zone into
 `frontend/public/layers/`, which is committed, so it only needs running to
@@ -234,8 +270,11 @@ the map. To refresh by hand:
 docker compose run --rm web python manage.py refresh_scores
 ```
 
-Each refresh also issues the 7-day forecast (`forecast_scores`) and then
-brings the alerts up to date and sends them (`issue_alerts`). The forecast is the same
+Each refresh also issues the 7-day forecast (`forecast_scores`), reads
+KMD's warnings and the ReliefWeb flood reports, and then brings the alerts
+up to date and sends them (`issue_alerts`). KMD's feed is read again every
+hour in between, and each run starts on a fresh database connection, so a
+connection the database dropped overnight does not stop it. The forecast is the same
 model run on the rain that has fallen joined to the rain forecast for the
 days between. The forecast rain is never stored as rainfall; only the
 forecast scores are, in `RiskForecast`, and earlier issues are kept so a
@@ -291,7 +330,8 @@ and forecast:
 for a week in that month (the 90th percentile of its wettest weeks, 1996
 to 2016) and at least 30 mm, or a day of 50 mm. 50 mm in a day is the Kenya
 Meteorological Department's flood early-warning proxy. High on its own
-never alerts.
+never alerts. Where a KMD warning is in force, the alert names it among its
+reasons, without changing the level.
 
 Replayed over 1996 to 2016 with the rain that actually fell (a perfect
 forecast, so better than live):
@@ -318,6 +358,8 @@ by sharing their device's location, or by choosing their sub-county. The
 point is kept to about 100 m. From then on every alert for that sub-county or
 its county reaches them by itself, marked "Where you live", with no alerts
 page or form (`accounts/home.py`). They choose the level, and can turn it off.
+Saved places work the same way (`accounts/places.py`), and their emails
+name the place: "School: Flood watch for Nyando (Kisumu County)".
 
 Signed in, "Get flood alerts" on a place, an alert or the alerts page uses
 the email on the person's profile, with no form. If it is verified (by
@@ -331,7 +373,9 @@ by email only. SMS (Africa's Talking) is used just to confirm the phone
 number on a profile: put a sandbox key in `AT_API_KEY` and leave
 `AT_USERNAME=sandbox`, and the codes appear in the Africa's Talking
 simulator. Set `PUBLIC_API_URL` and `DASHBOARD_URL` to where the API and the
-dashboard are reached, for the links in messages.
+dashboard are reached, for sign-in redirects. Links inside emails come from
+`EMAIL_API_URL` and `EMAIL_DASHBOARD_URL`, which default to the deployed
+site, so mail sent from a development machine never carries localhost links.
 
 The feeds are open: `GET /api/alerts/` (JSON), `GET /api/alerts/feed/` (Atom)
 and `GET /api/alerts/<id>/cap/` (CAP 1.2). Their CAP status is `Exercise`
@@ -341,8 +385,10 @@ and `GET /api/alerts/<id>/cap/` (CAP 1.2). Their CAP status is `Exercise`
 
 `#/signin` and `#/signup` are full pages. People sign in with a username or
 email and password, or with Google, Microsoft or GitHub; a forgotten
-password is reset by an emailed link (`#/forgot`). The sign-in is kept for
-the browser tab, or on the device with "Keep me signed in".
+password is reset by an emailed link (`#/forgot`). "Keep me signed in"
+starts ticked, so the sign-in is kept on the device and a link opened from
+an email finds the person signed in; untick it on a shared computer to keep
+the sign-in to one tab.
 
 Social sign-in uses the authorization-code flow with PKCE, and OpenID Connect
 for Google and Microsoft (`accounts/social.py` explains each step). An
@@ -379,6 +425,9 @@ not be measured is left empty.
 | Indian Ocean Dipole index (DMI) | NOAA Physical Sciences Laboratory |
 | Recorded floods, for training | Dartmouth Flood Observatory, 1996 to 2021 |
 | Satellite flood extents, for checking only | UNOSAT, November 2023 and April 2024 |
+| Susceptibility inputs and training floods | MERIT Hydro, JRC Global Surface Water, Copernicus GloFAS flood hazard, Global Flood Database (via Earth Engine) |
+| Official warnings | Kenya Meteorological Department CAP feed |
+| Flood reports, for the live record | ReliefWeb API |
 | Rivers and the 100-year flood zone, for the map | OpenStreetMap; Copernicus GloFAS |
 | Basemaps and satellite layers, for the map | Esri, OpenTopoMap, NASA GIBS (VIIRS, GPM IMERG) |
 
@@ -431,11 +480,44 @@ of every experiment. Read it before presenting a result. Every score and API
 response carries the `model_version` that produced it, and the dashboard's
 model performance panel shows these figures from `GET /api/admin/analytics/`.
 
+Models are trained from a config file, which fixes the training set, the
+candidates and the decision rule before the run. Each run writes its own
+folder (model, metrics, config, summary) and a line for the experiments
+ledger:
+
+```bash
+docker compose run --rm web python -m riskengine.ml.pipeline train --model hazard --config riskengine/ml/configs/hazard_rf_20261007.toml --check
+```
+
+### The susceptibility model
+
+Gradient boosting on 117,350 pixels of 25 mapped Kenyan floods (Global
+Flood Database), trained on Colab under a protocol committed before
+training (`riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md`). It ranks pixels
+within a county at 0.792 ROC AUC with whole floods held out, against 0.718
+for HAND alone.
+
+It was then scored once, and only once, against the UNOSAT satellite maps
+of November 2023 and April 2024:
+
+| Scored by | Sub-counties within a county | 250 m pixels |
+|---|---|---|
+| **Susceptibility model** | **0.915** | 0.740 |
+| HAND | 0.856 | 0.753 |
+| Sub-county area alone | 0.838 | |
+| The hazard engine | 0.461 | |
+
+It ranks which sub-counties flood far better than the hazard engine does,
+but on single pixels it does not beat HAND. That test is now closed. The run
+and its result are in
+`riskengine/ml/artifacts/susceptibility/20261102T1246Z_77a8329/`.
+
 ### Earth Engine (optional)
 
-Only `build_training_set --rain-source earth-engine` uses Earth Engine, to
-average rainfall over each county. The default source is Open-Meteo and
-needs no account. To use it, set `EE_PROJECT_ID` in `.env` and authenticate
+Earth Engine is used to build the susceptibility sample and pixels, and by
+`build_training_set --rain-source earth-engine` to average rainfall over
+each county. Scoring and the default training set use Open-Meteo and need
+no account. To use it, set `EE_PROJECT_ID` in `.env` and authenticate
 once per machine:
 
 ```bash
@@ -456,22 +538,29 @@ same `docker-compose.yml`, so CI tests what runs locally. `api/tests.py`
 checks that reading is open to everyone and rescoring is for an
 administrator only.
 
+Analysis-only packages (SHAP, matplotlib) are in
+`requirements-analysis.txt`, not in the app image.
+
 ## Project layout
 
 ```
 FloodScout/
 ├── floodscout/     Django project config (settings, root urls, wsgi/asgi)
-├── accounts/       Custom User model (System Administrator and End User
-│                   roles), token sign-in and the administrator permission
+├── accounts/       Custom User model (System Administrator, Analyst and
+│                   End User roles), sign-in, social sign-in, home and
+│                   saved places
 ├── geodata/        Region, GeospatialFeature and EnvironmentalData models,
-│                   the seed_* commands and the data-source clients
+│                   the seed_* commands and the data-source clients (KMD)
 ├── riskengine/     RiskScore and RiskOutlook models, scoring and the
 │                   scoring commands, plus riskengine/ml/ for the training
-│                   and inference code, the trained model and its metrics
+│                   pipeline, the hazard and susceptibility models, their
+│                   metrics and the experiments ledger
+├── alerts/         Alert rules, subscriptions, email and the CAP feed
 ├── api/            REST endpoints tying the above together
 ├── frontend/       Leaflet dashboard, a standalone Vite app
-├── notebooks/      train_flood_model.ipynb, the Colab training run with
-│                   its evaluation charts
+├── notebooks/      The Colab training runs with their evaluation charts
+├── scripts/        The Windows scheduled task and the app icon drawer
+├── deploy/         The Caddy reverse proxy configuration for the VM
 ├── data/           raw/, processed/ and external/; not committed
 └── docs/           The engine spec, the architecture, the data dictionary,
                     the deployment guide and the figures
@@ -483,31 +572,32 @@ The docstring on each model says which.
 
 ## Status
 
-As of 29 October 2026.
+As of 11 November 2026.
 
 **The engine**
 
 | Area | State |
 |---|---|
-| Hazard model | Done. Random Forest trained on Colab, cross-validated by year, tested once on 2017 to 2021 (that test is now closed), checked against satellite extents. |
+| Hazard model | Done. Random Forest trained on Colab, cross-validated by year, tested once on 2017 to 2021 (that test is now closed), checked against satellite extents. Its explanations are checked against SHAP. |
 | Daily scoring | Done. Counties, sub-counties and a 768-cell grid (0.25°), with the 7-day forecast and the seasonal outlook. Missed days are caught up. |
-| Data pipeline | Done. 47 counties and 290 sub-counties with real terrain, rainfall and drainage. |
-| Training pipeline, snapshots, model registry | In progress (refocus I1 to I4). |
-| Static geospatial layers (HAND, TWI, distance to river, flood zone, land cover, soil, population, built-up) | Not started (refocus Phase B). |
-| Susceptibility model | Not started (refocus Phase C). The protocol is committed before any training. |
-| Exposure and the combined risk index | Not started (refocus Phase D). |
-| Versioned API (`/api/v1/`, OpenAPI schema, API keys) | Not started (refocus Phase E). |
-| Monitoring, shadow scoring, model cards | Not started (refocus I5 to I7, Phase G). |
+| Data pipeline | Done. 47 counties and 290 sub-counties with real terrain, rainfall and drainage; KMD's warnings read hourly. |
+| Training pipeline | Done. Config-driven runs, each with its own folder and a ledger line; the susceptibility sample is a pinned snapshot. |
+| Susceptibility model | Done. Trained under a pre-registered protocol, shipped, summed per county and sub-county, and scored once against UNOSAT (0.915 for sub-counties). |
+| Live record | Built; waiting on ReliefWeb to approve the app name. |
+| Exposure and the combined risk index | Not started. |
+| Versioned API (`/api/v1/`, OpenAPI schema, API keys) | Not started. |
+| Likely flood type per place | Protocol drafted (`riskengine/ml/FLOOD_TYPE_PROTOCOL.md`); nothing computed. |
 | Deployment | Done 28 October 2026. API at `https://api.floodscout.me`, dashboard at `https://floodscout.me`. |
 | Checks | Done. Lint, Django tests and dashboard tests and build run on every pull request. |
 
-**Reference clients (frozen: bug and security fixes only)**
+**Reference clients**
 
 | Area | State |
 |---|---|
-| Dashboard | Done: map, simple view, map layers, history, timeline, explanation, briefing, themes, phone layout, report and CSV export. |
-| Alerts | Done: rules, email with double opt-in, the CAP 1.2 feed, where-you-live alerts, the administrator's controls. |
-| Accounts | Done: sign-in and sign-up pages, Google, Microsoft and GitHub sign-in, profiles, the Analyst role, the activity log. |
+| Dashboard | Done: map, simple view, map layers (with KMD's warnings), history, timeline, explanation, susceptibility, briefing, themes, phone layout and menu, offline app, report and CSV export. |
+| Alerts | Done: rules, email with double opt-in, the CAP 1.2 feed, where-you-live and saved-place alerts, the administrator's controls. |
+| Accounts | Done: sign-in and sign-up pages, Google, Microsoft and GitHub sign-in, profiles, saved places, the Analyst role, the activity log. |
+| Analytics | Done: evaluation, where it fails, live record, forecast skill, agreement with KMD, alerts, satellite check and system health. |
 
 **Still open:** performance testing on the deployed API, user testing, and
 the report.
@@ -517,9 +607,12 @@ the report.
 | Document | What it holds |
 |---|---|
 | `docs/ENGINE_SPEC.md` | What the engine computes: components, inputs, outputs, spatial units, cadence, limits and scope |
-| `docs/ARCHITECTURE.md` | The tiers, the engine and its reference clients, and the freeze |
+| `docs/ARCHITECTURE.md` | The tiers, the engine and its reference clients |
+| `docs/DEPLOYMENT.md` | How the API and the dashboard are deployed |
 | `docs/FUTURE_WORK.md` | What is out of scope, kept instead of built |
 | `riskengine/ml/README.md` | The model: inputs, evaluation, limits and the experiments log |
+| `riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md` | The susceptibility model's rules, fixed before training |
+| `riskengine/ml/experiments.md` | The ledger of every training run and test |
 | `docs/DATA_DICTIONARY.md` | Every data source, its fields and its licence |
 | `docs/figures/` | The evaluation charts and the dashboard screenshots |
 | `frontend/README.md` | The dashboard: configuration and design choices |
