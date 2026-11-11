@@ -1,0 +1,21 @@
+Copyright (c) 2026 Murega Kelvin Mutwiri (Kelvin Murega). All rights reserved.
+
+FloodScout (https://floodscout.me), including its source code, trained
+models, documentation, design and data products, is the property of the
+copyright holder.
+
+No part of this software may be copied, modified, distributed, sublicensed,
+sold, or used to create derivative works, in whole or in part, without the
+prior written permission of the copyright holder. Viewing the source code in
+this repository does not grant any licence to use it.
+
+Third-party data and libraries used by FloodScout remain under their own
+licences and are credited in the README.
+
+For permission or enquiries, contact: kevomurega@gmail.com
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. FLOOD RISK SCORES AND ALERTS ARE GUIDANCE ONLY AND DO NOT REPLACE
+OFFICIAL WARNINGS FROM THE KENYA METEOROLOGICAL DEPARTMENT OR NATIONAL
+DISASTER AUTHORITIES. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.

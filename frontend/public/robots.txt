@@ -1,0 +1,5 @@
+# FloodScout: https://floodscout.me
+User-agent: *
+Allow: /
+
+Sitemap: https://floodscout.me/sitemap.xml

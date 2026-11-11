@@ -10,11 +10,83 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FloodScout" />
-    <title>FloodScout — Kenya County Flood Risk</title>
+    <title>FloodScout: Flood Risk Prediction and Early Warning for Kenya</title>
     <meta
       name="description"
-      content="Flood risk across Kenya's counties and sub-counties, on basemaps with rivers, flood zones, past floods and satellite rain."
+      content="FloodScout predicts flood risk for all 47 Kenyan counties and their sub-counties. Daily flood risk scores, forecasts and free flood alerts, built on rainfall, river and terrain data."
     />
+    <meta
+      name="keywords"
+      content="FloodScout, flood prediction, flood risk, flood risk score, flood scoring, flood forecast, flood early warning, flood alerts, Kenya floods, county flood risk, flood map Kenya, machine learning flood prediction"
+    />
+    <meta name="author" content="Kelvin Murega" />
+    <meta name="copyright" content="© 2026 Kelvin Murega. All rights reserved." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://floodscout.me/" />
+
+    <!-- How a shared link looks on WhatsApp, LinkedIn, X and Facebook. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FloodScout" />
+    <meta property="og:url" content="https://floodscout.me/" />
+    <meta property="og:title" content="FloodScout: Flood Risk Prediction for Kenya" />
+    <meta
+      property="og:description"
+      content="Daily flood risk scores, forecasts and free flood alerts for every Kenyan county and sub-county."
+    />
+    <meta property="og:image" content="https://floodscout.me/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="FloodScout: flood risk prediction for Kenya" />
+    <meta property="og:locale" content="en_KE" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FloodScout: Flood Risk Prediction for Kenya" />
+    <meta
+      name="twitter:description"
+      content="Daily flood risk scores, forecasts and free flood alerts for every Kenyan county and sub-county."
+    />
+    <meta name="twitter:image" content="https://floodscout.me/og-image.png" />
+
+    <!-- Structured data: lets Google name the site "FloodScout" in results
+         and know who made it. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://floodscout.me/#website",
+            "name": "FloodScout",
+            "url": "https://floodscout.me/",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "Person",
+            "@id": "https://floodscout.me/#author",
+            "name": "Kelvin Murega",
+            "alternateName": "Murega Kelvin Mutwiri",
+            "email": "mailto:kevomurega@gmail.com",
+            "url": "https://floodscout.me/",
+            "sameAs": ["https://github.com/KelvinMurega"]
+          },
+          {
+            "@type": "WebApplication",
+            "name": "FloodScout",
+            "url": "https://floodscout.me/",
+            "description": "Flood risk prediction and early warning for Kenya's 47 counties and their sub-counties: daily flood risk scores, forecasts and free flood alerts.",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Any (web browser)",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KES" },
+            "keywords": "flood prediction, flood risk, flood scoring, flood early warning, Kenya",
+            "areaServed": { "@type": "Country", "name": "Kenya" },
+            "author": { "@id": "https://floodscout.me/#author" },
+            "creator": { "@id": "https://floodscout.me/#author" },
+            "copyrightHolder": { "@id": "https://floodscout.me/#author" },
+            "copyrightYear": 2026,
+            "isPartOf": { "@id": "https://floodscout.me/#website" }
+          }
+        ]
+      }
+    </script>
     <!-- The stylesheet arrives with main.js, so until then the page would
          show unstyled, its icons drawn at full size. The splash below is
          styled here instead, and the app stays hidden until main.js marks
@@ -191,6 +263,29 @@
 
       <!-- Printed only: the scores on screen as a table, highest risk first. -->
       <section class="report" id="report"></section>
+
+      <!-- About, copyright and contact. Plain HTML, so search engines read it
+           without running the app. Hidden on #/admin and in print. -->
+      <footer class="site-footer">
+        <div class="site-footer__inner">
+          <section class="site-footer__about" aria-labelledby="about-heading">
+            <h2 class="site-footer__heading" id="about-heading">About FloodScout</h2>
+            <p>
+              FloodScout is a flood risk prediction and early warning system for Kenya. It scores
+              flood risk every day for all 47 counties and their sub-counties from rainfall, river
+              and terrain data, shows the forecast for the days ahead, and sends free flood alerts by
+              email to the places you choose.
+            </p>
+          </section>
+          <p class="site-footer__legal">
+            &copy; 2026 Kelvin Murega. All rights reserved.
+            <span class="site-footer__sep" aria-hidden="true">&middot;</span>
+            Contact: <a href="mailto:kevomurega@gmail.com">kevomurega@gmail.com</a>
+            <span class="site-footer__sep" aria-hidden="true">&middot;</span>
+            <a href="https://github.com/KelvinMurega" rel="author noopener" target="_blank">GitHub</a>
+          </p>
+        </div>
+      </footer>
     </div>
 
     <script type="module" src="/src/main.js"></script>
