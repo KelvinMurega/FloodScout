@@ -29,12 +29,12 @@ risk_index(p, w) = P(p floods in w) x exposure(p)
 | Component | Question it answers | Varies with | Spatial unit | Status |
 |---|---|---|---|---|
 | **Hazard** | When is a large flood likely in this county? | Time (rain, season, ocean indices) | County, applied to its sub-counties and grid cells | Built: Random Forest `flood-random-forest-20261007`, with the dry gate |
-| **Susceptibility** | Inside the county, where does the water go? | Place only (static) | 250 m pixel, aggregated to grid cell, sub-county and county | Being built (refocus Phase C) |
-| **Exposure** | How many people and buildings are there? | Place only (static) | 100 m pixel, aggregated | Being built (refocus Phase B and D) |
-| **Risk index** | Combined hazard, susceptibility and exposure | Time and place | Every unit | Being built (refocus Phase D) |
+| **Susceptibility** | Inside the county, where does the water go? | Place only (static) | 250 m pixel, aggregated to sub-county and county | Built: gradient boosting, run `20261102T1246Z_77a8329`, served per region at `regions/<id>/susceptibility/`. Context only: it does not change the hazard score or the alerts |
+| **Exposure** | How many people and buildings are there? | Place only (static) | 100 m pixel, aggregated | Not started |
+| **Risk index** | Combined hazard, susceptibility and exposure | Time and place | Every unit | Not started |
 
-Every response will carry all the components, so a consumer can use hazard
-alone, susceptibility alone, or the combined index.
+Once exposure exists, every response will carry all the components, so a
+consumer can use hazard alone, susceptibility alone, or the combined index.
 
 ## 2. Inputs
 
@@ -46,7 +46,9 @@ alone, susceptibility alone, or the combined index.
 | Elevation, slope | Copernicus DEM GLO-90 via Open-Meteo | Once |
 | Distance to river, 100-year flood zone, built-up share | OpenStreetMap, JRC/GloFAS, GHSL | Once |
 | Boundaries | geoBoundaries KEN ADM1 and ADM2 | Once |
-| Static susceptibility and exposure layers (planned) | MERIT Hydro, JRC, ESA WorldCover, SoilGrids, WorldPop, GHSL | When the layers are rebuilt |
+| Susceptibility features (HAND, elevation, slope, upstream area, TWI, distance to river, 100-year flood zone) and training floods | MERIT Hydro, JRC Global Surface Water, Copernicus GloFAS, Global Flood Database, via Earth Engine | When the model is retrained |
+| Official warnings, named in alerts | Kenya Meteorological Department CAP feed | Hourly |
+| Exposure layers (planned) | WorldPop, GHSL | Not started |
 
 Sources, versions and licences: `docs/DATA_DICTIONARY.md` (and
 `docs/DATA_SOURCES.md` for the static layers, once they exist).
@@ -82,17 +84,19 @@ outlook (`RiskOutlook`) and a 0.25 degree grid (`GridRiskScore`).
 |---|---|
 | Rainfall pull, scores, grid, 7-day forecast | Daily (`refresh_scores`, from the scheduler). Missed days are caught up, up to a month back |
 | Seasonal outlook | By hand, when a new monthly forecast is out (`flood_outlook`) |
-| Static layers | When `build_static_layers.ipynb` is re-run and `seed_static_layers` loads the result |
-| Models | Only when a challenger wins the fixed comparison and is merged into the registry (see `riskengine/ml/README.md`) |
+| KMD warnings | Hourly, and before alerts are issued (`fetch_kmd_warnings`) |
+| Susceptibility layer | When `notebooks/train_susceptibility.ipynb` ships a new run and `build_susceptibility` sums it up per region |
+| Models | Only when a challenger wins the fixed comparison of its config and is recorded in the experiments ledger (see `riskengine/ml/README.md`) |
 
 ## 6. API
 
 Today the engine is read at `https://api.floodscout.me/api/` (locally
 `http://127.0.0.1:8010/api/`): `risk-scores/`, `risk-forecast/`,
-`risk-outlook/`, `risk-grid/` and `regions/`. Reading is open; rescoring
-needs a System Administrator.
+`risk-outlook/`, `risk-grid/`, `regions/`, `regions/<id>/susceptibility/`
+and `kmd-warnings/`. Reading is open; rescoring needs a System
+Administrator.
 
-Being built (refocus Phase E): a versioned contract under `/api/v1/` with an
+Not started (refocus Phase E): a versioned contract under `/api/v1/` with an
 OpenAPI 3.1 schema at `/api/v1/schema/`, read-only API keys for consuming
 modules, and `docs/INTEGRATION.md` for other teams. The current paths stay
 as aliases.
@@ -109,10 +113,25 @@ Hazard model, cross-validated by year (1996 to 2021, 14,523 county-months):
 | 2017 to 2021 final test, against the season-only model | About 1.08 times. This test is now closed and will not be scored again |
 | Within-county ranking, sub-county ROC AUC against UNOSAT April 2024 extents | 0.46, no better than chance |
 
-The last line is why susceptibility is being added: the hazard model knows
-*when* but cannot tell places inside a county apart. Every new component is
-validated against named baselines on data it never saw, under a protocol
-committed before training (`riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md`).
+The last line is why susceptibility was added: the hazard model knows
+*when* but cannot tell places inside a county apart. The susceptibility
+model was trained under a protocol committed before training
+(`riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md`) and scored once against the
+UNOSAT extents of November 2023 and April 2024 (within-county ROC AUC):
+
+| Scored by | Sub-counties | 250 m pixels |
+|---|---|---|
+| Susceptibility model | 0.915 | 0.740 |
+| HAND | 0.856 | 0.753 |
+| Sub-county area alone | 0.838 | |
+| Hazard model | 0.461 | |
+
+It ranks sub-counties well, but on single pixels it does not beat HAND.
+That test is now closed and will not be scored again.
+
+The hazard model's explanations (`riskengine/ml/explain.py`) agree with
+SHAP on the final-test rows: the same leading group of inputs 86.7% of the
+time, median rank correlation 0.96 (`riskengine/ml/artifacts/shap_check.json`).
 
 ## 8. Known limits
 
@@ -135,5 +154,5 @@ committed before training (`riskengine/ml/SUSCEPTIBILITY_PROTOCOL.md`).
 - **Issuing official warnings.** The CAP feed is marked `Exercise`;
   FloodScout is not a warning authority.
 - Alerting, the dashboard and the data pipeline as products. Other capstones
-  own them (U-CS 13, U-CS 17, U-CS 15). FloodScout's versions are frozen
+  own them (U-CS 13, U-CS 17, U-CS 15). FloodScout's versions are
   reference clients; see `docs/ARCHITECTURE.md`.

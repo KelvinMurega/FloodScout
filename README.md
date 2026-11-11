@@ -153,7 +153,7 @@ Three tiers, as designed in Chapter 4 of the project proposal:
 
 Training is not a tier: it runs on Colab from `notebooks/`, and only the
 model file and its metrics come back into the repo. `docs/ARCHITECTURE.md`
-shows which modules are the engine and which are frozen reference clients.
+shows which modules are the engine and which are reference clients.
 
 The whole stack runs in Docker. GitHub Actions runs the lint, both test
 suites and the dashboard build on every pull request.

@@ -1,8 +1,7 @@
 # Future work
 
 Ideas that are out of scope for this capstone, kept here instead of being
-built. Anything proposed for a frozen module (see `docs/ARCHITECTURE.md`)
-lands here too.
+built.
 
 ## Engine
 
@@ -25,7 +24,7 @@ lands here too.
   registry PR. Automating it would need a longer record of shadow periods
   first.
 
-## Reference clients (frozen)
+## Reference clients
 
 - **Alerts keyed on the combined risk index.** The alert rules read
   `risk_category`, which comes from the hazard model. Once the risk index is
