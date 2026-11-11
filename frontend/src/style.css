@@ -2114,3 +2114,59 @@ body:not(.is-admin) .app {
 .offline-banner[hidden] {
   display: none;
 }
+
+/* --- Site footer: about, copyright, contact ----------------------------- */
+
+.site-footer {
+  flex: none;
+  margin-top: auto;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.site-footer__inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px 24px;
+}
+
+.site-footer__heading {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.site-footer__about p {
+  margin: 0 0 14px;
+}
+
+.site-footer__legal {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.site-footer__legal a,
+.site-footer__about a {
+  color: var(--brand);
+  overflow-wrap: anywhere;
+}
+
+.site-footer__sep {
+  margin: 0 6px;
+}
+
+/* The analytics page fills the screen at a fixed height, and paper has its
+   own provenance line, so the footer stays off both. */
+body.is-admin .site-footer {
+  display: none;
+}
+
+@media print {
+  .site-footer {
+    display: none;
+  }
+}
