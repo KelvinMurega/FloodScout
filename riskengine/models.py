@@ -180,3 +180,50 @@ class ReportedFlood(models.Model):
 
     def __str__(self) -> str:
         return f"{self.county} — {self.published:%Y-%m-%d} — {self.title[:60]}"
+
+
+class ObservedFlood(models.Model):
+    """A flood that happened, from a public record: what a past month's
+    outlook is checked against on the map (riskengine/outcome.py).
+
+    Written by `fetch_observed_floods`. `news` rows are headlines from Kenyan
+    and international outlets, via Google News, that report damage (people
+    displaced, homes submerged, roads cut) and name a county; `gdacs` rows
+    are flood events the Global Disaster Alert and Coordination System
+    recorded. A row with no county is an event GDACS placed in Kenya without
+    saying where. Kept apart from ReportedFlood, which is ReliefWeb's record
+    and the one the model's live record is scored on.
+    """
+
+    class Source(models.TextChoices):
+        NEWS = "news", "News report"
+        GDACS = "gdacs", "GDACS"
+
+    source = models.CharField(max_length=10, choices=Source.choices)
+    county = models.ForeignKey(
+        Region,
+        on_delete=models.CASCADE,
+        related_name="observed_floods",
+        null=True,
+        blank=True,
+        help_text="Empty when the record names no county",
+    )
+    date = models.DateField(help_text="Published, or the day the event began")
+    ended = models.DateField(null=True, blank=True, help_text="The day a GDACS event ended")
+    title = models.CharField(max_length=300)
+    url = models.URLField(max_length=1000)
+    publisher = models.CharField(max_length=200, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date", "county__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "url", "county"],
+                name="unique_observedflood_source_url_county",
+            )
+        ]
+
+    def __str__(self) -> str:
+        where = self.county.name if self.county else "Kenya"
+        return f"{where} — {self.date:%Y-%m-%d} — {self.title[:60]}"

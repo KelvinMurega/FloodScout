@@ -214,7 +214,19 @@ export function fetchScoreInputs(scoreId) {
   return getJson(withParams(`risk-scores/${scoreId}/inputs/`));
 }
 
-/** The months a seasonal outlook exists for: [{ month, issued_on }], soonest first. */
+/**
+ * A past month's outlook beside the floods recorded in it, county by county:
+ * { month, complete, issued_on, summary, sources, national, counties }.
+ */
+export function fetchOutlookOutcome(month) {
+  return getJson(withParams("risk-outlook/outcome/", { month }));
+}
+
+/**
+ * The months a seasonal outlook exists for, soonest first:
+ * [{ month, issued_on, kind }], `kind` "upcoming" (this month and the two
+ * after) or "past".
+ */
 export function fetchOutlookMonths() {
   return getJson(withParams("risk-outlook/months/"));
 }

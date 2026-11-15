@@ -22,9 +22,16 @@ hour in between. Flood reports are fetched from ReliefWeb for the live
 record (`fetch_flood_reports`). When `seed_grid` has laid an area grid, its cells are
 scored too, with the same catching up.
 
-The seasonal outlook is not refreshed here. The forecast behind it is issued
-monthly and takes much longer to fetch; run `flood_outlook` when a new one
-is out.
+The floods that were reported, from news and GDACS, are fetched for last
+month and this one (`fetch_observed_floods`), for the look back at past
+outlooks.
+
+The seasonal outlook (`flood_outlook`) is run when it is due, not every
+day: the forecast behind it is issued monthly and takes much longer to
+fetch. It is due once a month has started with no outlook issued in it, so
+on the 1st of December the outlook moves on to December, January and
+February; and once more from SEASONAL_ISSUE_DAY, when ECMWF's new run for
+the month is out.
 """
 
 from __future__ import annotations
@@ -40,7 +47,7 @@ from django.utils import timezone
 
 from geodata.management.commands.seed_rainfall import DEFAULT_PAST_DAYS
 from geodata.models import GridCell
-from riskengine.models import GridRiskScore, RiskScore
+from riskengine.models import GridRiskScore, RiskOutlook, RiskScore
 
 # The most days back Open-Meteo's forecast endpoint serves. Scoring a day
 # reads the DEFAULT_PAST_DAYS before it, so this caps how far back a run can
@@ -61,6 +68,10 @@ RETRY_SECONDS = 3600
 # How often, between daily refreshes, the Kenya Meteorological Department's
 # warnings are read again. They are small, and KMD can issue one at any hour.
 KMD_SECONDS = 3600
+
+# ECMWF's seasonal forecast for a month comes out on the 5th; Open-Meteo
+# serves it a day later.
+SEASONAL_ISSUE_DAY = 6
 
 # Indirection so tests can skip the wait and move the clock.
 _sleep = time.sleep
@@ -98,6 +109,21 @@ def region_days(today: dt.date) -> list[dt.date]:
 def grid_days(today: dt.date) -> list[dt.date]:
     """The days the area grid needs scoring for."""
     return days_to_score(today, GridRiskScore.objects.values_list("date", flat=True).distinct())
+
+
+def outlook_due(today: dt.date) -> bool:
+    """Whether the seasonal outlook should be run again today.
+
+    Due when nothing has been issued this month (the outlook still starts
+    at last month), and again from SEASONAL_ISSUE_DAY if everything this
+    month was issued before the new forecast was out.
+    """
+    issued = RiskOutlook.objects.filter(issued_on__gte=today.replace(day=1)).values_list(
+        "issued_on", flat=True
+    )
+    if not issued:
+        return True
+    return today.day >= SEASONAL_ISSUE_DAY and max(issued).day < SEASONAL_ISSUE_DAY
 
 
 class Command(BaseCommand):
@@ -198,6 +224,20 @@ class Command(BaseCommand):
             call_command("fetch_flood_reports", stdout=self.stdout, stderr=self.stderr)
         except CommandError as exc:
             self.stderr.write(self.style.WARNING(f"Flood reports skipped: {exc}"))
+
+        # The floods that were reported, for the look back at past outlooks.
+        try:
+            call_command("fetch_observed_floods", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:
+            self.stderr.write(self.style.WARNING(f"Observed floods skipped: {exc}"))
+
+        # The months ahead, when a new month or a new seasonal forecast is
+        # in. A failure leaves it due, so the next run tries again.
+        if outlook_due(today):
+            try:
+                call_command("flood_outlook", stdout=self.stdout, stderr=self.stderr)
+            except CommandError as exc:
+                self.stderr.write(self.style.WARNING(f"Outlook skipped: {exc}"))
 
         # The area grid, once `seed_grid` has laid one. It fetches its own
         # rainfall, at the cells' centres.
