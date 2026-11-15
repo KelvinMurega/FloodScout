@@ -148,12 +148,13 @@ class LiveRecordTests(TestCase):
         self.nairobi = make_region("Nairobi")
         self.embu = make_region("Embu", offset=2.0)
 
-    def _score(self, region, day, value, version=MODEL_VERSION):
+    def _score(self, region, day, value, category=None, version=MODEL_VERSION):
+        # Without a category, the one the bands give: High from 10%.
         RiskScore.objects.create(
             region=region,
             prediction_date=start_of_day(day),
             predicted_value=value,
-            risk_category="high",
+            risk_category=category or ("high" if value >= 0.1 else "moderate"),
             model_version=version,
         )
 
@@ -190,6 +191,28 @@ class LiveRecordTests(TestCase):
         self.assertEqual(record["first_month"], "2026-09-01")
         self.assertEqual(record["training"], {"recall": 0.8, "precision": 0.25})
         self.assertEqual([r["county"] for r in record["reports"]], ["Embu", "Nairobi"])
+
+    def test_a_high_county_counts_as_warned(self, _today):
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.12, category="high")
+        self._report(self.nairobi, dt.date(2026, 10, 10))
+
+        totals = live_record(self.ERRORS)["totals"]
+
+        self.assertEqual((totals["caught"], totals["missed"]), (1, 0))
+
+    def test_a_county_the_dry_gate_held_at_moderate_is_not_warned(self, _today):
+        # 12% is above the threshold, but the window was dry, so the map
+        # showed Moderate. Nobody was shown a warning: with a flood it is a
+        # miss, and without one it is not a false alarm.
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.12, category="moderate")
+        self._score(self.embu, dt.date(2026, 10, 31), 0.12, category="moderate")
+        self._report(self.nairobi, dt.date(2026, 10, 10))
+
+        totals = live_record(self.ERRORS)["totals"]
+
+        self.assertEqual(
+            (totals["caught"], totals["missed"], totals["false_alarms"]), (0, 1, 0)
+        )
 
     def test_scores_from_another_model_are_not_counted(self, _today):
         self._score(self.nairobi, dt.date(2026, 10, 31), 0.5, version="heuristic-stub-v0")

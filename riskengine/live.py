@@ -6,9 +6,15 @@ counted the way the training run counted them, so the two can be set side
 by side.
 
 * A county-month was **warned** when the county's score on the last day
-  scored that month reached the training run's warning threshold
-  (`error_breakdown.threshold` in metrics.json). Only scores from the model
-  in use count.
+  scored that month was High or Very High: the category the map showed,
+  not the raw probability. The two differ when the window was dry. The dry
+  gate (riskengine/dry.py) caps the category at Moderate and leaves the
+  probability as it was, so a county shown as Moderate can carry a chance
+  above the warning threshold. Counting the probability scored those
+  months as warnings nobody was shown, and overcounted false alarms. The
+  bands start High at the training run's warning threshold
+  (`error_breakdown.threshold` in metrics.json), so without the gate the
+  two counts agree. Only scores from the model in use count.
 * It **flooded** when a ReliefWeb flood report published that month named
   the county (alerts come from rain, the reports from people on the ground).
 
@@ -34,6 +40,9 @@ from riskengine.scoring import start_of_day
 
 # Shown when the training run did not record its threshold.
 DEFAULT_THRESHOLD = 0.1
+
+# The categories the map shows as a warning, after the dry gate.
+WARNING_CATEGORIES = {RiskScore.RiskCategory.HIGH, RiskScore.RiskCategory.VERY_HIGH}
 
 
 def _month(day: dt.date) -> dt.date:
@@ -66,7 +75,7 @@ def live_record(errors: dict | None = None, today: dt.date | None = None) -> dic
     # last of the month: its window is the month. The highest score in a
     # month reads a window straddling two and would warn nearly every time.
     # Only scores from the model in use are counted.
-    month_end: dict[tuple[str, dt.date], float] = {}
+    month_end: dict[tuple[str, dt.date], str] = {}
     scores = (
         RiskScore.objects.filter(
             region__level=Region.Level.COUNTY,
@@ -74,11 +83,11 @@ def live_record(errors: dict | None = None, today: dt.date | None = None) -> dic
             prediction_date__lt=start_of_day(this_month),
         )
         .order_by("prediction_date")
-        .values_list("region__name", "prediction_date", "predicted_value")
+        .values_list("region__name", "prediction_date", "risk_category")
     )
-    for county, when, value in scores:
-        month_end[(county, _month(timezone.localtime(when).date()))] = value
-    warned = {key: value >= threshold for key, value in month_end.items()}
+    for county, when, category in scores:
+        month_end[(county, _month(timezone.localtime(when).date()))] = category
+    warned = {key: category in WARNING_CATEGORIES for key, category in month_end.items()}
 
     reports = list(
         ReportedFlood.objects.select_related("county").order_by("-published", "county__name")
