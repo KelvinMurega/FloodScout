@@ -68,6 +68,12 @@ FEATURE_NAMES = (
     # so a big county is touched by more circles than a small one. With
     # area in the model, the other inputs stop absorbing that effect.
     "log_area",
+    # Water in the top 28 cm of soil the day before the window (ERA5-Land,
+    # averaged over the county): ground that is already wet floods sooner.
+    # Kept from the trial of 21 October 2026 (README.md, "Soil moisture").
+    # `build_training_set` leaves it empty; `add_soil_moisture` fills it.
+    # A model trained without it never asks for it (`names`).
+    "soil_moisture_start",
 )
 
 # Inputs under trial: `rainfall_features` works them out, but the model is
@@ -193,6 +199,7 @@ def feature_row(
     dmi: float | None = None,
     area_km2: float | None = None,
     names: Sequence[str] = FEATURE_NAMES,
+    soil: Mapping[dt.date, float] | None = None,
 ) -> list[float]:
     """One model input row, in the order of `names` (FEATURE_NAMES by default).
 
@@ -206,6 +213,9 @@ def feature_row(
 
     `terrain` is the region's GeospatialFeature, or anything else with the
     TERRAIN_FEATURES as attributes, or None when there is none on file.
+
+    `soil` is daily soil moisture, m³/m³; without it the soil inputs are NaN
+    and the model's imputer fills them.
     """
     row = rainfall_features(rain, end)
     row["rain_30d_ratio"] = row["rain_30d"] / normal_30d if normal_30d else NAN
@@ -221,4 +231,5 @@ def feature_row(
     for name in TERRAIN_FEATURES:
         value = getattr(terrain, name, None)
         row[name] = NAN if value is None else value
+    row.update(soil_features(soil or {}, end))
     return [row[name] for name in names]
