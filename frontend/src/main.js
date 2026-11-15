@@ -52,6 +52,7 @@ import {
   fetchMapContext,
   fetchOutlook,
   fetchOutlookMonths,
+  fetchOutlookOutcome,
   fetchRegions,
   fetchRiskGrid,
   fetchScoreDates,
@@ -83,6 +84,7 @@ import { chooseView, viewFor } from "./viewmode.js";
 import { initNavMenu } from "./navmenu.js";
 import { startOffline } from "./offline.js";
 import { currentStep, stateForStep, timelineSteps } from "./timeline.js";
+import { outcomeLines, recordLabel, splitOutlookMonths } from "./outcome.js";
 import {
   THEMES,
   THEME_ORDER,
@@ -141,6 +143,7 @@ const els = {
   layerBar: document.getElementById("layer-bar"),
   themeBar: document.getElementById("theme-bar"),
   glance: document.getElementById("glance"),
+  outcome: document.getElementById("outcome"),
   legendHeading: document.getElementById("legend-heading"),
   regionIntro: document.getElementById("region-intro"),
   relocation: document.getElementById("relocation"),
@@ -164,8 +167,12 @@ const state = {
   // Loaded once.
   counties: null,
   focusRegions: [],
-  // Months a seasonal outlook exists for: [{ month, issued_on }].
+  // Months a seasonal outlook exists for: [{ month, issued_on, kind }].
   outlookMonths: [],
+  // For a past outlook month: what was recorded (GET risk-outlook/outcome/),
+  // and its county rows by region id.
+  outcome: null,
+  outcomeByRegion: new Map(),
   // null is today's scores; otherwise the outlook month, as the API names it.
   period: null,
   // Days scores are stored for, newest first, as YYYY-MM-DD.
@@ -325,6 +332,11 @@ function isFocusOverview() {
 
 function isOutlook() {
   return state.period !== null;
+}
+
+/** An outlook for a month that is over: the map can say what happened. */
+function isPastOutlook() {
+  return isOutlook() && state.outlookMonths.find((m) => m.month === state.period)?.kind === "past";
 }
 
 function isPastDate() {
@@ -610,6 +622,7 @@ map.on("zoomend", updateLabelVisibility);
 function clearView() {
   clearHotspots();
   clearAlertBadges();
+  clearFloodPins();
   for (const layer of state.viewLayers) layer.remove();
   state.viewLayers = [];
   state.layersByRegion.clear();
@@ -841,7 +854,15 @@ function renderProvenance(scores) {
   els.provenance.classList.toggle("provenance--placeholder", looksLikePlaceholder && !isOutlook());
 
   const label = el("strong", null, versions.join(", "));
-  if (isOutlook()) {
+  if (isPastOutlook()) {
+    const issued = state.outlookMonths.find((m) => m.month === state.period)?.issued_on;
+    els.provenance.append(
+      `Outlook for ${formatMonth(state.period)} as it was issued on ${formatDate(issued)}, by `,
+      label,
+      ". The month is over: the blue pins mark counties where a flood was reported, " +
+        "and “What happened” beside the map lists the reports.",
+    );
+  } else if (isOutlook()) {
     const issued = state.outlookMonths.find((m) => m.month === state.period)?.issued_on;
     els.provenance.append(
       `Outlook for ${formatMonth(state.period)} from `,
@@ -948,9 +969,10 @@ function renderPeriodBar() {
   const group = el("div", "segmented");
   els.periodBar.replaceChildren(el("span", "layer-bar__label", "When"), group);
 
+  const { upcoming, past } = splitOutlookMonths(state.outlookMonths);
   const options = [
     { period: null, name: "Today" },
-    ...state.outlookMonths.map((m) => ({
+    ...upcoming.map((m) => ({
       period: m.month,
       name: `${formatMonth(m.month)} outlook`,
     })),
@@ -986,7 +1008,33 @@ function renderPeriodBar() {
       group.append(ahead);
     }
   }
+  if (past.length > 0) els.periodBar.append(pastMonthPicker(past));
   if (hasEarlierDays) els.periodBar.append(...scoreDatePicker());
+}
+
+/** The months already over: their outlook as issued, and what happened. */
+function pastMonthPicker(past) {
+  const wrap = el("label", "period-bar__date", "Past months ");
+  const select = el("select", "period-bar__input");
+  const prompt = el("option", null, "Choose a month…");
+  prompt.value = "";
+  select.append(prompt);
+  for (const m of past) {
+    const option = el("option", null, formatMonth(m.month));
+    option.value = m.month;
+    select.append(option);
+  }
+  select.value = isPastOutlook() ? state.period : "";
+  select.title = "A month that is over: what the outlook said, and where floods were reported";
+  select.addEventListener("change", () => {
+    stopPlaying();
+    state.period = select.value || null;
+    state.scoreDate = null;
+    state.forecastDay = null;
+    route();
+  });
+  wrap.append(select);
+  return wrap;
 }
 
 /* ------------------------------------------------------------- timeline */
@@ -1343,6 +1391,168 @@ function renderGlance(scores) {
     el("p", "detail__subheading", "Highest against the usual chance"),
     list,
   );
+}
+
+/* ------------------------------------------------------- what happened */
+
+let floodPinLayer = null;
+
+function clearFloodPins() {
+  floodPinLayer?.remove();
+  floodPinLayer = null;
+}
+
+/** A pin on each county where a flood was reported in the past month on screen. */
+function drawFloodPins() {
+  clearFloodPins();
+  if (!isPastOutlook() || state.outcomeByRegion.size === 0) return;
+  floodPinLayer = L.layerGroup();
+  for (const [regionId, layer] of state.layersByRegion) {
+    const row = state.outcomeByRegion.get(regionId);
+    const point = row?.flooded && labelPoint(layer.feature.geometry);
+    if (!point) continue;
+    const reports = row.records.length;
+    const marker = L.marker(point, {
+      icon: L.divIcon({
+        className: "",
+        html: '<span class="flood-pin" aria-hidden="true"></span>',
+        iconSize: [18, 18],
+        // Above the place's name, which sits on the same point.
+        iconAnchor: [9, 26],
+      }),
+      keyboard: false,
+      title: `${row.region_name}: flood reported (${reports} report${reports === 1 ? "" : "s"})`,
+      zIndexOffset: 300,
+    });
+    marker.on("click", () => select(regionId, { pan: true }));
+    floodPinLayer.addLayer(marker);
+  }
+  floodPinLayer.addTo(map);
+}
+
+/**
+ * For a month that is over: where floods were reported, how the outlook had
+ * rated those places, and the sources. Counties only.
+ */
+async function renderOutcome() {
+  state.outcome = null;
+  state.outcomeByRegion = new Map();
+  if (!isPastOutlook() || isRegionView()) {
+    els.outcome.hidden = true;
+    return;
+  }
+  const view = viewKey();
+  const month = state.period;
+  els.outcome.hidden = false;
+  els.outcome.replaceChildren(
+    el("h2", "panel__heading", "What happened"),
+    el("p", "detail__empty", "Looking up the floods reported…"),
+  );
+  let outcome;
+  try {
+    outcome = await fetchOutlookOutcome(month);
+  } catch (error) {
+    console.error(error);
+    els.outcome.lastChild.textContent = "Could not load the flood record for this month.";
+    return;
+  }
+  if (viewKey() !== view) return;
+  state.outcome = outcome;
+  state.outcomeByRegion = new Map(outcome.counties.map((row) => [row.region, row]));
+  drawFloodPins();
+
+  const heading = el("h2", "panel__heading", "What happened");
+  heading.append(el("span", "panel__hint", formatMonth(month)));
+  const parts = [heading, ...outcomeLines(outcome, labelFor).map((line) => el("p", "glance__line", line))];
+
+  const flooded = outcome.counties.filter((row) => row.flooded);
+  if (flooded.length) {
+    const list = el("ol", "glance__top");
+    for (const row of flooded) {
+      const item = el("li");
+      const button = el("button", "glance__place");
+      button.type = "button";
+      button.append(
+        el("span", "flood-pin flood-pin--inline"),
+        el("span", "glance__name", row.region_name),
+        el(
+          "span",
+          "glance__value",
+          row.risk_category ? `${labelFor(row.risk_category)}${row.rank ? ` · #${row.rank}` : ""}` : "no outlook",
+        ),
+      );
+      button.title = `${row.records.length} report${row.records.length === 1 ? "" : "s"}; select for the headlines`;
+      button.addEventListener("click", () => select(row.region, { pan: true }));
+      item.append(button);
+      list.append(item);
+    }
+    parts.push(el("p", "detail__subheading", "Where a flood was reported, and its outlook"), list);
+  }
+
+  for (const event of outcome.national) {
+    const line = el("p", "glance__line");
+    const link = el("a", null, event.title);
+    link.href = event.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    line.append("Kenya-wide, GDACS: ", link);
+    parts.push(line);
+  }
+
+  const sources = el("p", "relocation__note");
+  sources.append("Sources: ");
+  outcome.sources.forEach((source, n) => {
+    const link = el("a", null, source.name);
+    link.href = source.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.title = source.about;
+    sources.append(n ? ", " : "", link, ` (${source.records})`);
+  });
+  sources.append(
+    ". A county counts as flooded when a report names it; a flood no one reported is not seen, " +
+      "and a KMD warning is not a flood.",
+  );
+  parts.push(sources);
+  els.outcome.replaceChildren(...parts);
+  // A county chosen before the record came in gets its reports too.
+  if (state.selectedRegionId !== null) renderDetail(state.selectedRegionId);
+}
+
+/** Inside a county's details, for a past month: the reports that name it. */
+function renderOutcomeRecords(regionId, container) {
+  if (!isPastOutlook() || !state.outcome) return;
+  const row = state.outcomeByRegion.get(regionId);
+  if (!row) return;
+  container.append(el("p", "detail__subheading", `What happened in ${formatMonth(state.period)}`));
+  if (!row.flooded) {
+    container.append(
+      el(
+        "p",
+        "detail__empty",
+        "No flood report found naming this county." +
+          (row.kmd_warnings ? ` KMD had ${row.kmd_warnings} flood warning${row.kmd_warnings === 1 ? "" : "s"} in force here.` : ""),
+      ),
+    );
+    return;
+  }
+  const list = el("ul", "outcome__records");
+  for (const record of row.records) {
+    const { date, by, title, url } = recordLabel(record, state.outcome.sources);
+    const item = el("li");
+    const link = el("a", null, title);
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    item.append(link, el("span", "outcome__by", `${formatDate(date)} · ${by}`));
+    list.append(item);
+  }
+  container.append(list);
+  if (row.kmd_warnings) {
+    container.append(
+      el("p", "relocation__note", `KMD had ${row.kmd_warnings} flood warning${row.kmd_warnings === 1 ? "" : "s"} in force here that month.`),
+    );
+  }
 }
 
 /**
@@ -2261,6 +2471,7 @@ function renderDetail(regionId) {
     rows.append(el("dt", null, term), el("dd", null, value));
   }
   els.detail.append(rows);
+  renderOutcomeRecords(regionId, els.detail);
   renderKmd(regionId, els.detail);
 
   // Only a stored score has a model run to explain, a history and inputs:
@@ -2769,6 +2980,7 @@ async function showOverview(scope) {
   renderThemeBar();
   renderTimeline();
   renderGlance(scores);
+  renderOutcome();
   renderBriefing({ level: "county" });
   drawAlertBadges();
   markForecast();
@@ -2875,6 +3087,7 @@ async function showRegion(focus) {
   renderThemeBar();
   renderTimeline();
   renderGlance(scores);
+  renderOutcome();
   renderBriefing({ level: "sub_county", focus_region: focus.slug });
   drawAlertBadges();
   markForecast();

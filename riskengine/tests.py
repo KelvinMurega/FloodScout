@@ -846,6 +846,8 @@ class RefreshScoresCommandTests(TestCase):
                 ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
+                ("fetch_observed_floods",),
+                ("flood_outlook",),
             ],
         )
 
@@ -865,6 +867,8 @@ class RefreshScoresCommandTests(TestCase):
                 ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
+                ("fetch_observed_floods",),
+                ("flood_outlook",),
             ],
         )
 
@@ -883,6 +887,8 @@ class RefreshScoresCommandTests(TestCase):
                 ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
+                ("fetch_observed_floods",),
+                ("flood_outlook",),
             ],
         )
         self.assertEqual(self._steps(run)[0], ("seed_rainfall", "--past-days", "64"))
@@ -921,6 +927,8 @@ class RefreshScoresCommandTests(TestCase):
                 ("fetch_kmd_warnings",),
                 ("issue_alerts",),
                 ("fetch_flood_reports",),
+                ("fetch_observed_floods",),
+                ("flood_outlook",),
             ],
         )
 
@@ -945,14 +953,72 @@ class RefreshScoresCommandTests(TestCase):
             call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
         self.assertIn("Flood reports skipped: ReliefWeb answered 403", stderr.getvalue())
 
+    def _outlook_issued(self, day):
+        RiskOutlook.objects.create(
+            region=make_region(f"O{day}"),
+            month=day.replace(day=1),
+            flood_probability=0.1,
+            probability_low=0.05,
+            probability_high=0.2,
+            risk_category=RiskScore.RiskCategory.LOW,
+            model_version="test",
+            issued_on=day,
+        )
+
+    def _runs_outlook(self):
+        with mock.patch(f"{self.COMMANDS}.call_command") as run:
+            call_command("refresh_scores", stdout=StringIO())
+        return ("flood_outlook",) in self._steps(run)
+
+    def test_a_new_month_moves_the_outlook_on(self):
+        # Issued in September: on 19 October it still starts at September.
+        self._outlook_issued(dt.date(2026, 9, 7))
+        self.assertTrue(self._runs_outlook())
+
+    def test_the_outlook_is_not_rerun_once_this_months_forecast_is_in(self):
+        self._outlook_issued(dt.date(2026, 10, 7))
+        self.assertFalse(self._runs_outlook())
+
+    def test_an_outlook_from_before_the_new_forecast_is_run_again(self):
+        # Issued on the 1st, from last month's forecast; ECMWF's new one is out by the 6th.
+        self._outlook_issued(dt.date(2026, 10, 1))
+        self.assertTrue(self._runs_outlook())
+
+    def test_before_the_new_forecast_an_outlook_from_this_month_stands(self):
+        self.TODAY = dt.date(2026, 10, 3)
+        self._outlook_issued(dt.date(2026, 10, 1))
+        self.assertFalse(self._runs_outlook())
+
+    def test_a_failed_outlook_is_reported_but_does_not_fail_the_refresh(self):
+        def fail_outlook(name, *args, **kwargs):
+            if name == "flood_outlook":
+                raise CommandError("seasonal forecast down")
+
+        stderr = StringIO()
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=fail_outlook):
+            call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
+        self.assertIn("Outlook skipped: seasonal forecast down", stderr.getvalue())
+
+    def test_failed_observed_floods_are_reported_but_do_not_fail_the_refresh(self):
+        def fail(name, *args, **kwargs):
+            if name == "fetch_observed_floods":
+                raise CommandError("Google News answered 503")
+
+        stderr = StringIO()
+        with mock.patch(f"{self.COMMANDS}.call_command", side_effect=fail) as run:
+            call_command("refresh_scores", stdout=StringIO(), stderr=stderr)
+        self.assertIn("Observed floods skipped: Google News answered 503", stderr.getvalue())
+        self.assertIn(("flood_outlook",), self._steps(run))
+
     def test_catch_up_stops_where_the_rainfall_record_does(self):
         self._scored(dt.date(2026, 1, 1))
         with mock.patch(f"{self.COMMANDS}.call_command") as run:
             call_command("refresh_scores", stdout=StringIO())
         steps = self._steps(run)
         self.assertEqual(steps[0], ("seed_rainfall", "--past-days", str(refresh_scores.MAX_PAST_DAYS)))
-        # Rainfall, one score per day, then the forecast, KMD, alerts and reports.
-        self.assertEqual(len(steps) - 5, refresh_scores.MAX_CATCH_UP_DAYS + 1)
+        # Rainfall, one score per day, then the forecast, KMD, alerts, reports,
+        # observed floods and the outlook.
+        self.assertEqual(len(steps) - 7, refresh_scores.MAX_CATCH_UP_DAYS + 1)
 
     def test_a_failed_fetch_stops_a_single_run(self):
         with mock.patch(f"{self.COMMANDS}.call_command", side_effect=CommandError("no network")):

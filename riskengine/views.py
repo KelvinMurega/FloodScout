@@ -36,6 +36,7 @@ from .insights import (
 from .live import live_record
 from .ml import infer as scorer
 from .models import GridRiskScore, RiskForecast, RiskOutlook, RiskScore
+from .outcome import month_outcome
 from .performance import load_performance
 from .scoring import NoRegionsError, score_regions, start_of_day
 from .season import times_season
@@ -433,8 +434,14 @@ class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
 
     `?month=YYYY-MM-DD` (the first of the month) picks one month, and the
     region filters of the other endpoints apply. `months/` lists the months
-    an outlook exists for.
+    an outlook exists for: the next OUTLOOK_AHEAD from this one marked
+    `upcoming`, and the months already over marked `past`. `outcome/`
+    sets a month's outlook beside the floods recorded in it
+    (riskengine/outcome.py).
     """
+
+    # This month and the two after it: what the map offers as "ahead".
+    OUTLOOK_AHEAD = 3
 
     queryset = RiskOutlook.objects.select_related("region").all()
     serializer_class = RiskOutlookSerializer
@@ -453,12 +460,32 @@ class RiskOutlookViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"])
     def months(self, request):
+        this_month = timezone.localdate().replace(day=1)
         rows = (
             RiskOutlook.objects.values("month")
             .annotate(issued_on=Max("issued_on"))
             .order_by("month")
         )
-        return Response(list(rows))
+        ahead = 0
+        months = []
+        for row in rows:
+            if row["month"] < this_month:
+                months.append({**row, "kind": "past"})
+            elif ahead < self.OUTLOOK_AHEAD:
+                ahead += 1
+                months.append({**row, "kind": "upcoming"})
+        return Response(months)
+
+    @action(detail=False, methods=["get"])
+    def outcome(self, request):
+        month = request.query_params.get("month")
+        try:
+            first = dt.date.fromisoformat(month).replace(day=1) if month else None
+        except ValueError as exc:
+            raise ValidationError({"month": "Expected YYYY-MM-DD."}) from exc
+        if first is None:
+            raise ValidationError({"month": "Required: the first day of a month, YYYY-MM-DD."})
+        return Response(month_outcome(first, timezone.localdate()))
 
 
 class RiskGridViewSet(viewsets.ViewSet):
