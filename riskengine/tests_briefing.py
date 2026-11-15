@@ -96,7 +96,8 @@ class BriefingTextTests(SimpleTestCase):
         )
         self.assertIn("The heaviest rain forecast is in Kisumu: 55 mm", text[3])
         self.assertIn("1 county has a forecast day of 50 mm or more", text[3])
-        self.assertIn("Most of this risk comes from El Niño conditions (ONI 2.2)", text[4])
+        self.assertIn("El Niño conditions (ONI 2.2) raise the chance of flooding this season", text[4])
+        self.assertIn("the map shows High only where a county has had at least its normal rain", text[4])
         self.assertIn("2 of 3 had less than 80%", text[4])
 
     def test_la_nina_and_no_forecast(self):

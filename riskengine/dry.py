@@ -19,6 +19,12 @@ under half the county's normal rain. Replayed on held-out years:
 The floods it moves below High are mostly river floods in dry counties
 (Isiolo, Marsabit, Samburu, Kitui), where the water comes from rain upstream:
 a blind spot the map says out loud.
+
+Since 15 November 2026 High also needs the window's rain to be at least
+the county's normal for it (RAIN_FOR_HIGH). Half of normal let a county
+on two thirds of its rain show Very High in an El Niño November, which is
+the season speaking, not the rain. The replay that chose it, with the
+map's new bands, is in riskengine/bands.py.
 """
 
 from __future__ import annotations
@@ -61,6 +67,9 @@ def dry_by(gate: str, rain_30d, ratio) -> bool:
 
 GATE = "G4"
 
+# High and above also needs at least this share of the county's normal rain.
+RAIN_FOR_HIGH = 1.0
+
 
 def capped(category: str) -> str:
     """`category`, no higher than CAP."""
@@ -68,8 +77,13 @@ def capped(category: str) -> str:
 
 
 def gated(category: str, row, names) -> str:
-    """`category` for a model input row (`names` its columns), capped if its window is dry."""
+    """`category` for a model input row (`names` its columns), capped if its window is dry.
+
+    Dry is the gate's, or less than RAIN_FOR_HIGH of the county's normal rain.
+    """
     values = dict(zip(names, row))
-    if dry_by(GATE, values.get("rain_30d"), values.get("rain_30d_ratio")):
+    ratio = values.get("rain_30d_ratio")
+    below_normal = ratio is not None and not math.isnan(ratio) and ratio < RAIN_FOR_HIGH
+    if below_normal or dry_by(GATE, values.get("rain_30d"), ratio):
         return capped(category)
     return category

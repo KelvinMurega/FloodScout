@@ -45,6 +45,7 @@ from django.db.models import Sum
 
 from geodata.services.climate_indices import dmi_for, oni_for
 from riskengine import dry
+from riskengine.bands import MAP_BANDS
 from riskengine.ml.features import FEATURE_NAMES, HISTORY_DAYS, feature_row
 from riskengine.models import RiskScore
 
@@ -177,9 +178,15 @@ def classify(predicted_value: float, thresholds=CATEGORY_THRESHOLDS) -> str:
 
 
 def model_thresholds(model: dict) -> tuple[tuple[float, str], ...]:
-    """The trained model's probability bands, in the shape `classify` takes."""
+    """The map's bands for a model's probabilities, in the shape `classify` takes.
+
+    These are riskengine/bands.py's MAP_BANDS, not the model's own
+    `probability_bands` (5/10/20%), which put High at the usual chance of a
+    flood. The model's bands stay in metrics.json, where its evaluation is
+    reported in them.
+    """
     categories = [category for _bound, category in CATEGORY_THRESHOLDS]
-    return tuple(zip(model["probability_bands"], categories))
+    return tuple(zip(MAP_BANDS, categories))
 
 
 def model_features(model: dict) -> list[str]:
