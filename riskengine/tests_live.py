@@ -17,7 +17,7 @@ from geodata.services import reliefweb
 from geodata.services.reliefweb import ReliefWebError, counties_named, fetch_reports
 from riskengine.live import live_record
 from riskengine.ml.infer import MODEL_VERSION
-from riskengine.models import ReportedFlood, RiskScore
+from riskengine.models import ObservedFlood, ReportedFlood, RiskScore
 from riskengine.scoring import start_of_day
 from riskengine.tests_analytics import make_region
 
@@ -231,3 +231,54 @@ class LiveRecordTests(TestCase):
     @override_settings(RELIEFWEB_APPNAME="")
     def test_it_says_when_it_is_switched_off(self, _today):
         self.assertFalse(live_record(None)["switched_on"])
+
+    def _observed(self, region, day, source=ObservedFlood.Source.NEWS, ended=None, url="https://news.example/x"):
+        ObservedFlood.objects.create(
+            source=source, county=region, date=day, ended=ended, title="Floods", url=url, publisher="Nation"
+        )
+
+    @override_settings(RELIEFWEB_APPNAME="")
+    def test_a_news_report_counts_as_a_flood_without_reliefweb(self, _today):
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.3)
+        self._score(self.embu, dt.date(2026, 10, 31), 0.05)
+        self._observed(self.nairobi, dt.date(2026, 10, 20))
+        self._observed(self.embu, dt.date(2026, 10, 21), url="https://news.example/y")
+
+        record = live_record(self.ERRORS)
+
+        self.assertTrue(record["switched_on"])
+        self.assertFalse(record["reliefweb"])
+        totals = record["totals"]
+        self.assertEqual(
+            (totals["floods"], totals["caught"], totals["missed"], totals["false_alarms"]), (2, 1, 1, 0)
+        )
+        self.assertEqual({r["record"] for r in record["reports"]}, {"news"})
+
+    def test_a_gdacs_event_counts_in_every_month_it_spans(self, _today):
+        self._score(self.nairobi, dt.date(2026, 9, 30), 0.3)
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.3)
+        self._observed(
+            self.nairobi, dt.date(2026, 9, 25), source=ObservedFlood.Source.GDACS, ended=dt.date(2026, 10, 3)
+        )
+
+        totals = live_record(self.ERRORS)["totals"]
+
+        self.assertEqual((totals["floods"], totals["caught"], totals["false_alarms"]), (2, 2, 0))
+
+    def test_a_record_naming_no_county_is_left_out(self, _today):
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.3)
+        self._observed(None, dt.date(2026, 10, 20), source=ObservedFlood.Source.GDACS)
+
+        totals = live_record(self.ERRORS)["totals"]
+
+        self.assertEqual((totals["floods"], totals["false_alarms"]), (0, 1))
+
+    def test_a_flood_in_both_records_counts_once(self, _today):
+        self._score(self.nairobi, dt.date(2026, 10, 31), 0.3)
+        self._report(self.nairobi, dt.date(2026, 10, 10))
+        self._observed(self.nairobi, dt.date(2026, 10, 11))
+
+        record = live_record(self.ERRORS)
+
+        self.assertEqual(record["totals"]["floods"], 1)
+        self.assertEqual([r["record"] for r in record["reports"]], ["news", "reliefweb"])

@@ -835,7 +835,7 @@ function renderDrivers(body, { model }) {
   inputs.append(chips);
 }
 
-/** The live record: daily scores against the floods ReliefWeb reported since (riskengine/live.py). */
+/** The live record: daily scores against the floods reported since (riskengine/live.py). */
 function renderLive(body, live) {
   if (!live) return;
   const section = card(
@@ -849,7 +849,7 @@ function renderLive(body, live) {
       el(
         "p",
         "admin-empty",
-        "Not switched on. ReliefWeb's API answers only approved app names: request one, then set RELIEFWEB_APPNAME in the server's .env.",
+        "No flood records yet. refresh_scores fetches news and GDACS floods every day; ReliefWeb needs RELIEFWEB_APPNAME, an approved app name, in the server's .env.",
       ),
     );
     return;
@@ -879,7 +879,7 @@ function renderLive(body, live) {
     el(
       "p",
       "admin-card__subtitle",
-      `A warning is a county the map showed as High or Very High on the last day of the month, as in the evaluation: a chance of ${percent(live.threshold, 0)} or more, unless the dry gate held it at Moderate. A flood is a ReliefWeb report that names the county. Floods nobody reported count as false alarms, so that share is a lower bound.`,
+      `A warning is a county the map showed as High or Very High on the last day of the month, as in the evaluation: a chance of ${percent(live.threshold, 0)} or more, unless the dry gate held it at Moderate. A flood is a ReliefWeb report, a news report of flood damage or a GDACS flood event that names the county${live.reliefweb ? "" : " (ReliefWeb is not switched on, so news and GDACS only)"}. Floods nobody reported count as false alarms, so that share is a lower bound.`,
     ),
   );
 
@@ -894,9 +894,10 @@ function renderLive(body, live) {
       link.href = r.url;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      return [day(r.published), r.county, link, r.source || "–"];
+      const record = { reliefweb: "ReliefWeb", news: "News", gdacs: "GDACS" }[r.record] || r.record;
+      return [day(r.published), r.county, link, r.source ? `${record} · ${r.source}` : record];
     });
-    numbers(section, ["Published", "County", "Report", "Source"], rows, `Show the ${count(live.reports.length)} report matches`);
+    numbers(section, ["Published", "County", "Report", "Source"], rows, `Show the ${count(live.reports.length)} flood records`);
   }
 }
 
