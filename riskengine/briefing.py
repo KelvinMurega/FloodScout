@@ -223,11 +223,12 @@ def briefing(
         dry = [p for p in ratios if p.rain_ratio < 0.8]
         if oni >= ONI_PHASE and len(dry) * 2 >= len(ratios):
             paragraphs.append(
-                f"Most of this risk comes from El Niño conditions (ONI {oni:.1f}) in the rainy "
-                f"season rather than from rain that has already fallen: {len(dry)} of "
-                f"{len(ratios)} had less than 80% of their normal rain in the last 30 days. "
-                "In past El Niño years, such as 1997 and 2023, the short rains brought "
-                "widespread flooding."
+                f"El Niño conditions (ONI {oni:.1f}) raise the chance of flooding this season: "
+                "in past El Niño years, such as 1997 and 2023, the short rains brought "
+                f"widespread floods. The rain has not come yet in most places: {len(dry)} of "
+                f"{len(ratios)} had less than 80% of their normal rain in the last 30 days, "
+                "and the map shows High only where a county has had at least its normal "
+                "rain. Watch the forecast: the risk can rise quickly when the rains arrive."
             )
         elif oni >= ONI_PHASE:
             paragraphs.append(

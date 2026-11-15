@@ -7,18 +7,32 @@ and the machine-learning code never share a filename.
 
 The probability that the Dartmouth Flood Observatory would record a **large
 flood in a region in the 30 days ending on a date**. That probability is
-`RiskScore.predicted_value`. It is banded into the four risk categories:
+`RiskScore.predicted_value`. The model was trained and evaluated in these
+bands, and `metrics.json` reports in them:
 
-| Category | Probability | Floods recorded on held-out years |
+| Band in the evaluation | Probability | Floods recorded on held-out years |
 |---|---|---|
 | Low | up to 5% | 2.3% |
 | Moderate | 5–10% | 8.5% |
 | High | 10–20% | 17.0% |
 | Very High | above 20% | 26.4% |
 
-A large flood is recorded in about 10% of county-months, so the bands sit
-around that base rate. "Very High" means roughly a one-in-four chance, nearly
-three times the usual. It does not mean a flood is expected.
+**The map uses different bands since 15 November 2026** (`riskengine/bands.py`).
+A large flood is recorded in about 10% of county-months, so the bands above
+start High at the usual chance: a county at 10 to 15% flooded 10.9% of the
+time, an ordinary month shown in red. The map's bands are set by what each
+colour has to mean, and High also needs the county's normal rain so far
+(`riskengine/dry.py`). Replayed on held-out years, 1996 to 2016:
+
+| On the map | Probability | And the rain | Flood rate against the usual chance |
+|---|---|---|---|
+| Low | up to 5% | | 0.24 times |
+| Moderate | 5–15%, or higher on less than normal rain | | 1.23 times |
+| High | 15–30% | at least the county's normal | 1.93 times |
+| Very High | above 30% | at least the county's normal | 3.52 times |
+
+"Very High" means about three and a half times the usual chance of a
+recorded flood. It does not mean a flood is expected.
 
 The dashboard does not show the probability as a percentage. It shows it as
 a multiple of that usual chance ("about 3.2 times the usual chance"), which

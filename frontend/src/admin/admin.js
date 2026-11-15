@@ -879,7 +879,7 @@ function renderLive(body, live) {
     el(
       "p",
       "admin-card__subtitle",
-      `A warning is a county the map showed as High or Very High on the last day of the month, as in the evaluation: a chance of ${percent(live.threshold, 0)} or more, unless the dry gate held it at Moderate. A flood is a ReliefWeb report, a news report of flood damage or a GDACS flood event that names the county${live.reliefweb ? "" : " (ReliefWeb is not switched on, so news and GDACS only)"}. Floods nobody reported count as false alarms, so that share is a lower bound.`,
+      `A warning is a county the map showed as High or Very High on the last day of the month: a chance above ${percent(live.threshold, 0)} with at least its normal rain for the month so far. A flood is a ReliefWeb report, a news report of flood damage or a GDACS flood event that names the county${live.reliefweb ? "" : " (ReliefWeb is not switched on, so news and GDACS only)"}. Floods nobody reported count as false alarms, so that share is a lower bound.`,
     ),
   );
 

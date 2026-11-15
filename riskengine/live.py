@@ -12,9 +12,9 @@ by side.
   probability as it was, so a county shown as Moderate can carry a chance
   above the warning threshold. Counting the probability scored those
   months as warnings nobody was shown, and overcounted false alarms. The
-  bands start High at the training run's warning threshold
-  (`error_breakdown.threshold` in metrics.json), so without the gate the
-  two counts agree. Only scores from the model in use count.
+  map's High begins above MAP_BANDS[1] (riskengine/bands.py), served as
+  `threshold` for the page's text. Scores stored before 15 November 2026
+  carry the old bands' categories. Only scores from the model in use count.
 * It **flooded** when a public record of that month names the county: a
   ReliefWeb flood report, a news report of flood damage, or a GDACS flood
   event under way in the month (alerts come from rain, the records from
@@ -40,12 +40,10 @@ from django.conf import settings
 from django.utils import timezone
 
 from geodata.models import Region
+from riskengine.bands import MAP_BANDS
 from riskengine.ml.infer import MODEL_VERSION
 from riskengine.models import ObservedFlood, ReportedFlood, RiskScore
 from riskengine.scoring import start_of_day
-
-# Shown when the training run did not record its threshold.
-DEFAULT_THRESHOLD = 0.1
 
 # The categories the map shows as a warning, after the dry gate.
 WARNING_CATEGORIES = {RiskScore.RiskCategory.HIGH, RiskScore.RiskCategory.VERY_HIGH}
@@ -87,7 +85,8 @@ def live_record(errors: dict | None = None, today: dt.date | None = None) -> dic
     """The scorecard for the analytics page's "Where it fails" tab."""
     today = today or timezone.localdate()
     errors = errors or {}
-    threshold = errors.get("threshold") or DEFAULT_THRESHOLD
+    # Where the map's High begins (riskengine/bands.py), for the page's text.
+    threshold = MAP_BANDS[1]
     observed = list(
         ObservedFlood.objects.exclude(county=None).select_related("county").order_by("-date", "county__name")
     )
