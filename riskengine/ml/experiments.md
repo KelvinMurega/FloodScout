@@ -36,6 +36,7 @@ training set `367173d3...`, mean over seeds 0 to 4. Details in `README.md`,
 | 2026-10-21 | `soil_moisture_start` | 0.2579 to 0.2678 | Kept in CV; waits for a retrain |
 | 2026-10-21 | `soil_moisture_max` as well | 0.2678 to 0.2689 | Dropped, within the noise |
 | 2026-10-21 | Labels from mapped flood water | 0.2579 to 0.2229 | Not adopted |
+| 2026-11-15 | Warning line: High and above the county's own median, 75th or 90th percentile for the month (`backtest_county_normal`, 1996 to 2016, no model change) | Hit rate 0.200 (855 of 1,225 floods, 3,418 false alarms) | Median 0.202 (778, 3,072); 75th 0.197; 90th 0.173 | Not adopted: no better than leaving warnings out at random. See `riskengine/county_normal.py` |
 
 ## Runs
 
