@@ -1,0 +1,67 @@
+# Candidate: the served model's procedure on ERA5 point rainfall every year
+# (kept 15 October 2026) with soil moisture at the start of the window
+# (kept in cross-validation 21 October 2026). Everything else as
+# hazard_rf_20261007.toml.
+#
+# First run locally on 15 November 2026, as a rehearsal; the run that can
+# ship is the one on Colab (notebooks/train_flood_model.ipynb). It cannot
+# be served until the daily refresh, the forecast and the outlook read soil
+# moisture as well (riskengine/ml/README.md, "Soil moisture").
+#
+#   python manage.py add_soil_moisture --out data/processed/training_set_era5_soil_20261115.csv
+#   python -m riskengine.ml.pipeline train --model hazard #       --config riskengine/ml/configs/hazard_rf_era5_soil_20261115.toml
+
+model = "hazard"
+
+[data]
+# training_set.csv (point ERA5, built 15 October 2026, SHA-256 cb06cd3a...)
+# with soil_moisture_start added by `add_soil_moisture`.
+training_set = "data/processed/training_set_era5_soil_20261115.csv"
+sha256 = "c0d26666fdb6e9b91bcc929beb58718d8b26855f635eb8c1963f9385d47c1d2f"
+first_year = 1996
+features = [
+    "rain_30d",
+    "rain_7d_max",
+    "rain_prev_30d",
+    "rain_30d_ratio",
+    "oni",
+    "dmi",
+    "oni_short_rains",
+    "dmi_short_rains",
+    "month_sin",
+    "month_cos",
+    "elevation",
+    "slope",
+    "log_area",
+    "soil_moisture_start",
+]
+
+[cv]
+scheme = "group-k-fold-by-year"
+folds = 6
+# The 2017 to 2021 final test was looked at about seven times and was closed
+# on 29 October 2026. The pipeline refuses any other value.
+final_test = "closed"
+
+[selection]
+tune = true
+random_state = 0
+seeds = [0, 1, 2, 3, 4]
+probability_bands = [0.05, 0.10, 0.20]
+
+[selection.grids.logreg]
+"logisticregression__C" = [0.01, 0.1, 1.0, 10.0]
+
+[selection.grids.random-forest]
+"randomforestclassifier__min_samples_leaf" = [5, 20, 50]
+"randomforestclassifier__max_features" = ["sqrt", 0.5]
+
+[selection.grids.gradient-boosting]
+"gradientboostingclassifier__max_depth" = [2, 3]
+"gradientboostingclassifier__learning_rate" = [0.02, 0.05, 0.1]
+
+[promotion]
+# How a challenger is judged against the champion, on the same training set
+# and folds (riskengine/ml/README.md, "How a change is judged").
+primary_metric = "average_precision"
+margin = 0.01

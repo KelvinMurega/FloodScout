@@ -1,0 +1,12 @@
+{
+  "run_id": "20261115T1309Z_55c0130_local",
+  "commit": "55c0130e88d3a4a9c6ecc60130dd44af30bda16a",
+  "bundle": null,
+  "config": "riskengine/ml/configs/hazard_rf_era5_soil_20261115.toml",
+  "training_set_sha256": "c0d26666fdb6e9b91bcc929beb58718d8b26855f635eb8c1963f9385d47c1d2f",
+  "model_version": "flood-random-forest-20261115",
+  "python": "3.12.16",
+  "machine": "x86_64",
+  "cores": 8,
+  "seconds": 436.6
+}

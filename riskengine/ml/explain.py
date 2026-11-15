@@ -38,7 +38,7 @@ import numpy as np
 # about them. An input the model was not trained on is skipped.
 FACTORS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("rain", "Rain in the last 30 days", ("rain_30d", "rain_7d_max", "rain_30d_ratio")),
-    ("ground", "Rain in the month before (how wet the ground was)", ("rain_prev_30d",)),
+    ("ground", "Rain in the month before (how wet the ground was)", ("rain_prev_30d", "soil_moisture_start")),
     ("enso", "El Niño / La Niña (Pacific Ocean)", ("oni", "oni_short_rains")),
     ("iod", "Indian Ocean Dipole", ("dmi", "dmi_short_rains")),
     ("season", "Time of year", ("month_sin", "month_cos")),

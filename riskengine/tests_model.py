@@ -71,6 +71,7 @@ def write_training_csv(path: Path, *, columns=FEATURE_NAMES, first_year=1990, se
                         "elevation": 500.0,
                         "slope": 2.0,
                         "log_area": 9.0,
+                        "soil_moisture_start": rng.uniform(0.1, 0.4),
                     }
                     flood = int(year >= 1996 and rain > 150 and rng.random() < 0.7)
                     writer.writerow(

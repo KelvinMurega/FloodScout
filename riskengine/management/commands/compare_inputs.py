@@ -3,7 +3,7 @@
     manage.py compare_inputs rain_60d rain_90d
     manage.py compare_inputs --county-mean-rain
     manage.py compare_inputs discharge_30d_max discharge_rise
-    manage.py compare_inputs soil_moisture_start
+    manage.py compare_inputs soil_moisture_max
 
 The first compares the current inputs with the current inputs plus the ones
 named. The second works the rainfall inputs out from rainfall averaged over
