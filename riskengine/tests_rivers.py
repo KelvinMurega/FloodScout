@@ -212,10 +212,10 @@ class RiverTrialTests(SimpleTestCase):
         soil = {"Garissa": {day: 0.3 for day in days}}
 
         wider = experiments.with_candidates(
-            self._data(), {}, ["discharge_30d_max", "soil_moisture_start"], discharge=discharge, soil=soil
+            self._data(), {}, ["discharge_30d_max", "soil_moisture_max"], discharge=discharge, soil=soil
         )
 
-        self.assertEqual(wider.features, ("rain_30d", "discharge_30d_max", "soil_moisture_start"))
+        self.assertEqual(wider.features, ("rain_30d", "discharge_30d_max", "soil_moisture_max"))
         np.testing.assert_allclose(wider.X[:, 1:], [[50.0, 0.3], [50.0, 0.3]])
 
     def test_a_river_input_without_discharge_is_refused(self):

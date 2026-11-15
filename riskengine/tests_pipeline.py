@@ -36,8 +36,9 @@ def synthetic_config(root: Path, *, tune: bool = False, seeds=(0,)) -> run_confi
     """The shipped config, pointed at a small synthetic training set under `root`."""
     path = root / TRAINING_SET
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_training_csv(path)
     shipped = run_config.load(SHIPPED_CONFIG)
+    # The shipped model's inputs, not every input FEATURE_NAMES now has.
+    write_training_csv(path, columns=tuple(shipped.value("data", "features")))
     settings = copy.deepcopy(shipped.settings)
     settings["data"]["training_set"] = TRAINING_SET
     settings["data"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -130,7 +131,7 @@ class RunTests(SimpleTestCase):
 
     def test_inputs_other_than_the_configs_are_refused(self):
         config = copy.deepcopy(self.config)
-        config.settings["data"]["features"] = FEATURE_NAMES[:-1]
+        config.settings["data"]["features"] = list(self.config.value("data", "features"))[:-1]
         with self.assertRaisesRegex(run_config.ConfigError, "inputs"):
             hazard.run(config, {}, {}, self.root)
 

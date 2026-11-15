@@ -104,8 +104,8 @@ DISCHARGE_CANDIDATES = (
     # river's own past, so it needs no normal fitted per fold.
     "discharge_rise",
 )
+# soil_moisture_start was kept and moved into FEATURE_NAMES on 15 November 2026.
 SOIL_CANDIDATES = (
-    "soil_moisture_start",  # water in the top 28 cm the day before the window, m³/m³
     "soil_moisture_max",  # the wettest day's value inside the window, m³/m³
 )
 CANDIDATE_FEATURES = (*RAIN_CANDIDATES, *DISCHARGE_CANDIDATES, *SOIL_CANDIDATES)
