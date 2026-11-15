@@ -879,7 +879,7 @@ function renderLive(body, live) {
     el(
       "p",
       "admin-card__subtitle",
-      `A warning is a daily chance of ${percent(live.threshold, 0)} or more at any point in the month, as in the evaluation. A flood is a ReliefWeb report that names the county. Floods nobody reported count as false alarms, so that share is a lower bound.`,
+      `A warning is a county the map showed as High or Very High on the last day of the month, as in the evaluation: a chance of ${percent(live.threshold, 0)} or more, unless the dry gate held it at Moderate. A flood is a ReliefWeb report that names the county. Floods nobody reported count as false alarms, so that share is a lower bound.`,
     ),
   );
 
